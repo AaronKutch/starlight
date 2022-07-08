@@ -174,6 +174,17 @@ impl Perm {
         }
     }
 
+    pub fn inv_assign(&mut self, rhs: &Self) -> Option<()> {
+        if self.n() != rhs.n() {
+            None
+        } else {
+            for i in 0..self.l() {
+                self.set(rhs.get(i).unwrap(), i);
+            }
+            Some(())
+        }
+    }
+
     /// Assigns the composition of permutation `lhs` followed by `rhs` to
     /// `self`. Returns `None` if `self.n() != lhs.n()` or `self.n() !=
     /// rhs.n()`.
@@ -238,7 +249,7 @@ impl Perm {
             unsafe {
                 write!(
                     s,
-                    "{}|",
+                    "\n{}|",
                     std::str::from_utf8_unchecked(&buf[(BITS - self.n())..])
                 )
                 .unwrap();
@@ -246,7 +257,7 @@ impl Perm {
             out.to_bytes_radix(false, &mut buf, 2, false, &mut pad)
                 .unwrap();
             unsafe {
-                writeln!(
+                write!(
                     s,
                     "{}",
                     std::str::from_utf8_unchecked(&buf[(BITS - self.n())..])
@@ -254,6 +265,7 @@ impl Perm {
                 .unwrap();
             }
         }
+        writeln!(s).unwrap();
     }
 
     /// Sends `self.write_table` to stdout

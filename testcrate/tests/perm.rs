@@ -60,3 +60,26 @@ fn swap_and_mul() {
         assert_eq!(p0, p1);
     }
 }
+
+#[test]
+fn inv_and_mul() {
+    let mut p0 = Perm::ident(bw(5)).unwrap();
+    let mut p1 = p0.clone();
+    let mut p2 = p0.clone();
+    let ident = p0.clone();
+    let mut rng = Xoshiro128StarStar::seed_from_u64(0);
+    // inverse on right
+    for _ in 0..100 {
+        p0.rand_assign_with(&mut rng);
+        p1.inv_assign(&p0).unwrap();
+        p2.mul_assign(&p0, &p1).unwrap();
+        assert_eq!(p2, ident);
+    }
+    // inverse on left
+    for _ in 0..100 {
+        p0.rand_assign_with(&mut rng);
+        p1.inv_assign(&p0).unwrap();
+        p2.mul_assign(&p1, &p0).unwrap();
+        assert_eq!(p2, ident);
+    }
+}
