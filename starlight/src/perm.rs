@@ -174,6 +174,8 @@ impl Perm {
         }
     }
 
+    /// Inversion, equivalent to matrix transpose. Returns `None` if `self.n()
+    /// != rhs.n()`.
     pub fn inv_assign(&mut self, rhs: &Self) -> Option<()> {
         if self.n() != rhs.n() {
             None
@@ -230,6 +232,34 @@ impl Perm {
                 lo | (j & (1 << i)) | (hi << 1)
             };
             res.set(j, projected_e);
+        }
+        Some(res)
+    }
+
+    /// Removes a LUT index bit at position `i` and uses indexes that had bit
+    /// `b` for the new LUT. Returns `None` if `i > self.n()` or `self.n() < 2`.
+    pub fn halve(&self, i: usize, b: bool) -> Option<Self> {
+        if (i > self.n()) || (self.n() < 2) {
+            return None
+        }
+        let mut res = Self::ident(NonZeroUsize::new(self.n() - 1)?)?;
+        let mut k = 0;
+        for j in 0..self.l() {
+            // see if `i`th bit is equal to `b`
+            if ((j & (1 << i)) != 0) == b {
+                let e = self.get(j).unwrap();
+                // remove the `i`th bit of `e`
+                let projected_e = if i == 0 {
+                    e >> 1
+                } else {
+                    let lo = e & (MAX >> (BITS - i));
+                    let hi = e & (MAX << (i + 1));
+                    lo | (hi >> 1)
+                };
+                res.set(k, projected_e);
+                // works because of monotonicity
+                k += 1;
+            }
         }
         Some(res)
     }
