@@ -263,8 +263,8 @@ impl Perm {
         Some(res)
     }
 
-    /// Removes a LUT index bit at position `i` and uses indexes that had bit
-    /// `b` for the new LUT. Returns `None` if `i >= rhs.n()` or `(self.n() + 1)
+    /// Removes a LUT index bit at position `i` and uses entries that had bit
+    /// `i` set to `b` for the new LUT. Returns `None` if `i >= rhs.n()` or `(self.n() + 1)
     /// != rhs.n()`.
     pub fn halve_assign(&mut self, rhs: &Self, i: usize, b: bool) -> Option<()> {
         if (i >= rhs.n()) || ((self.n() + 1) != rhs.n()) {
@@ -273,8 +273,8 @@ impl Perm {
         let mut k = 0;
         for j in 0..rhs.l() {
             // see if `i`th bit is equal to `b`
-            if ((j & (1 << i)) != 0) == b {
-                let e = rhs.get(j).unwrap();
+            let e = rhs.get(j).unwrap();
+            if ((e & (1 << i)) != 0) == b {
                 // remove the `i`th bit of `e`
                 let projected_e = if i == 0 {
                     e >> 1
