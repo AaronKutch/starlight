@@ -40,7 +40,7 @@ fn swap_and_mul() {
         p0.t_swap(i0, i1).unwrap();
         // when doing single swaps from identity we can use plain `swap`
         p2.swap(i0, i1).unwrap();
-        tmp.mul_assign(&p1, &p2).unwrap();
+        tmp.mul_copy_assign(&p1, &p2).unwrap();
         p1.copy_assign(&tmp).unwrap();
         // undo to keep `p2` as identity
         p2.swap(i0, i1).unwrap();
@@ -53,7 +53,7 @@ fn swap_and_mul() {
         p0.swap(i0, i1).unwrap();
         // when doing single swaps from identity we can use plain `swap`
         p2.swap(i0, i1).unwrap();
-        tmp.mul_assign(&p2, &p1).unwrap();
+        tmp.mul_copy_assign(&p2, &p1).unwrap();
         p1.copy_assign(&tmp).unwrap();
         // undo to keep `p2` as identity
         p2.swap(i0, i1).unwrap();
@@ -72,31 +72,31 @@ fn inv_and_mul() {
     for _ in 0..100 {
         p0.rand_assign_with(&mut rng);
         p1.inv_assign(&p0).unwrap();
-        p2.mul_assign(&p0, &p1).unwrap();
+        p2.mul_copy_assign(&p0, &p1).unwrap();
         assert_eq!(p2, ident);
     }
     // inverse on left
     for _ in 0..100 {
         p0.rand_assign_with(&mut rng);
         p1.inv_assign(&p0).unwrap();
-        p2.mul_assign(&p1, &p0).unwrap();
+        p2.mul_copy_assign(&p1, &p0).unwrap();
         assert_eq!(p2, ident);
     }
 }
 
 #[test]
 fn double_and_halve() {
-    let mut p0 = Perm::ident(bw(4)).unwrap();
-    let mut p1 = p0.clone();
+    let mut p0 = Perm::ident(bw(3)).unwrap();
+    let mut p1 = Perm::ident(bw(4)).unwrap();
     let mut p2 = p0.clone();
-    let ident = p0.clone();
+    let mut p3 = p0.clone();
     let mut rng = Xoshiro128StarStar::seed_from_u64(0);
     for _ in 0..100 {
         p0.rand_assign_with(&mut rng);
         let i = (rng.next_u32() as usize) % (p0.n() + 1);
-        let p1 = p0.double(i).unwrap();
-        let p2 = p1.halve(i, false).unwrap();
-        let p3 = p1.halve(i, true).unwrap();
+        p1.double_assign(&p0, i).unwrap();
+        p2.halve_assign(&p1, i, false).unwrap();
+        p3.halve_assign(&p1, i, true);
         assert_eq!(p0, p2);
         assert_eq!(p0, p3);
     }

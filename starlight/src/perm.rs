@@ -187,10 +187,17 @@ impl Perm {
         }
     }
 
+    /// Inversion, equivalent to matrix transpose.
+    pub fn inv(&self) -> Self {
+        let mut res = Self::ident(self.nz_n()).unwrap();
+        res.inv_assign(self).unwrap();
+        res
+    }
+
     /// Assigns the composition of permutation `lhs` followed by `rhs` to
     /// `self`. Returns `None` if `self.n() != lhs.n()` or `self.n() !=
     /// rhs.n()`.
-    pub fn mul_assign(&mut self, lhs: &Self, rhs: &Self) -> Option<()> {
+    pub fn mul_copy_assign(&mut self, lhs: &Self, rhs: &Self) -> Option<()> {
         let n = self.n();
         if (n != lhs.n()) || (n != rhs.n()) {
             return None
@@ -202,18 +209,28 @@ impl Perm {
         Some(())
     }
 
+    /// Returns the composition of permutation `lhs` followed by `rhs`. Returns
+    /// `None` if `self.n() != rhs.n()`.
+    pub fn mul(&self, rhs: &Self) -> Option<Self> {
+        if self.n() != rhs.n() {
+            return None
+        }
+        let mut res = Self::ident(self.nz_n()).unwrap();
+        res.mul_copy_assign(self, rhs).unwrap();
+        Some(res)
+    }
+
     /// Adds a LUT index bit at position `i`, where 0 adds a bit at bit position
     /// 0 and moves the other indexes upwards, and `self.n()` adds a bit at
     /// the end. The value of the new bit does not modulate the behavior of the
     /// table with respect to the original index bits, and the new output bit is
-    /// just a copy of the input. Returns `None` if `i > self.n()` or if the
-    /// table size overflows.
-    pub fn double(&self, i: usize) -> Option<Self> {
-        if i > self.n() {
+    /// just a copy of the input. Returns `None` if `i > self.n()` or if
+    /// `self.n() != (rhs.n() + 1)`.
+    pub fn double_assign(&mut self, rhs: &Self, i: usize) -> Option<()> {
+        if (i > self.n()) || (self.n() != (rhs.n() + 1)) {
             return None
         }
-        let mut res = Self::ident(NonZeroUsize::new(self.n() + 1)?)?;
-        for j in 0..res.l() {
+        for j in 0..self.l() {
             // remove the `i`th bit of `j`
             let projected_j = if i == 0 {
                 j >> 1
@@ -222,7 +239,7 @@ impl Perm {
                 let hi = j & (MAX << (i + 1));
                 lo | (hi >> 1)
             };
-            let e = self.get(projected_j).unwrap();
+            let e = rhs.get(projected_j).unwrap();
             // insert the `i`th bit of `j`
             let projected_e = if i == 0 {
                 (j & 1) | (e << 1)
@@ -231,23 +248,33 @@ impl Perm {
                 let hi = e & (MAX << i);
                 lo | (j & (1 << i)) | (hi << 1)
             };
-            res.set(j, projected_e);
+            self.set(j, projected_e);
         }
+        Some(())
+    }
+
+    /// Returns `None` if `i > self.n()` or if memory overflow occurs
+    pub fn double(&self, i: usize) -> Option<Self> {
+        if i > self.n() {
+            return None
+        }
+        let mut res = Self::ident(NonZeroUsize::new(self.n() + 1)?)?;
+        res.double_assign(self, i).unwrap();
         Some(res)
     }
 
     /// Removes a LUT index bit at position `i` and uses indexes that had bit
-    /// `b` for the new LUT. Returns `None` if `i > self.n()` or `self.n() < 2`.
-    pub fn halve(&self, i: usize, b: bool) -> Option<Self> {
-        if (i > self.n()) || (self.n() < 2) {
+    /// `b` for the new LUT. Returns `None` if `i >= rhs.n()` or `(self.n() + 1)
+    /// != rhs.n()`.
+    pub fn halve_assign(&mut self, rhs: &Self, i: usize, b: bool) -> Option<()> {
+        if (i >= rhs.n()) || ((self.n() + 1) != rhs.n()) {
             return None
         }
-        let mut res = Self::ident(NonZeroUsize::new(self.n() - 1)?)?;
         let mut k = 0;
-        for j in 0..self.l() {
+        for j in 0..rhs.l() {
             // see if `i`th bit is equal to `b`
             if ((j & (1 << i)) != 0) == b {
-                let e = self.get(j).unwrap();
+                let e = rhs.get(j).unwrap();
                 // remove the `i`th bit of `e`
                 let projected_e = if i == 0 {
                     e >> 1
@@ -256,11 +283,23 @@ impl Perm {
                     let hi = e & (MAX << (i + 1));
                     lo | (hi >> 1)
                 };
-                res.set(k, projected_e);
+                self.set(k, projected_e);
                 // works because of monotonicity
                 k += 1;
             }
         }
+        Some(())
+    }
+
+    /// Removes a LUT index bit at position `i` and uses indexes that had bit
+    /// `b` for the new LUT. Returns `None` if `i >= self.n()` or `self.n() <
+    /// 2`.
+    pub fn halve(&self, i: usize, b: bool) -> Option<Self> {
+        if (i >= self.n()) || (self.n() < 2) {
+            return None
+        }
+        let mut res = Self::ident(NonZeroUsize::new(self.n() - 1).unwrap()).unwrap();
+        res.halve_assign(self, i, b).unwrap();
         Some(res)
     }
 
