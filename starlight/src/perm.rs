@@ -41,6 +41,10 @@ impl Perm {
         Some(res)
     }
 
+    pub fn from_raw(nz_n: NonZeroUsize, lut: ExtAwi) -> Self {
+        Self { nz_n, lut }
+    }
+
     /// The index bitwidth
     pub const fn nz_n(&self) -> NonZeroUsize {
         self.nz_n
@@ -264,8 +268,8 @@ impl Perm {
     }
 
     /// Removes a LUT index bit at position `i` and uses entries that had bit
-    /// `i` set to `b` for the new LUT. Returns `None` if `i >= rhs.n()` or `(self.n() + 1)
-    /// != rhs.n()`.
+    /// `i` set to `b` for the new LUT. Returns `None` if `i >= rhs.n()` or
+    /// `(self.n() + 1) != rhs.n()`.
     pub fn halve_assign(&mut self, rhs: &Self, i: usize, b: bool) -> Option<()> {
         if (i >= rhs.n()) || ((self.n() + 1) != rhs.n()) {
             return None
