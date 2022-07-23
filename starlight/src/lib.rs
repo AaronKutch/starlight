@@ -3,4 +3,6 @@ pub use perm::*;
 mod dag;
 mod lower;
 pub use dag::*;
-pub mod linked_list;
+pub mod chain_arena;
+#[cfg(feature = "debug")]
+mod debug;
