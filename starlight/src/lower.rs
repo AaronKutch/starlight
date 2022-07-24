@@ -9,10 +9,7 @@ use awint::{
 };
 use triple_arena::{Arena, Ptr, PtrTrait};
 
-use crate::{
-    chain_arena::{ChainArena, Link},
-    BitState, Lut, Perm, PermDag,
-};
+use crate::{chain_arena::ChainArena, BitState, Lut, Perm, PermDag};
 
 impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
     /// Constructs a directed acyclic graph of permutations from an
@@ -51,33 +48,30 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
                 let ops = op_dag[p].op.operands();
                 if ops.is_empty() {
                     // reached a root
-                    if op_dag[p].visit_num != gen {
-                        op_dag[p].visit_num = gen;
-                        match op_dag[p].op {
-                            Literal(ref lit) => {
-                                let mut v = vec![];
-                                for i in 0..lit.bw() {
-                                    v.push(self.bits.insert_new(BitState {
-                                        lut: None,
-                                        state: Some(lit.get(i).unwrap()),
-                                    }));
-                                }
-                                map.insert(p, v);
+                    match op_dag[p].op {
+                        Literal(ref lit) => {
+                            let mut v = vec![];
+                            for i in 0..lit.bw() {
+                                v.push(self.bits.insert_new(BitState {
+                                    lut: None,
+                                    state: Some(lit.get(i).unwrap()),
+                                }));
                             }
-                            Opaque(_) => {
-                                let bw = op_dag.get_bw(p).unwrap().get();
-                                let mut v = vec![];
-                                for _ in 0..bw {
-                                    v.push(self.bits.insert_new(BitState {
-                                        lut: None,
-                                        state: None,
-                                    }));
-                                }
-                                map.insert(p, v);
+                            map.insert(p, v);
+                        }
+                        Opaque(_) => {
+                            let bw = op_dag.get_bw(p).unwrap().get();
+                            let mut v = vec![];
+                            for _ in 0..bw {
+                                v.push(self.bits.insert_new(BitState {
+                                    lut: None,
+                                    state: None,
+                                }));
                             }
-                            ref op => {
-                                return Err(EvalError::OtherString(format!("cannot lower {:?}", op)))
-                            }
+                            map.insert(p, v);
+                        }
+                        ref op => {
+                            return Err(EvalError::OtherString(format!("cannot lower {:?}", op)))
                         }
                     }
                     path.pop().unwrap();
@@ -112,7 +106,8 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
                         }
                         StaticLut([inx], ref table) => {
                             let inxs = &map[&inx];
-                            self.permutize_lut(inxs, table, gen);
+                            let v = self.permutize_lut(inxs, table, gen).unwrap();
+                            map.insert(p, v);
                         }
                         ref op => {
                             return Err(EvalError::OtherString(format!("cannot lower {:?}", op)))
@@ -178,13 +173,9 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
                 // insert a handle for the bit preserving LUT to latch on to
                 let copy0 = self
                     .bits
-                    .insert(Link {
-                        t: BitState {
-                            lut: Some(lut),
-                            state: None,
-                        },
-                        prev: Some(p),
-                        next: None,
+                    .insert((Some(p), None), BitState {
+                        lut: Some(lut),
+                        state: None,
                     })
                     .unwrap();
                 let zero = self.bits.insert_new(BitState {
@@ -250,7 +241,7 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
         // counts the number of occurances of an entry value
         let mut integer_counts = vec![0; num_entries];
         let mut inx = extawi!(zero: ..(inxs.len())).unwrap();
-        let mut tmp = inlawi!(0u64);
+        let mut tmp = extawi!(zero: ..(original_out_bw)).unwrap();
         let mut max_count = 0;
         for i in 0..num_entries {
             inx.usize_assign(i);
@@ -297,13 +288,9 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
             for bit in extended_v {
                 lut_layer.push(
                     self.bits
-                        .insert(Link {
-                            t: BitState {
-                                lut: Some(lut),
-                                state: None,
-                            },
-                            prev: Some(bit),
-                            next: None,
+                        .insert((Some(bit), None), BitState {
+                            lut: Some(lut),
+                            state: None,
                         })
                         .unwrap(),
                 );

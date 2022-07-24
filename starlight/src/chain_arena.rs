@@ -1,16 +1,42 @@
-use std::fmt;
+use std::{
+    borrow::Borrow,
+    fmt,
+    ops::{Deref, DerefMut, Index, IndexMut},
+};
 
 use triple_arena::{Arena, Ptr, PtrTrait};
 
 pub struct Link<PLink: PtrTrait, T> {
     pub t: T,
-    pub prev: Option<Ptr<PLink>>,
-    pub next: Option<Ptr<PLink>>,
+    prev: Option<Ptr<PLink>>,
+    next: Option<Ptr<PLink>>,
 }
 
 impl<PLink: PtrTrait, T> Link<PLink, T> {
-    pub fn prev_next(&self) -> (Option<Ptr<PLink>>, Option<Ptr<PLink>>) {
-        (self.prev, self.next)
+    pub fn prev_next(this: &Link<PLink, T>) -> (Option<Ptr<PLink>>, Option<Ptr<PLink>>) {
+        (this.prev, this.next)
+    }
+
+    pub fn prev(this: &Link<PLink, T>) -> Option<Ptr<PLink>> {
+        this.prev
+    }
+
+    pub fn next(this: &Link<PLink, T>) -> Option<Ptr<PLink>> {
+        this.next
+    }
+}
+
+impl<PLink: PtrTrait, T> Deref for Link<PLink, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.t
+    }
+}
+
+impl<PLink: PtrTrait, T> DerefMut for Link<PLink, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.t
     }
 }
 
@@ -31,35 +57,58 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
     /// and the reverse is allowed even if the link is not at the end of the
     /// chain. If a pointer is not contained in the arena, or the `prev` and
     /// `next` nodes are farther than one node apart, then `None` is returned.
-    pub fn insert(&mut self, link: Link<PLink, T>) -> Option<Ptr<PLink>> {
-        let tmp = link.prev_next();
-        let p = self.a.insert(link);
-        match tmp {
+    pub fn insert(
+        &mut self,
+        prev_next: (Option<Ptr<PLink>>, Option<Ptr<PLink>>),
+        t: T,
+    ) -> Option<Ptr<PLink>> {
+        match prev_next {
             // new chain
-            (None, None) => (),
+            (None, None) => Some(self.a.insert(Link {
+                t,
+                prev: None,
+                next: None,
+            })),
             (None, Some(p1)) => {
+                let res = Some(self.a.insert(Link {
+                    t,
+                    prev: None,
+                    next: Some(p1),
+                }));
                 let l1 = self.a.get_mut(p1)?;
                 if let Some(p0) = l1.prev {
                     // not at start of chain
-                    l1.prev = Some(p);
+                    l1.prev = res;
                     let l0 = self.a.get_mut(p0).unwrap();
-                    l0.next = Some(p);
+                    l0.next = res;
                 } else {
-                    l1.prev = Some(p);
+                    l1.prev = res;
                 }
+                res
             }
             (Some(p0), None) => {
+                let res = Some(self.a.insert(Link {
+                    t,
+                    prev: Some(p0),
+                    next: None,
+                }));
                 let l0 = self.a.get_mut(p0)?;
                 if let Some(p1) = l0.next {
                     // not at end of chain
-                    l0.next = Some(p);
+                    l0.next = res;
                     let l1 = self.a.get_mut(p1).unwrap();
-                    l1.prev = Some(p);
+                    l1.prev = res;
                 } else {
-                    l0.next = Some(p);
+                    l0.next = res;
                 }
+                res
             }
             (Some(p0), Some(p1)) => {
+                let res = Some(self.a.insert(Link {
+                    t,
+                    prev: Some(p0),
+                    next: Some(p1),
+                }));
                 let l0 = self.a.get_mut(p0)?;
                 let next = l0.next?;
                 if next != p1 {
@@ -67,12 +116,12 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
                     return None
                 }
                 // the single link circular chain works with this order
-                l0.next = Some(p);
+                l0.next = res;
                 let l1 = self.a.get_mut(p1).unwrap();
-                l1.prev = Some(p);
+                l1.prev = res;
+                res
             }
         }
-        Some(p)
     }
 
     /// Inserts `t` as a single link in a new chain
@@ -119,7 +168,7 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
     /// is not valid.
     pub fn remove(&mut self, p: Ptr<PLink>) -> Option<Link<PLink, T>> {
         let l = self.a.remove(p)?;
-        match l.prev_next() {
+        match Link::prev_next(&l) {
             (None, None) => (),
             (None, Some(p1)) => {
                 let l1 = self.a.get_mut(p1)?;
@@ -157,6 +206,20 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
     }
 }
 
+impl<P: PtrTrait, T, B: Borrow<Ptr<P>>> Index<B> for ChainArena<P, T> {
+    type Output = Link<P, T>;
+
+    fn index(&self, index: B) -> &Self::Output {
+        self.a.get(*index.borrow()).unwrap()
+    }
+}
+
+impl<P: PtrTrait, T, B: Borrow<Ptr<P>>> IndexMut<B> for ChainArena<P, T> {
+    fn index_mut(&mut self, index: B) -> &mut Self::Output {
+        self.a.get_mut(*index.borrow()).unwrap()
+    }
+}
+
 impl<P: PtrTrait, T: fmt::Debug> fmt::Debug for Link<P, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.t)
@@ -175,7 +238,10 @@ impl<P: PtrTrait, T: Clone> Clone for Link<P, T> {
 
 impl<P: PtrTrait, T: fmt::Debug> fmt::Debug for ChainArena<P, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.a)
+        for (p, Link { t, prev, next }) in &self.a {
+            writeln!(f, "{}: {:?}-{:?} ({:?})", p, prev, next, t)?;
+        }
+        Ok(())
     }
 }
 

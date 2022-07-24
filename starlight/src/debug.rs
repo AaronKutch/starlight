@@ -1,11 +1,12 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use awint::awint_dag::common::EvalError;
-use triple_arena::{Arena, Ptr, PtrTrait};
+use triple_arena::{ptr_trait_struct_with_gen, Arena, Ptr, PtrTrait};
 use triple_arena_render::{DebugNode, DebugNodeTrait};
 
-use crate::{BitState, Lut, PermDag};
+use crate::{chain_arena::Link, BitState, Lut, PermDag};
 
+#[derive(Debug)]
 enum BitOrLut<P: PtrTrait> {
     Bit(Option<Ptr<P>>, BitState<P>),
     Lut(Vec<Option<Ptr<P>>>, Lut<P>),
@@ -43,11 +44,12 @@ impl<P: PtrTrait> DebugNodeTrait<P> for BitOrLut<P> {
 
 impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
     pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
-        let mut a = Arena::<PBitState, BitOrLut<PBitState>>::new();
-        let mut lut_map = HashMap::<Ptr<PLut>, Ptr<PBitState>>::new();
-        for (p, lut) in &self.luts {
+        ptr_trait_struct_with_gen!(Q);
+        let mut a = Arena::<Q, BitOrLut<Q>>::new();
+        let mut lut_map = HashMap::<Ptr<PLut>, Ptr<Q>>::new();
+        for (p_lut, lut) in &self.luts {
             lut_map.insert(
-                p,
+                p_lut,
                 a.insert(BitOrLut::Lut(vec![], Lut {
                     bits: vec![],
                     perm: lut.perm.clone(),
@@ -55,32 +57,53 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
                 })),
             );
         }
-        let mut bit_map = HashMap::<Ptr<PBitState>, Ptr<PBitState>>::new();
-        for (p, bit) in self.bits.get_arena() {
-            let lut = if let Some(lut) = bit.t.lut {
-                lut_map.get(&lut).copied()
+        let mut bit_map = HashMap::<Ptr<PBitState>, Ptr<Q>>::new();
+        for (p_bit, bit) in self.bits.get_arena() {
+            if let Some(lut) = bit.t.lut {
+                // point to a LUT node
+                let lut = lut_map[&lut];
+                bit_map.insert(
+                    p_bit,
+                    a.insert(BitOrLut::Bit(Some(lut), BitState {
+                        lut: Some(lut),
+                        state: bit.t.state,
+                    })),
+                );
             } else {
-                None
+                // point to another bit, register later
+                bit_map.insert(
+                    p_bit,
+                    a.insert(BitOrLut::Bit(None, BitState {
+                        lut: None,
+                        state: bit.t.state,
+                    })),
+                );
             };
-            bit_map.insert(
-                p,
-                a.insert(BitOrLut::Bit(bit.prev, BitState {
-                    lut,
-                    state: bit.t.state,
-                })),
-            );
         }
-        // second pass to register lut connections
-        for (p, lut) in &self.luts {
-            match &mut a[lut_map[&p]] {
+        // second pass on bits to register direct bit connections
+        for (p_bit, bit) in self.bits.get_arena() {
+            if let BitOrLut::Bit(ref mut p, _) = &mut a[bit_map[&p_bit]] {
+                if p.is_none() {
+                    if let Some(prev) = Link::prev(bit) {
+                        *p = Some(bit_map[&prev])
+                    }
+                }
+            }
+        }
+        // second pass on luts to register bit connections
+        for (p_lut, lut) in &self.luts {
+            match &mut a[lut_map[&p_lut]] {
                 BitOrLut::Lut(ref mut inxs, _) => {
                     for bit in &lut.bits {
+                        // only if the bit
+                        if Link::prev(&self.bits[bit]).is_none() {}
                         inxs.push(bit_map.get(bit).copied());
                     }
                 }
                 _ => unreachable!(),
             }
         }
+        dbg!(&a);
         let res = self.verify_integrity();
         triple_arena_render::render_to_svg_file(&a, false, out_file).unwrap();
         res
