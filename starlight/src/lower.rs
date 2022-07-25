@@ -287,7 +287,10 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
                 visit_num: gen,
             }
         });
-
+        // only return the part of the layer for the original LUT output
+        for _ in original_out_bw..new_w {
+            lut_layer.pop();
+        }
         Some(lut_layer)
     }
 }
