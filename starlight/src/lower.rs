@@ -141,7 +141,7 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
         Ok(())
     }
 
-    /// Copies the bit at `p` with a reversible permutation
+    /// Copies the bit at `p` with a reversible permutation if needed
     pub fn copy_bit(&mut self, p: Ptr<PBitState>, gen: u64) -> Option<Ptr<PBitState>> {
         if !self.bits.get_arena().contains(p) {
             return None

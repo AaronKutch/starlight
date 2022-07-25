@@ -341,6 +341,12 @@ impl Perm {
         writeln!(s).unwrap();
     }
 
+    pub fn to_string_table(&self) -> String {
+        let mut s = String::new();
+        self.write_table(&mut s);
+        s
+    }
+
     /// Sends `self.write_table` to stdout
     pub fn dbg_table(&self) {
         let mut s = String::new();
