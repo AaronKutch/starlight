@@ -4,7 +4,10 @@ use awint::awint_dag::common::EvalError;
 use triple_arena::{ptr_trait_struct_with_gen, Arena, Ptr, PtrTrait};
 use triple_arena_render::{DebugNode, DebugNodeTrait};
 
-use crate::{chain_arena::Link, BitState, Lut, PermDag};
+use crate::{
+    chain_arena::{ChainArena, Link},
+    BitState, Lut, PermDag,
+};
 
 #[derive(Debug)]
 enum BitOrLut<P: PtrTrait> {
@@ -72,6 +75,7 @@ impl<P: PtrTrait> DebugNodeTrait<P> for BitOrLut<P> {
 impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
     pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
         ptr_trait_struct_with_gen!(Q);
+        ChainArena::_check_invariants(&self.bits).unwrap();
         let mut a = Arena::<Q, BitOrLut<Q>>::new();
         let mut lut_map = HashMap::<Ptr<PLut>, Ptr<Q>>::new();
         for (p_lut, lut) in &self.luts {
@@ -88,7 +92,7 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
         for (p_bit, bit) in self.bits.get_arena() {
             bit_map.insert(
                 p_bit,
-                a.insert(BitOrLut::Bit(None, String::new(), BitState {
+                a.insert(BitOrLut::Bit(None, format!("{:?}", p_bit), BitState {
                     lut: bit.t.lut.map(|lut| *lut_map.get(&lut).unwrap()),
                     state: bit.t.state,
                 })),

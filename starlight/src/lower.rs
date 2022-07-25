@@ -146,6 +146,7 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
         if !self.bits.get_arena().contains(p) {
             return None
         }
+
         if let Some(new) = self.bits.insert_last(p, BitState {
             lut: None,
             state: None,
@@ -155,19 +156,14 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
         } else {
             // need to do a reversible copy
             /*
-            azc acc 'z' for zero, 'a' for any, `c` for the copied bit
-            000|000 <-
-            001|011 <-
-            010|010
-            011|001
-            100|100 <-
-            101|111 <-
-            110|110
-            111|101
-            The 'a' bit is preserved in all cases, 'c' is copied if 'z' is zero, and the lsb 'c'
-            is always correct
+            zc cc 'z' for zero, `c` for the copied bit
+            00|00
+            01|11
+            10|10
+            11|01
+            'c' is copied if 'z' is zero, and the lsb 'c' is always correct
             */
-            let perm = Perm::from_raw(bw(3), extawi!(101_110_111_100_001_010_011_000));
+            let perm = Perm::from_raw(bw(2), extawi!(01_10_11_00));
             let mut res = None;
             self.luts.insert_with(|lut| {
                 // insert a handle for the bit preserving LUT to latch on to
@@ -178,29 +174,19 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
                         state: None,
                     })
                     .unwrap();
+
                 let zero = self.bits.insert_new(BitState {
-                    lut: None,
+                    lut: Some(lut),
                     state: Some(false),
                 });
-                let copy1 = self
-                    .bits
-                    .insert_last(zero, BitState {
-                        lut: Some(lut),
-                        state: None,
-                    })
-                    .unwrap();
-                res = Some(copy1);
-                // implicit "don't care" state by having a LUT start the chain
-                let any = self.bits.insert_new(BitState {
-                    lut: Some(lut),
-                    state: None,
-                });
+                res = Some(zero);
                 Lut {
-                    bits: vec![copy0, copy1, any],
+                    bits: vec![copy0, zero],
                     perm,
                     visit_num: gen,
                 }
             });
+
             res
         }
     }

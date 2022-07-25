@@ -6,23 +6,37 @@ use std::{
 
 use triple_arena::{Arena, Ptr, PtrTrait};
 
+// TODO is it possible to break the arena externally with `mem::swap`?
+
+/// This represents a link in a `ChainArena` that has a public `t: T` field and
+/// `Option<Ptr<PLink>>` interlinks to the previous and next links. Note that
+/// `Deref` and `DerefMut` are implemented to grant automatic access to the
+/// methods on `T`. The interlinks are private and only accessible through
+/// methods so that the whole `Link` can be returned by indexing the arena
+/// (preventing a lot of cumbersome code when traversing chains).
+#[derive(Clone, Copy)]
 pub struct Link<PLink: PtrTrait, T> {
+    // I think the code gen should be overall better if this is done
+    prev_next: (Option<Ptr<PLink>>, Option<Ptr<PLink>>),
     pub t: T,
-    prev: Option<Ptr<PLink>>,
-    next: Option<Ptr<PLink>>,
 }
 
 impl<PLink: PtrTrait, T> Link<PLink, T> {
+    #[doc(hidden)]
+    pub fn new(prev_next: (Option<Ptr<PLink>>, Option<Ptr<PLink>>), t: T) -> Self {
+        Self { prev_next, t }
+    }
+
     pub fn prev_next(this: &Link<PLink, T>) -> (Option<Ptr<PLink>>, Option<Ptr<PLink>>) {
-        (this.prev, this.next)
+        this.prev_next
     }
 
     pub fn prev(this: &Link<PLink, T>) -> Option<Ptr<PLink>> {
-        this.prev
+        this.prev_next.0
     }
 
     pub fn next(this: &Link<PLink, T>) -> Option<Ptr<PLink>> {
-        this.next
+        this.prev_next.1
     }
 }
 
@@ -46,6 +60,41 @@ pub struct ChainArena<PLink: PtrTrait, T> {
 }
 
 impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
+    #[doc(hidden)]
+    pub fn _check_invariants(this: &Self) -> Result<(), &'static str> {
+        for (p, link) in &this.a {
+            if let Some(prev) = Link::prev(link) {
+                if let Some(prev) = this.a.get(prev) {
+                    if let Some(next) = Link::next(prev) {
+                        if p != next {
+                            return Err("interlink does not correspond")
+                        }
+                    } else {
+                        return Err("next node does not exist")
+                    }
+                } else {
+                    return Err("prev node does not exist")
+                }
+            }
+            // there are going to be duplicate checks but this must be done for invariant
+            // breaking cases
+            if let Some(next) = Link::next(link) {
+                if let Some(next) = this.a.get(next) {
+                    if let Some(prev) = Link::prev(next) {
+                        if p != prev {
+                            return Err("interlink does not correspond")
+                        }
+                    } else {
+                        return Err("prev node does not exist")
+                    }
+                } else {
+                    return Err("next node does not exist")
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn new() -> Self {
         Self { a: Arena::new() }
     }
@@ -64,61 +113,51 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
     ) -> Option<Ptr<PLink>> {
         match prev_next {
             // new chain
-            (None, None) => Some(self.a.insert(Link {
-                t,
-                prev: None,
-                next: None,
-            })),
+            (None, None) => Some(self.a.insert(Link::new((None, None), t))),
             (None, Some(p1)) => {
-                let res = Some(self.a.insert(Link {
-                    t,
-                    prev: None,
-                    next: Some(p1),
-                }));
-                let l1 = self.a.get_mut(p1)?;
-                if let Some(p0) = l1.prev {
-                    // not at start of chain
-                    l1.prev = res;
-                    let l0 = self.a.get_mut(p0).unwrap();
-                    l0.next = res;
+                // if there is a failure it cannot result in a node being inserted
+                if let Some(p0) = Link::prev(self.a.get_mut(p1)?) {
+                    // insert into middle of chain
+                    let res = Some(self.a.insert(Link::new((Some(p0), Some(p1)), t)));
+                    self.a.get_mut(p0).unwrap().prev_next.1 = res;
+                    self.a.get_mut(p1).unwrap().prev_next.0 = res;
+                    res
                 } else {
-                    l1.prev = res;
+                    let res = Some(self.a.insert(Link::new((None, Some(p1)), t)));
+                    self.a.get_mut(p1).unwrap().prev_next.0 = res;
+                    res
                 }
-                res
             }
             (Some(p0), None) => {
-                let res = Some(self.a.insert(Link {
-                    t,
-                    prev: Some(p0),
-                    next: None,
-                }));
-                let l0 = self.a.get_mut(p0)?;
-                if let Some(p1) = l0.next {
-                    // not at end of chain
-                    l0.next = res;
-                    let l1 = self.a.get_mut(p1).unwrap();
-                    l1.prev = res;
+                if let Some(p1) = Link::next(self.a.get_mut(p0)?) {
+                    // insert into middle of chain
+                    let res = Some(self.a.insert(Link::new((Some(p0), Some(p1)), t)));
+                    self.a.get_mut(p0).unwrap().prev_next.1 = res;
+                    self.a.get_mut(p1).unwrap().prev_next.0 = res;
+                    res
                 } else {
-                    l0.next = res;
+                    let res = Some(self.a.insert(Link::new((Some(p0), None), t)));
+                    self.a.get_mut(p0).unwrap().prev_next.1 = res;
+                    res
                 }
-                res
             }
             (Some(p0), Some(p1)) => {
-                let res = Some(self.a.insert(Link {
-                    t,
-                    prev: Some(p0),
-                    next: Some(p1),
-                }));
-                let l0 = self.a.get_mut(p0)?;
-                let next = l0.next?;
-                if next != p1 {
-                    // the links are not neighbors
+                // check for existence and that the nodes are neighbors
+                let mut err = true;
+                if let Some(l0) = self.a.get(p0) {
+                    if let Some(next) = Link::next(l0) {
+                        if next == p1 {
+                            // `p1` must implicitly exist if the invariants hold
+                            err = false;
+                        }
+                    }
+                }
+                if err {
                     return None
                 }
-                // the single link circular chain works with this order
-                l0.next = res;
-                let l1 = self.a.get_mut(p1).unwrap();
-                l1.prev = res;
+                let res = Some(self.a.insert(Link::new((Some(p0), Some(p1)), t)));
+                self.a.get_mut(p0).unwrap().prev_next.1 = res;
+                self.a.get_mut(p1).unwrap().prev_next.0 = res;
                 res
             }
         }
@@ -126,40 +165,28 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
 
     /// Inserts `t` as a single link in a new chain
     pub fn insert_new(&mut self, t: T) -> Ptr<PLink> {
-        self.a.insert(Link {
-            t,
-            prev: None,
-            next: None,
-        })
+        self.a.insert(Link::new((None, None), t))
     }
 
     // in case we want to spin this off into its own crate we should actively
     // support this
     /// Inserts `t` as a single link cyclical chain and returns a `Ptr` to it
     pub fn insert_new_cyclic(&mut self, t: T) -> Ptr<PLink> {
-        self.a.insert_with(|p| Link {
-            t,
-            prev: Some(p),
-            next: Some(p),
-        })
+        self.a.insert_with(|p| Link::new((Some(p), Some(p)), t))
     }
 
     /// Inserts `t` as a new link at the end of a chain which has `p` as its
     /// last link. Returns `None` if `p` is not valid or is not the end of a
     /// chain
     pub fn insert_last(&mut self, p: Ptr<PLink>, t: T) -> Option<Ptr<PLink>> {
-        let l0 = self.a.get(p)?;
-        if l0.next.is_some() {
+        let p0 = p;
+        if Link::next(self.a.get_mut(p0)?).is_some() {
             // not at end of chain
             None
         } else {
-            let p1 = self.a.insert(Link {
-                t,
-                prev: Some(p),
-                next: None,
-            });
-            self.a[p].next = Some(p1);
-            Some(p1)
+            let res = Some(self.a.insert(Link::new((Some(p0), None), t)));
+            self.a.get_mut(p0).unwrap().prev_next.1 = res;
+            res
         }
     }
 
@@ -171,19 +198,15 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
         match Link::prev_next(&l) {
             (None, None) => (),
             (None, Some(p1)) => {
-                let l1 = self.a.get_mut(p1)?;
-                l1.prev = None;
+                self.a.get_mut(p1)?.prev_next.0 = None;
             }
             (Some(p0), None) => {
-                let l0 = self.a.get_mut(p0)?;
-                l0.next = None;
+                self.a.get_mut(p0)?.prev_next.1 = None;
             }
             (Some(p0), Some(p1)) => {
                 if p != p0 {
-                    let l0 = self.a.get_mut(p0)?;
-                    l0.next = Some(p1);
-                    let l1 = self.a.get_mut(p1)?;
-                    l1.next = Some(p0);
+                    self.a.get_mut(p0)?.prev_next.1 = Some(p1);
+                    self.a.get_mut(p1)?.prev_next.0 = Some(p0);
                 } // else it is a single link circular chain
             }
         }
@@ -200,6 +223,10 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
     //pub fn break(&mut self, p)
 
     //pub fn connect(&mut self, p0, p1)
+
+    // TODO add Arena::swap so this can be done efficiently
+    /*pub fn swap(&self, p0: Ptr<PLink>, p1: Ptr<PLink>) -> Option<()> {
+    }*/
 
     pub fn get_arena(&self) -> &Arena<PLink, Link<PLink, T>> {
         &self.a
@@ -222,26 +249,31 @@ impl<P: PtrTrait, T, B: Borrow<Ptr<P>>> IndexMut<B> for ChainArena<P, T> {
 
 impl<P: PtrTrait, T: fmt::Debug> fmt::Debug for Link<P, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.t)
+        write!(
+            f,
+            "({:?}, {:?}) {:?}",
+            Link::prev(self),
+            Link::next(self),
+            self.t
+        )
     }
 }
 
-impl<P: PtrTrait, T: Clone> Clone for Link<P, T> {
-    fn clone(&self) -> Self {
-        Self {
-            t: self.t.clone(),
-            prev: self.prev,
-            next: self.next,
-        }
+impl<P: PtrTrait, T: fmt::Display> fmt::Display for Link<P, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "({:?}, {:?}) {}",
+            Link::prev(self),
+            Link::next(self),
+            self.t
+        )
     }
 }
 
 impl<P: PtrTrait, T: fmt::Debug> fmt::Debug for ChainArena<P, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (p, Link { t, prev, next }) in &self.a {
-            writeln!(f, "{}: {:?}-{:?} ({:?})", p, prev, next, t)?;
-        }
-        Ok(())
+        write!(f, "{:?}", self.a)
     }
 }
 
