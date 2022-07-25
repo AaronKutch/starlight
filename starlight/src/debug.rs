@@ -64,7 +64,7 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
                 let lut = lut_map[&lut];
                 bit_map.insert(
                     p_bit,
-                    a.insert(BitOrLut::Bit(Some(lut), BitState {
+                    a.insert(BitOrLut::Bit(None, BitState {
                         lut: Some(lut),
                         state: bit.t.state,
                     })),
@@ -80,30 +80,29 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
                 );
             };
         }
-        // second pass on bits to register direct bit connections
-        for (p_bit, bit) in self.bits.get_arena() {
-            if let BitOrLut::Bit(ref mut p, _) = &mut a[bit_map[&p_bit]] {
-                if p.is_none() {
-                    if let Some(prev) = Link::prev(bit) {
-                        *p = Some(bit_map[&prev])
-                    }
-                }
-            }
-        }
-        // second pass on luts to register bit connections
+        // register luts to their bits
         for (p_lut, lut) in &self.luts {
-            match &mut a[lut_map[&p_lut]] {
-                BitOrLut::Lut(ref mut inxs, _) => {
-                    for bit in &lut.bits {
-                        // only if the bit
-                        if Link::prev(&self.bits[bit]).is_none() {}
-                        inxs.push(bit_map.get(bit).copied());
-                    }
+            if let BitOrLut::Lut(ref mut inxs, _) = &mut a[lut_map[&p_lut]] {
+                for bit in &lut.bits {
+                    inxs.push(bit_map.get(bit).copied());
                 }
-                _ => unreachable!(),
             }
         }
-        dbg!(&a);
+        for p_bit in self.bits.get_arena().ptrs() {
+            if let Some(prev) = Link::prev(&self.bits[p_bit]) {
+                if let Some(p_lut) = self.bits[prev].t.lut {
+                    // connections to the luts of the prev link
+                    if let BitOrLut::Bit(ref mut p, _) = a[bit_map[&p_bit]] {
+                        *p = Some(lut_map[&p_lut]);
+                    }
+                } else {
+                    // direct connect
+                    if let BitOrLut::Bit(ref mut p, _) = a[bit_map[&p_bit]] {
+                        *p = Some(bit_map[&prev]);
+                    }
+                }
+            }
+        }
         let res = self.verify_integrity();
         triple_arena_render::render_to_svg_file(&a, false, out_file).unwrap();
         res
