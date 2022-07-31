@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use awint::awint_dag::common::EvalError;
-use triple_arena::{ptr_trait_struct_with_gen, Arena, Ptr, PtrTrait};
+use triple_arena::{ptr_struct, Arena, Ptr};
 use triple_arena_render::{DebugNode, DebugNodeTrait};
 
 use crate::{
@@ -10,16 +10,16 @@ use crate::{
 };
 
 #[derive(Debug)]
-enum BitOrLut<P: PtrTrait> {
+enum BitOrLut<P: Ptr> {
     // the Option is for direct bit connections when a bit does not have a LUT
-    Bit(Option<Ptr<P>>, String, BitState<P>),
+    Bit(Option<P>, String, BitState<P>),
     // the LUT has most connections to preserve ordering in both inputs and outputs
-    Lut(Vec<Option<Ptr<P>>>, Vec<Option<Ptr<P>>>, Lut<P>),
+    Lut(Vec<Option<P>>, Vec<Option<P>>, Lut<P>),
     // this is for preserving the ordering of the inputs and outputs of the LUTs
     Dummy,
 }
 
-impl<P: PtrTrait> DebugNodeTrait<P> for BitOrLut<P> {
+impl<P: Ptr> DebugNodeTrait<P> for BitOrLut<P> {
     fn debug_node(this: &Self) -> DebugNode<P> {
         match this {
             BitOrLut::Bit(prev, s, t) => DebugNode {
@@ -72,12 +72,12 @@ impl<P: PtrTrait> DebugNodeTrait<P> for BitOrLut<P> {
     }
 }
 
-impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
+impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
     pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
-        ptr_trait_struct_with_gen!(Q);
+        ptr_struct!(Q);
         ChainArena::_check_invariants(&self.bits).unwrap();
         let mut a = Arena::<Q, BitOrLut<Q>>::new();
-        let mut lut_map = HashMap::<Ptr<PLut>, Ptr<Q>>::new();
+        let mut lut_map = HashMap::<PLut, Q>::new();
         for (p_lut, lut) in &self.luts {
             lut_map.insert(
                 p_lut,
@@ -88,7 +88,7 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
                 })),
             );
         }
-        let mut bit_map = HashMap::<Ptr<PBitState>, Ptr<Q>>::new();
+        let mut bit_map = HashMap::<PBitState, Q>::new();
         for (p_bit, bit) in self.bits.get_arena() {
             bit_map.insert(
                 p_bit,

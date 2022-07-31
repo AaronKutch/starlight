@@ -7,11 +7,11 @@ use awint::{
     },
     bw, extawi, inlawi, Bits, ExtAwi, InlAwi,
 };
-use triple_arena::{Arena, Ptr, PtrTrait};
+use triple_arena::{Arena, Ptr};
 
 use crate::{chain_arena::ChainArena, BitState, Lut, Perm, PermDag};
 
-impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
+impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
     /// Constructs a directed acyclic graph of permutations from an
     /// `awint_dag::Dag`. `op_dag.noted` are translated as bits in lsb to msb
     /// order.
@@ -19,7 +19,7 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
     /// If an error occurs, the DAG (which may be in an unfinished or completely
     /// broken state) is still returned along with the error enum, so that debug
     /// tools like `render_to_svg_file` can be used.
-    pub fn new<P: PtrTrait>(op_dag: &mut Dag<P>) -> (Self, Result<(), EvalError>) {
+    pub fn new<P: Ptr>(op_dag: &mut Dag<P>) -> (Self, Result<(), EvalError>) {
         let mut res = Self {
             bits: ChainArena::new(),
             luts: Arena::new(),
@@ -30,11 +30,11 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
         (res, err)
     }
 
-    pub fn add_group<P: PtrTrait>(&mut self, op_dag: &mut Dag<P>) -> Result<(), EvalError> {
+    pub fn add_group<P: Ptr>(&mut self, op_dag: &mut Dag<P>) -> Result<(), EvalError> {
         op_dag.visit_gen += 1;
         let gen = op_dag.visit_gen;
         // map between `Ptr<P>` and vectors of `Ptr<PBitState>`
-        let mut map = HashMap::<Ptr<P>, Vec<Ptr<PBitState>>>::new();
+        let mut map = HashMap::<P, Vec<PBitState>>::new();
         // DFS
         let noted_len = op_dag.noted.len();
         for j in 0..noted_len {
@@ -42,7 +42,7 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
             if op_dag[leaf].visit_num == gen {
                 continue
             }
-            let mut path: Vec<(usize, Ptr<P>)> = vec![(0, leaf)];
+            let mut path: Vec<(usize, P)> = vec![(0, leaf)];
             loop {
                 let (i, p) = path[path.len() - 1];
                 let ops = op_dag[p].op.operands();
@@ -142,7 +142,7 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
     }
 
     /// Copies the bit at `p` with a reversible permutation if needed
-    pub fn copy_bit(&mut self, p: Ptr<PBitState>, gen: u64) -> Option<Ptr<PBitState>> {
+    pub fn copy_bit(&mut self, p: PBitState, gen: u64) -> Option<PBitState> {
         if !self.bits.get_arena().contains(p) {
             return None
         }
@@ -194,10 +194,10 @@ impl<PBitState: PtrTrait, PLut: PtrTrait> PermDag<PBitState, PLut> {
     #[allow(clippy::needless_range_loop)]
     pub fn permutize_lut(
         &mut self,
-        inxs: &[Ptr<PBitState>],
+        inxs: &[PBitState],
         table: &Bits,
         gen: u64,
-    ) -> Option<Vec<Ptr<PBitState>>> {
+    ) -> Option<Vec<PBitState>> {
         // TODO have some kind of upstream protection for this
         assert!(inxs.len() <= 4);
         let num_entries = 1 << inxs.len();

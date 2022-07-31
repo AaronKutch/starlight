@@ -4,7 +4,7 @@ use std::{
     ops::{Deref, DerefMut, Index, IndexMut},
 };
 
-use triple_arena::{Arena, Ptr, PtrTrait};
+use triple_arena::{Arena, Ptr};
 
 // TODO is it possible to break the arena externally with `mem::swap`?
 
@@ -15,32 +15,32 @@ use triple_arena::{Arena, Ptr, PtrTrait};
 /// methods so that the whole `Link` can be returned by indexing the arena
 /// (preventing a lot of cumbersome code when traversing chains).
 #[derive(Clone, Copy)]
-pub struct Link<PLink: PtrTrait, T> {
+pub struct Link<PLink: Ptr, T> {
     // I think the code gen should be overall better if this is done
-    prev_next: (Option<Ptr<PLink>>, Option<Ptr<PLink>>),
+    prev_next: (Option<PLink>, Option<PLink>),
     pub t: T,
 }
 
-impl<PLink: PtrTrait, T> Link<PLink, T> {
+impl<PLink: Ptr, T> Link<PLink, T> {
     #[doc(hidden)]
-    pub fn new(prev_next: (Option<Ptr<PLink>>, Option<Ptr<PLink>>), t: T) -> Self {
+    pub fn new(prev_next: (Option<PLink>, Option<PLink>), t: T) -> Self {
         Self { prev_next, t }
     }
 
-    pub fn prev_next(this: &Link<PLink, T>) -> (Option<Ptr<PLink>>, Option<Ptr<PLink>>) {
+    pub fn prev_next(this: &Link<PLink, T>) -> (Option<PLink>, Option<PLink>) {
         this.prev_next
     }
 
-    pub fn prev(this: &Link<PLink, T>) -> Option<Ptr<PLink>> {
+    pub fn prev(this: &Link<PLink, T>) -> Option<PLink> {
         this.prev_next.0
     }
 
-    pub fn next(this: &Link<PLink, T>) -> Option<Ptr<PLink>> {
+    pub fn next(this: &Link<PLink, T>) -> Option<PLink> {
         this.prev_next.1
     }
 }
 
-impl<PLink: PtrTrait, T> Deref for Link<PLink, T> {
+impl<PLink: Ptr, T> Deref for Link<PLink, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -48,18 +48,18 @@ impl<PLink: PtrTrait, T> Deref for Link<PLink, T> {
     }
 }
 
-impl<PLink: PtrTrait, T> DerefMut for Link<PLink, T> {
+impl<PLink: Ptr, T> DerefMut for Link<PLink, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.t
     }
 }
 
 /// Able to cheaply insert and delete in the middle of a string of nodes
-pub struct ChainArena<PLink: PtrTrait, T> {
+pub struct ChainArena<PLink: Ptr, T> {
     a: Arena<PLink, Link<PLink, T>>,
 }
 
-impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
+impl<PLink: Ptr, T> ChainArena<PLink, T> {
     #[doc(hidden)]
     pub fn _check_invariants(this: &Self) -> Result<(), &'static str> {
         for (p, link) in &this.a {
@@ -106,11 +106,7 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
     /// and the reverse is allowed even if the link is not at the end of the
     /// chain. If a pointer is not contained in the arena, or the `prev` and
     /// `next` nodes are farther than one node apart, then `None` is returned.
-    pub fn insert(
-        &mut self,
-        prev_next: (Option<Ptr<PLink>>, Option<Ptr<PLink>>),
-        t: T,
-    ) -> Option<Ptr<PLink>> {
+    pub fn insert(&mut self, prev_next: (Option<PLink>, Option<PLink>), t: T) -> Option<PLink> {
         match prev_next {
             // new chain
             (None, None) => Some(self.a.insert(Link::new((None, None), t))),
@@ -164,21 +160,21 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
     }
 
     /// Inserts `t` as a single link in a new chain
-    pub fn insert_new(&mut self, t: T) -> Ptr<PLink> {
+    pub fn insert_new(&mut self, t: T) -> PLink {
         self.a.insert(Link::new((None, None), t))
     }
 
     // in case we want to spin this off into its own crate we should actively
     // support this
     /// Inserts `t` as a single link cyclical chain and returns a `Ptr` to it
-    pub fn insert_new_cyclic(&mut self, t: T) -> Ptr<PLink> {
+    pub fn insert_new_cyclic(&mut self, t: T) -> PLink {
         self.a.insert_with(|p| Link::new((Some(p), Some(p)), t))
     }
 
     /// Inserts `t` as a new link at the end of a chain which has `p` as its
     /// last link. Returns `None` if `p` is not valid or is not the end of a
     /// chain
-    pub fn insert_last(&mut self, p: Ptr<PLink>, t: T) -> Option<Ptr<PLink>> {
+    pub fn insert_last(&mut self, p: PLink, t: T) -> Option<PLink> {
         let p0 = p;
         if Link::next(self.a.get_mut(p0)?).is_some() {
             // not at end of chain
@@ -193,7 +189,7 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
     /// Removes the link at `p`. The `prev` and `next` `Ptr`s in the link will
     /// be valid `Ptr`s to neighboring links in the chain. Returns `None` if `p`
     /// is not valid.
-    pub fn remove(&mut self, p: Ptr<PLink>) -> Option<Link<PLink, T>> {
+    pub fn remove(&mut self, p: PLink) -> Option<Link<PLink, T>> {
         let l = self.a.remove(p)?;
         match Link::prev_next(&l) {
             (None, None) => (),
@@ -233,7 +229,7 @@ impl<PLink: PtrTrait, T> ChainArena<PLink, T> {
     }
 }
 
-impl<P: PtrTrait, T, B: Borrow<Ptr<P>>> Index<B> for ChainArena<P, T> {
+impl<P: Ptr, T, B: Borrow<P>> Index<B> for ChainArena<P, T> {
     type Output = Link<P, T>;
 
     fn index(&self, index: B) -> &Self::Output {
@@ -241,13 +237,13 @@ impl<P: PtrTrait, T, B: Borrow<Ptr<P>>> Index<B> for ChainArena<P, T> {
     }
 }
 
-impl<P: PtrTrait, T, B: Borrow<Ptr<P>>> IndexMut<B> for ChainArena<P, T> {
+impl<P: Ptr, T, B: Borrow<P>> IndexMut<B> for ChainArena<P, T> {
     fn index_mut(&mut self, index: B) -> &mut Self::Output {
         self.a.get_mut(*index.borrow()).unwrap()
     }
 }
 
-impl<P: PtrTrait, T: fmt::Debug> fmt::Debug for Link<P, T> {
+impl<P: Ptr, T: fmt::Debug> fmt::Debug for Link<P, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -259,7 +255,7 @@ impl<P: PtrTrait, T: fmt::Debug> fmt::Debug for Link<P, T> {
     }
 }
 
-impl<P: PtrTrait, T: fmt::Display> fmt::Display for Link<P, T> {
+impl<P: Ptr, T: fmt::Display> fmt::Display for Link<P, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -271,19 +267,19 @@ impl<P: PtrTrait, T: fmt::Display> fmt::Display for Link<P, T> {
     }
 }
 
-impl<P: PtrTrait, T: fmt::Debug> fmt::Debug for ChainArena<P, T> {
+impl<P: Ptr, T: fmt::Debug> fmt::Debug for ChainArena<P, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.a)
     }
 }
 
-impl<P: PtrTrait, T: Clone> Clone for ChainArena<P, T> {
+impl<P: Ptr, T: Clone> Clone for ChainArena<P, T> {
     fn clone(&self) -> Self {
         Self { a: self.a.clone() }
     }
 }
 
-impl<PLink: PtrTrait, T> Default for ChainArena<PLink, T> {
+impl<PLink: Ptr, T> Default for ChainArena<PLink, T> {
     fn default() -> Self {
         Self::new()
     }
