@@ -1,13 +1,10 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use awint::awint_dag::common::EvalError;
-use triple_arena::{ptr_struct, Arena, Ptr};
+use triple_arena::{ptr_struct, Arena, ChainArena, Link, Ptr};
 use triple_arena_render::{DebugNode, DebugNodeTrait};
 
-use crate::{
-    chain_arena::{ChainArena, Link},
-    BitState, Lut, PermDag,
-};
+use crate::{BitState, Lut, PermDag};
 
 #[derive(Debug)]
 enum BitOrLut<P: Ptr> {
@@ -89,7 +86,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
             );
         }
         let mut bit_map = HashMap::<PBitState, Q>::new();
-        for (p_bit, bit) in self.bits.get_arena() {
+        for (p_bit, bit) in &self.bits {
             bit_map.insert(
                 p_bit,
                 a.insert(BitOrLut::Bit(None, format!("{:?}", p_bit), BitState {
@@ -121,7 +118,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
                 }
             }
         }
-        for p_bit in self.bits.get_arena().ptrs() {
+        for p_bit in self.bits.ptrs() {
             if let Some(prev) = Link::prev(&self.bits[p_bit]) {
                 if self.bits[prev].t.lut.is_none() {
                     // direct connect

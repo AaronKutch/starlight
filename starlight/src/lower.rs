@@ -7,9 +7,9 @@ use awint::{
     },
     bw, extawi, inlawi, Bits, ExtAwi, InlAwi,
 };
-use triple_arena::{Arena, Ptr};
+use triple_arena::{Arena, ChainArena, Ptr};
 
-use crate::{chain_arena::ChainArena, BitState, Lut, Perm, PermDag};
+use crate::{BitState, Lut, Perm, PermDag};
 
 impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
     /// Constructs a directed acyclic graph of permutations from an
@@ -143,11 +143,11 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
 
     /// Copies the bit at `p` with a reversible permutation if needed
     pub fn copy_bit(&mut self, p: PBitState, gen: u64) -> Option<PBitState> {
-        if !self.bits.get_arena().contains(p) {
+        if !self.bits.contains(p) {
             return None
         }
 
-        if let Some(new) = self.bits.insert_last(p, BitState {
+        if let Some(new) = self.bits.insert_end(p, BitState {
             lut: None,
             state: None,
         }) {

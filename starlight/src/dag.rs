@@ -1,9 +1,9 @@
 use std::fmt;
 
 use awint::awint_dag::common::EvalError;
-use triple_arena::{Arena, Ptr};
+use triple_arena::{Arena, ChainArena, Ptr};
 
-use crate::{chain_arena::ChainArena, Perm};
+use crate::Perm;
 
 #[derive(Clone)]
 pub struct BitState<PLut: Ptr> {
@@ -54,7 +54,7 @@ impl<PLut: Ptr> fmt::Debug for BitState<PLut> {
 
 impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
-        for bit in self.bits.get_arena().vals() {
+        for bit in self.bits.vals() {
             if let Some(lut) = bit.t.lut {
                 if !self.luts.contains(lut) {
                     return Err(EvalError::OtherStr("broken `Ptr` from `BitState` to `Lut`"))
@@ -63,7 +63,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
         }
         for (p_lut, lut) in &self.luts {
             for bit in &lut.bits {
-                if let Some(bit) = self.bits.get_arena().get(*bit) {
+                if let Some(bit) = self.bits.get(*bit) {
                     if bit.t.lut != Some(p_lut) {
                         // we just checked for containment before
                         return Err(EvalError::OtherStr(
@@ -76,7 +76,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
             }
         }
         for note in &self.noted {
-            if !self.bits.get_arena().contains(*note) {
+            if !self.bits.contains(*note) {
                 return Err(EvalError::OtherStr("broken `Ptr` in the noted bits"))
             }
         }
