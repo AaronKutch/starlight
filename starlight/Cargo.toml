@@ -15,8 +15,8 @@ categories = []
 awint = { path = "../../awint/awint", features = ["rand_support", "dag"] }
 rand_xoshiro = { version = "0.6", default-features = false }
 smallvec = { version = "1.9", features = ["const_generics", "const_new", "union"] }
-triple_arena = "0.5"
-triple_arena_render = { version = "0.5", optional = true }
+triple_arena = "0.6"
+triple_arena_render = { version = "0.6", optional = true }
 
 [features]
 debug = ["triple_arena_render"]
