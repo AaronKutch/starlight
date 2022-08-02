@@ -1,14 +1,8 @@
-[package]
-name = "starlight"
-version = "0.0.0"
-edition = "2021"
-authors = ["Aaron Kutch <aaronkutch@att.net>"]
-license = "MIT OR Apache-2.0"
-readme = "README.md"
-repository = "https://github.com/AaronKutch/starlight"
-documentation = "https://docs.rs/starlight"
-description = "reservation"
-keywords = []
-categories = []
+[workspace]
+resolver = "2"
+members = [
+    "starlight",
+    "testcrate",
+]
 
-[dependencies]
+[patch.crates-io]
