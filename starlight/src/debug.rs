@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use awint::awint_dag::common::EvalError;
+use awint::awint_dag::EvalError;
 use triple_arena::{ptr_struct, Arena, ChainArena, Link, Ptr};
 use triple_arena_render::{DebugNode, DebugNodeTrait};
 

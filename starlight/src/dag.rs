@@ -1,6 +1,6 @@
 use std::fmt;
 
-use awint::awint_dag::common::EvalError;
+use awint::awint_dag::EvalError;
 use triple_arena::{Arena, ChainArena, Ptr};
 
 use crate::Perm;
