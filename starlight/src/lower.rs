@@ -231,7 +231,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
         let mut max_count = 0;
         for i in 0..num_entries {
             inx.usize_assign(i);
-            tmp.lut(table, &inx).unwrap();
+            tmp.lut_assign(table, &inx).unwrap();
             let original_entry = tmp.to_usize();
             let count = integer_counts[original_entry];
             max_count = max(count, max_count);

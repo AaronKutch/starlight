@@ -74,8 +74,8 @@ impl Perm {
     /// `inx.bw() != self.n()` or `out.bw() != self.n()`.
     // use a distinct signature from `Bits::lut` because we can't have `out` on the
     // left hand side without still calling `self`.
-    pub fn lut(out: &mut Bits, this: &Self, inx: &Bits) -> Option<()> {
-        out.lut(&this.lut, inx)
+    pub fn lut_assign(out: &mut Bits, this: &Self, inx: &Bits) -> Option<()> {
+        out.lut_assign(&this.lut, inx)
     }
 
     /// Gets the `i`th entry and returns it. Returns `None` if `i >= self.l()`.
@@ -315,7 +315,7 @@ impl Perm {
         let mut pad = ExtAwi::zero(self.nz_n());
         for i in 0..self.l() {
             awi_i.usize_assign(i);
-            Self::lut(&mut out, self, &awi_i).unwrap();
+            Self::lut_assign(&mut out, self, &awi_i).unwrap();
             awi_i
                 .to_bytes_radix(false, &mut buf, 2, false, &mut pad)
                 .unwrap();
