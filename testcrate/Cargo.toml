@@ -8,3 +8,4 @@ publish = false
 awint = { path = "../../awint/awint", features = ["rand_support"] }
 rand_xoshiro = { version = "0.6", default-features = false }
 starlight = { path = "../starlight" }
+triple_arena = { version = "0.6" }

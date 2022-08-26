@@ -4,14 +4,14 @@ use awint::awint_dag::EvalError;
 use triple_arena::{ptr_struct, Arena, ChainArena, Link, Ptr};
 use triple_arena_render::{DebugNode, DebugNodeTrait};
 
-use crate::{BitState, Lut, PermDag};
+use crate::{Bit, Lut, PBit, PLut, PermDag};
 
 #[derive(Debug)]
 enum BitOrLut<P: Ptr> {
     // the Option is for direct bit connections when a bit does not have a LUT
-    Bit(Option<P>, String, BitState<P>),
+    Bit(Option<P>, String, Bit),
     // the LUT has most connections to preserve ordering in both inputs and outputs
-    Lut(Vec<Option<P>>, Vec<Option<P>>, Lut<P>),
+    Lut(Vec<Option<P>>, Vec<Option<P>>, Lut),
     // this is for preserving the ordering of the inputs and outputs of the LUTs
     Dummy,
 }
@@ -69,7 +69,7 @@ impl<P: Ptr> DebugNodeTrait<P> for BitOrLut<P> {
     }
 }
 
-impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
+impl PermDag {
     pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
         ptr_struct!(Q);
         ChainArena::_check_invariants(&self.bits).unwrap();
@@ -81,16 +81,16 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
                 a.insert(BitOrLut::Lut(vec![], vec![], Lut {
                     bits: vec![],
                     perm: lut.perm.clone(),
-                    visit_num: lut.visit_num,
+                    visit: lut.visit,
                 })),
             );
         }
-        let mut bit_map = HashMap::<PBitState, Q>::new();
+        let mut bit_map = HashMap::<PBit, Q>::new();
         for (p_bit, bit) in &self.bits {
             bit_map.insert(
                 p_bit,
-                a.insert(BitOrLut::Bit(None, format!("{:?}", p_bit), BitState {
-                    lut: bit.t.lut.map(|lut| *lut_map.get(&lut).unwrap()),
+                a.insert(BitOrLut::Bit(None, format!("{:?}", p_bit), Bit {
+                    lut: bit.t.lut,
                     state: bit.t.state,
                 })),
             );

@@ -8,11 +8,11 @@ use awint::{
     },
     bw, extawi, inlawi, Bits, ExtAwi, InlAwi,
 };
-use triple_arena::{Arena, ChainArena, Ptr};
+use triple_arena::{Arena, ChainArena};
 
-use crate::{BitState, Lut, Perm, PermDag};
+use crate::{Bit, Lut, PBit, Perm, PermDag};
 
-impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
+impl PermDag {
     /// Constructs a directed acyclic graph of permutations from an
     /// `awint_dag::Dag`. `op_dag.noted` are translated as bits in lsb to msb
     /// order.
@@ -34,7 +34,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
     pub fn add_group(&mut self, op_dag: &mut Dag) -> Result<(), EvalError> {
         op_dag.visit_gen += 1;
         let gen = op_dag.visit_gen;
-        let mut map = HashMap::<PNode, Vec<PBitState>>::new();
+        let mut map = HashMap::<PNode, Vec<PBit>>::new();
         // DFS
         let noted_len = op_dag.noted.len();
         for j in 0..noted_len {
@@ -52,7 +52,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
                             Literal(ref lit) => {
                                 let mut v = vec![];
                                 for i in 0..lit.bw() {
-                                    v.push(self.bits.insert_new(BitState {
+                                    v.push(self.bits.insert_new(Bit {
                                         lut: None,
                                         state: Some(lit.get(i).unwrap()),
                                     }));
@@ -63,7 +63,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
                                 let bw = op_dag.get_bw(p).get();
                                 let mut v = vec![];
                                 for _ in 0..bw {
-                                    v.push(self.bits.insert_new(BitState {
+                                    v.push(self.bits.insert_new(Bit {
                                         lut: None,
                                         state: None,
                                     }));
@@ -142,12 +142,12 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
     }
 
     /// Copies the bit at `p` with a reversible permutation if needed
-    pub fn copy_bit(&mut self, p: PBitState, gen: u64) -> Option<PBitState> {
+    pub fn copy_bit(&mut self, p: PBit, gen: u64) -> Option<PBit> {
         if !self.bits.contains(p) {
             return None
         }
 
-        if let Some(new) = self.bits.insert_end(p, BitState {
+        if let Some(new) = self.bits.insert_end(p, Bit {
             lut: None,
             state: None,
         }) {
@@ -169,13 +169,13 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
                 // insert a handle for the bit preserving LUT to latch on to
                 let copy0 = self
                     .bits
-                    .insert((Some(p), None), BitState {
+                    .insert((Some(p), None), Bit {
                         lut: Some(lut),
                         state: None,
                     })
                     .unwrap();
 
-                let zero = self.bits.insert_new(BitState {
+                let zero = self.bits.insert_new(Bit {
                     lut: Some(lut),
                     state: Some(false),
                 });
@@ -183,7 +183,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
                 Lut {
                     bits: vec![copy0, zero],
                     perm,
-                    visit_num: gen,
+                    visit: gen,
                 }
             });
 
@@ -192,12 +192,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
     }
 
     #[allow(clippy::needless_range_loop)]
-    pub fn permutize_lut(
-        &mut self,
-        inxs: &[PBitState],
-        table: &Bits,
-        gen: u64,
-    ) -> Option<Vec<PBitState>> {
+    pub fn permutize_lut(&mut self, inxs: &[PBit], table: &Bits, gen: u64) -> Option<Vec<PBit>> {
         // TODO have some kind of upstream protection for this
         assert!(inxs.len() <= 4);
         let num_entries = 1 << inxs.len();
@@ -262,7 +257,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
         }
         // get the zero bits
         for _ in inxs.len()..new_w {
-            extended_v.push(self.bits.insert_new(BitState {
+            extended_v.push(self.bits.insert_new(Bit {
                 lut: None,
                 state: Some(false),
             }));
@@ -274,7 +269,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
             for bit in extended_v {
                 lut_layer.push(
                     self.bits
-                        .insert((Some(bit), None), BitState {
+                        .insert((Some(bit), None), Bit {
                             lut: Some(lut),
                             state: None,
                         })
@@ -284,7 +279,7 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
             Lut {
                 bits: lut_layer.clone(),
                 perm,
-                visit_num: gen,
+                visit: gen,
             }
         });
         // only return the part of the layer for the original LUT output

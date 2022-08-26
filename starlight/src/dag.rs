@@ -1,12 +1,12 @@
 use std::fmt;
 
 use awint::awint_dag::EvalError;
-use triple_arena::{Arena, ChainArena, Ptr};
+use triple_arena::{Arena, ChainArena, Link};
 
-use crate::Perm;
+use crate::{PBit, PLut, Perm};
 
 #[derive(Clone)]
-pub struct BitState<PLut: Ptr> {
+pub struct Bit {
     /// Lookup table permutation that results in this bit
     pub lut: Option<PLut>,
     pub state: Option<bool>,
@@ -14,27 +14,28 @@ pub struct BitState<PLut: Ptr> {
 
 /// Lookup table permutation with extra information
 #[derive(Debug, Clone)]
-pub struct Lut<PBitState: Ptr> {
+pub struct Lut {
     /// This is in order of the index bits of the lookup table
-    pub bits: Vec<PBitState>,
+    pub bits: Vec<PBit>,
     pub perm: Perm,
     /// Used in algorithms to check for visitation
-    pub visit_num: u64,
+    pub visit: u64,
 }
 
 /// A DAG made of only permutations
 #[derive(Debug, Clone)]
-pub struct PermDag<PBitState: Ptr, PLut: Ptr> {
+pub struct PermDag {
     /// In a permutation DAG, bits are never created or destroyed so there will
-    /// be a single linear chain of `BitState`s for each bit.
-    pub bits: ChainArena<PBitState, BitState<PLut>>,
-    pub luts: Arena<PLut, Lut<PBitState>>,
-    /// A kind of generation counter tracking the highest `visit_num` number
+    /// be a single linear chain of `Bit`s for each bit.
+    pub bits: ChainArena<PBit, Bit>,
+    /// The lookup tables
+    pub luts: Arena<PLut, Lut>,
+    /// A kind of generation counter tracking the highest `visit` number
     pub visit_gen: u64,
-    pub noted: Vec<PBitState>,
+    pub noted: Vec<PBit>,
 }
 
-impl<PLut: Ptr> fmt::Debug for BitState<PLut> {
+impl fmt::Debug for Bit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -52,12 +53,12 @@ impl<PLut: Ptr> fmt::Debug for BitState<PLut> {
     }
 }
 
-impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
+impl PermDag {
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
         for bit in self.bits.vals() {
             if let Some(lut) = bit.t.lut {
                 if !self.luts.contains(lut) {
-                    return Err(EvalError::OtherStr("broken `Ptr` from `BitState` to `Lut`"))
+                    return Err(EvalError::OtherStr("broken `Ptr` from `Bit` to `Lut`"))
                 }
             }
         }
@@ -67,11 +68,11 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
                     if bit.t.lut != Some(p_lut) {
                         // we just checked for containment before
                         return Err(EvalError::OtherStr(
-                            "broken `Ptr` correspondance between `Lut` and `BitState`",
+                            "broken `Ptr` correspondance between `Lut` and `Bit`",
                         ))
                     }
                 } else {
-                    return Err(EvalError::OtherStr("broken `Ptr` from `Lut` to `BitState`"))
+                    return Err(EvalError::OtherStr("broken `Ptr` from `Lut` to `Bit`"))
                 }
             }
         }
@@ -80,6 +81,19 @@ impl<PBitState: Ptr, PLut: Ptr> PermDag<PBitState, PLut> {
                 return Err(EvalError::OtherStr("broken `Ptr` in the noted bits"))
             }
         }
+        Ok(())
+    }
+
+    /// Evaluates `self` as much as possible
+    pub fn eval(&mut self) -> Result<(), EvalError> {
+        // acquire all evaluatable root bits
+        let mut roots = vec![];
+        for (p_bit, bit) in &self.bits {
+            if Link::prev(bit).is_none() && bit.state.is_some() {
+                roots.push(p_bit);
+            }
+        }
+
         Ok(())
     }
 }
