@@ -2,15 +2,17 @@ use std::num::NonZeroUsize;
 
 use awint::{
     awi,
-    awint_dag::{Dag, EvalError, Lineage},
+    awint_dag::{Dag, EvalError, Lineage, Op, StateEpoch},
     dag,
 };
 use rand_xoshiro::{
     rand_core::{RngCore, SeedableRng},
     Xoshiro128StarStar,
 };
-use starlight::{Perm, PermDag};
+use starlight::PermDag;
 use triple_arena::{ptr_struct, Arena};
+
+const N: (usize, usize) = (30, 1000);
 
 ptr_struct!(P0);
 
@@ -26,7 +28,7 @@ struct Mem {
 impl Mem {
     pub fn new() -> Self {
         let mut v = vec![];
-        for _ in 0..5 {
+        for _ in 0..65 {
             v.push(vec![]);
         }
         Self {
@@ -39,7 +41,7 @@ impl Mem {
     pub fn clear(&mut self) {
         self.a.clear();
         self.v.clear();
-        for _ in 0..5 {
+        for _ in 0..65 {
             self.v.push(vec![]);
         }
     }
@@ -62,19 +64,83 @@ impl Mem {
         (w, self.next(w))
     }
 
+    pub fn get_op(&self, inx: P0) -> dag::ExtAwi {
+        self.a[inx].clone()
+    }
+
     pub fn verify_equivalence(&mut self) -> Result<(), EvalError> {
         for node in self.a.vals() {
             let (mut op_dag, res) = Dag::new(&[node.state()], &[node.state()]);
             res?;
-            op_dag.lower_all_noted();
-            let (mut perm_dag, res) = PermDag::new(&mut op_dag);
-            res?;
+            op_dag.lower_all_noted().unwrap();
+            let (mut perm_dag, res) = PermDag::from_op_dag(&mut op_dag);
+            let note_map = res?;
 
-            op_dag.lower_all_noted();
-            //perm_dag.eval_tree();
+            op_dag.eval_all_noted().unwrap();
+            perm_dag.eval().unwrap();
+            for (i, p_note) in note_map.iter().enumerate() {
+                if let Op::Literal(ref lit) = op_dag[op_dag.noted[i].unwrap()].op {
+                    let len = perm_dag.notes[p_note].bits.len();
+                    for j in 0..len {
+                        assert_eq!(
+                            perm_dag.bits[perm_dag.notes[p_note].bits[j]].state.unwrap(),
+                            lit.get(j).unwrap()
+                        );
+                    }
+                } else {
+                    panic!();
+                }
+            }
         }
         Ok(())
     }
 }
 
-// FIXME get, set, lut, use awi:: for static
+fn op_perm_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
+    let next_op = rng.next_u32() % 3;
+    match next_op {
+        // Copy
+        0 => {
+            let (w, from) = m.next1_5();
+            let to = m.next(w);
+            if to != from {
+                let (to, from) = m.a.get2_mut(to, from).unwrap();
+                to.copy_assign(from).unwrap();
+            }
+        }
+        // Get-Set
+        1 => {
+            let (w0, from) = m.next1_5();
+            let (w1, to) = m.next1_5();
+            let b = m.a[from].get((rng.next_u32() as usize) % w0).unwrap();
+            m.a[to].set((rng.next_u32() as usize) % w1, b).unwrap();
+        }
+        // Lut
+        2 => {
+            let (out_w, out) = m.next1_5();
+            let (inx_w, inx) = m.next1_5();
+            let lut = m.next(out_w * (1 << inx_w));
+            let lut_a = m.get_op(lut);
+            let inx_a = m.get_op(inx);
+            m.a[out].lut_assign(&lut_a, &inx_a).unwrap();
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn fuzz_lower_and_eval() {
+    let mut rng = Xoshiro128StarStar::seed_from_u64(0);
+    let mut m = Mem::new();
+
+    for _ in 0..N.1 {
+        let epoch = StateEpoch::new();
+        for _ in 0..N.0 {
+            op_perm_duo(&mut rng, &mut m)
+        }
+        let res = m.verify_equivalence();
+        res.unwrap();
+        drop(epoch);
+        m.clear();
+    }
+}

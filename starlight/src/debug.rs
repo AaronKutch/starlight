@@ -82,6 +82,7 @@ impl PermDag {
                     bits: vec![],
                     perm: lut.perm.clone(),
                     visit: lut.visit,
+                    bit_rc: 0,
                 })),
             );
         }
@@ -92,6 +93,7 @@ impl PermDag {
                 a.insert(BitOrLut::Bit(None, format!("{:?}", p_bit), Bit {
                     lut: bit.t.lut,
                     state: bit.t.state,
+                    ..Default::default()
                 })),
             );
         }

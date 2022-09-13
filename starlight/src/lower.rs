@@ -10,7 +10,7 @@ use awint::{
 };
 use triple_arena::{Arena, ChainArena};
 
-use crate::{Bit, Lut, PBit, Perm, PermDag};
+use crate::{Bit, Lut, Note, PBit, PNote, Perm, PermDag};
 
 impl PermDag {
     /// Constructs a directed acyclic graph of permutations from an
@@ -20,18 +20,18 @@ impl PermDag {
     /// If an error occurs, the DAG (which may be in an unfinished or completely
     /// broken state) is still returned along with the error enum, so that debug
     /// tools like `render_to_svg_file` can be used.
-    pub fn new(op_dag: &mut Dag) -> (Self, Result<(), EvalError>) {
+    pub fn from_op_dag(op_dag: &mut Dag) -> (Self, Result<Vec<PNote>, EvalError>) {
         let mut res = Self {
             bits: ChainArena::new(),
             luts: Arena::new(),
             visit_gen: 0,
-            noted: vec![],
+            notes: Arena::new(),
         };
         let err = res.add_group(op_dag);
         (res, err)
     }
 
-    pub fn add_group(&mut self, op_dag: &mut Dag) -> Result<(), EvalError> {
+    pub fn add_group(&mut self, op_dag: &mut Dag) -> Result<Vec<PNote>, EvalError> {
         op_dag.visit_gen += 1;
         let gen = op_dag.visit_gen;
         let mut map = HashMap::<PNode, Vec<PBit>>::new();
@@ -55,6 +55,7 @@ impl PermDag {
                                     v.push(self.bits.insert_new(Bit {
                                         lut: None,
                                         state: Some(lit.get(i).unwrap()),
+                                        ..Default::default()
                                     }));
                                 }
                                 map.insert(p, v);
@@ -66,6 +67,7 @@ impl PermDag {
                                     v.push(self.bits.insert_new(Bit {
                                         lut: None,
                                         state: None,
+                                        ..Default::default()
                                     }));
                                 }
                                 map.insert(p, v);
@@ -130,15 +132,18 @@ impl PermDag {
                 }
             }
         }
+        let mut note_map = vec![];
         // handle the noted
         for noted in op_dag.noted.iter().flatten() {
+            let mut note = vec![];
             // TODO what guarantees do we give?
             //if op_dag[note].op.is_opaque() {}
             for bit in &map[noted] {
-                self.noted.push(*bit);
+                note.push(*bit);
             }
+            note_map.push(self.notes.insert(Note { bits: note }));
         }
-        Ok(())
+        Ok(note_map)
     }
 
     /// Copies the bit at `p` with a reversible permutation if needed
@@ -147,10 +152,7 @@ impl PermDag {
             return None
         }
 
-        if let Some(new) = self.bits.insert_end(p, Bit {
-            lut: None,
-            state: None,
-        }) {
+        if let Some(new) = self.bits.insert_end(p, Bit::default()) {
             // this is the first copy, use the end of the chain directly
             Some(new)
         } else {
@@ -172,18 +174,21 @@ impl PermDag {
                     .insert((Some(p), None), Bit {
                         lut: Some(lut),
                         state: None,
+                        ..Default::default()
                     })
                     .unwrap();
 
                 let zero = self.bits.insert_new(Bit {
                     lut: Some(lut),
                     state: Some(false),
+                    ..Default::default()
                 });
                 res = Some(zero);
                 Lut {
                     bits: vec![copy0, zero],
                     perm,
                     visit: gen,
+                    bit_rc: 0,
                 }
             });
 
@@ -260,6 +265,7 @@ impl PermDag {
             extended_v.push(self.bits.insert_new(Bit {
                 lut: None,
                 state: Some(false),
+                ..Default::default()
             }));
         }
         // because this is the actual point where LUTs are inserted, we need an extra
@@ -272,6 +278,7 @@ impl PermDag {
                         .insert((Some(bit), None), Bit {
                             lut: Some(lut),
                             state: None,
+                            ..Default::default()
                         })
                         .unwrap(),
                 );
@@ -280,6 +287,7 @@ impl PermDag {
                 bits: lut_layer.clone(),
                 perm,
                 visit: gen,
+                bit_rc: 0,
             }
         });
         // only return the part of the layer for the original LUT output
