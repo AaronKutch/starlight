@@ -12,7 +12,11 @@ use rand_xoshiro::{
 use starlight::PermDag;
 use triple_arena::{ptr_struct, Arena};
 
+#[cfg(debug_assertions)]
 const N: (usize, usize) = (30, 1000);
+
+#[cfg(not(debug_assertions))]
+const N: (usize, usize) = (50, 10000);
 
 ptr_struct!(P0);
 

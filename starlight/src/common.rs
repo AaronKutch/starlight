@@ -4,4 +4,6 @@ use triple_arena::ptr_struct;
 ptr_struct!(PLut; PBit; PNote);
 
 #[cfg(not(debug_assertions))]
-ptr_struct!(PLut(); PBit(); PNote);
+ptr_struct!(PLut(); PBit());
+#[cfg(not(debug_assertions))]
+ptr_struct!(PNote);
