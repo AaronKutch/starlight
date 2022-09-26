@@ -81,7 +81,8 @@ impl Mem {
             let note_map = res?;
 
             op_dag.eval_all_noted().unwrap();
-            perm_dag.eval().unwrap();
+            perm_dag.eval();
+            perm_dag.verify_integrity().unwrap();
             for (i, p_note) in note_map.iter().enumerate() {
                 if let Op::Literal(ref lit) = op_dag[op_dag.noted[i].unwrap()].op {
                     let len = perm_dag.notes[p_note].bits.len();

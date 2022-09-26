@@ -10,8 +10,29 @@ pub struct Bit {
     /// Lookup table permutation that results in this bit
     pub lut: Option<PLut>,
     pub state: Option<bool>,
+    /// Reference count for keeping this `Bit`
+    pub rc: u64,
+    pub visit: u64,
     /// Used in algorithms
     pub tmp: Option<bool>,
+}
+
+impl fmt::Debug for Bit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            if let Some(b) = self.state {
+                if b {
+                    "1"
+                } else {
+                    "0"
+                }
+            } else {
+                "*"
+            },
+        )
+    }
 }
 
 impl Bit {
@@ -19,6 +40,8 @@ impl Bit {
         Self {
             lut: None,
             state: None,
+            rc: 0,
+            visit: 0,
             tmp: None,
         }
     }
@@ -60,24 +83,6 @@ pub struct PermDag {
     pub notes: Arena<PNote, Note>,
 }
 
-impl fmt::Debug for Bit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            if let Some(b) = self.state {
-                if b {
-                    "1"
-                } else {
-                    "0"
-                }
-            } else {
-                "*"
-            }
-        )
-    }
-}
-
 impl PermDag {
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
         for bit in self.bits.vals() {
@@ -85,9 +90,6 @@ impl PermDag {
                 if !self.luts.contains(lut) {
                     return Err(EvalError::OtherStr("broken `Ptr` from `Bit` to `Lut`"))
                 }
-            }
-            if Link::prev(bit).is_none() && bit.lut.is_some() {
-                return Err(EvalError::OtherStr("useless lookup table on root bit"))
             }
         }
         for (p_lut, lut) in &self.luts {
@@ -106,7 +108,11 @@ impl PermDag {
         }
         for note in self.notes.vals() {
             for bit in &note.bits {
-                if !self.bits.contains(*bit) {
+                if let Some(bit) = self.bits.get(*bit) {
+                    if bit.rc == 0 {
+                        return Err(EvalError::OtherStr("reference count for noted bit is zero"))
+                    }
+                } else {
                     return Err(EvalError::OtherStr("broken `Ptr` in the noted bits"))
                 }
             }
@@ -115,7 +121,7 @@ impl PermDag {
     }
 
     /// Evaluates `self` as much as possible
-    pub fn eval(&mut self) -> Result<(), EvalError> {
+    pub fn eval(&mut self) {
         // acquire all evaluatable root bits
         let mut front = vec![];
         for (p_bit, bit) in &self.bits {
@@ -162,7 +168,5 @@ impl PermDag {
                 front.push(p_next);
             }
         }
-
-        Ok(())
     }
 }

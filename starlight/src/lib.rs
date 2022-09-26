@@ -7,3 +7,4 @@ mod common;
 #[cfg(feature = "debug")]
 mod debug;
 pub use common::*;
+mod contract;

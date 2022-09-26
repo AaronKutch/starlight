@@ -139,6 +139,7 @@ impl PermDag {
             // TODO what guarantees do we give?
             //if op_dag[note].op.is_opaque() {}
             for bit in &map[noted] {
+                self.bits[bit].rc += 1;
                 note.push(*bit);
             }
             note_map.push(self.notes.insert(Note { bits: note }));
