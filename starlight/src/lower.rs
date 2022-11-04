@@ -88,13 +88,13 @@ impl PermDag {
                                 let source_bits = &map[&x];
                                 let mut v = vec![];
                                 for bit in source_bits {
-                                    v.push(self.copy_bit(*bit, gen).unwrap());
+                                    v.push(self.copy_bit(*bit).unwrap());
                                 }
                                 map.insert(p, v);
                             }
                             StaticGet([bits], inx) => {
                                 let bit = map[&bits][inx];
-                                map.insert(p, vec![self.copy_bit(bit, gen).unwrap()]);
+                                map.insert(p, vec![self.copy_bit(bit).unwrap()]);
                             }
                             StaticSet([bits, bit], inx) => {
                                 let bit = &map[&bit];
@@ -108,7 +108,7 @@ impl PermDag {
                             }
                             StaticLut([inx], ref table) => {
                                 let inxs = &map[&inx];
-                                let v = self.permutize_lut(inxs, table, gen).unwrap();
+                                let v = self.permutize_lut(inxs, table).unwrap();
                                 map.insert(p, v);
                             }
                             ref op => {
@@ -148,7 +148,7 @@ impl PermDag {
     }
 
     /// Copies the bit at `p` with a reversible permutation if needed
-    pub fn copy_bit(&mut self, p: PBit, gen: u64) -> Option<PBit> {
+    pub fn copy_bit(&mut self, p: PBit) -> Option<PBit> {
         if !self.bits.contains(p) {
             return None
         }
@@ -188,7 +188,7 @@ impl PermDag {
                 Lut {
                     bits: vec![copy0, zero],
                     perm,
-                    visit: gen,
+                    visit: self.visit_gen,
                     bit_rc: 0,
                 }
             });
@@ -198,7 +198,7 @@ impl PermDag {
     }
 
     #[allow(clippy::needless_range_loop)]
-    pub fn permutize_lut(&mut self, inxs: &[PBit], table: &Bits, gen: u64) -> Option<Vec<PBit>> {
+    pub fn permutize_lut(&mut self, inxs: &[PBit], table: &Bits) -> Option<Vec<PBit>> {
         // TODO have some kind of upstream protection for this
         assert!(inxs.len() <= 4);
         let num_entries = 1 << inxs.len();
@@ -259,7 +259,7 @@ impl PermDag {
         let mut extended_v = vec![];
         // get copies of all index bits
         for inx in inxs {
-            extended_v.push(self.copy_bit(*inx, gen).unwrap());
+            extended_v.push(self.copy_bit(*inx).unwrap());
         }
         // get the zero bits
         for _ in inxs.len()..new_w {
@@ -287,7 +287,7 @@ impl PermDag {
             Lut {
                 bits: lut_layer.clone(),
                 perm,
-                visit: gen,
+                visit: self.visit_gen,
                 bit_rc: 0,
             }
         });

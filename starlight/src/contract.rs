@@ -1,12 +1,44 @@
 use triple_arena::Link;
 
-use crate::{Bit, PBit, PermDag};
+use crate::{PBit, PermDag};
 
 impl PermDag {
     /// Performs some basic simplification on `self` without invalidating noted
     /// bits. Should be run after `eval` has been run.
     pub fn contract(&mut self) {
-        let mut bit_states: Vec<PBit> = self.bits.ptrs().collect();
+        // acquire all leaf bits
+        let mut front = vec![];
+        for (p_bit, bit) in &self.bits {
+            if Link::next(bit).is_none() {
+                front.push(p_bit);
+            }
+        }
+
+        // first cull unused leafward parts as much as possible
+        for bit in front {
+            let mut bit = bit;
+            loop {
+                let link = &self.bits[bit];
+                if (link.rc == 0) && link.lut.is_none() {
+                    if let Some(next_bit) = Link::prev(link) {
+                        self.bits.remove(bit).unwrap();
+                        bit = next_bit;
+                    } else {
+                        self.bits.remove(bit).unwrap();
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
+        }
+
+        let bit_states: Vec<PBit> = self.bits.ptrs().collect();
+
+        // this will be used to track if LUTs can be eliminated
+        for lut in self.luts.vals_mut() {
+            lut.bit_rc = lut.bits.len();
+        }
 
         for bit in &bit_states {
             if self.bits[bit].rc == 0 {

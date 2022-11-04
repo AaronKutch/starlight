@@ -130,8 +130,8 @@ impl PermDag {
             }
         }
 
-        let this_visit = self.visit_gen;
         self.visit_gen += 1;
+        let this_visit = self.visit_gen;
 
         while let Some(p_bit) = front.pop() {
             if let Some(p_lut) = self.bits[p_bit].lut {

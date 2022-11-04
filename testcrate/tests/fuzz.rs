@@ -76,13 +76,43 @@ impl Mem {
         for node in self.a.vals() {
             let (mut op_dag, res) = Dag::new(&[node.state()], &[node.state()]);
             res?;
+
+            let op_dag_ptrs = op_dag.ptrs();
+            // randomly replace literals with opaques, because lower_all_noted can evaluate
+            // and simplify
+            let mut replacements = vec![];
+            for p in op_dag_ptrs {
+                if let Op::Literal(lit) = op_dag[p].op.take() {
+                    if (self.rng.next_u32() & 1) == 0 {
+                        replacements.push((p, lit));
+                        op_dag[p].op = Op::Opaque(vec![]);
+                    } else {
+                        op_dag[p].op = Op::Literal(lit);
+                    }
+                }
+            }
+
             op_dag.lower_all_noted().unwrap();
+
             let (mut perm_dag, res) = PermDag::from_op_dag(&mut op_dag);
             let note_map = res?;
+
+            // restore literals and evaluate on both sides
+
+            for ((op_ptr, lit), note_ptr) in replacements.into_iter().zip(note_map.iter()) {
+                let len = perm_dag.notes[note_ptr].bits.len();
+                assert_eq!(lit.bw(), len);
+                for i in 0..len {
+                    perm_dag.bits[perm_dag.notes[note_ptr].bits[i]].state =
+                        Some(lit.get(i).unwrap());
+                }
+                op_dag[op_ptr].op = Op::Literal(lit);
+            }
 
             op_dag.eval_all_noted().unwrap();
             perm_dag.eval();
             perm_dag.verify_integrity().unwrap();
+
             for (i, p_note) in note_map.iter().enumerate() {
                 if let Op::Literal(ref lit) = op_dag[op_dag.noted[i].unwrap()].op {
                     let len = perm_dag.notes[p_note].bits.len();
