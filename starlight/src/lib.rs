@@ -1,6 +1,6 @@
 mod dag;
+mod lower;
 mod tnode;
-//mod lower;
 pub use dag::*;
 pub use tnode::*;
 //#[cfg(feature = "debug")]

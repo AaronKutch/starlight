@@ -1,4 +1,4 @@
-use std::{cmp::max, collections::HashMap, num::NonZeroUsize};
+use std::{collections::HashMap, num::NonZeroUsize};
 
 use awint::{
     awint_dag::{
@@ -6,13 +6,14 @@ use awint::{
         EvalError,
         Op::*,
     },
-    bw, extawi, inlawi, Bits, ExtAwi, InlAwi,
+    ExtAwi,
 };
-use triple_arena::{Arena, ChainArena};
+use smallvec::{smallvec, SmallVec};
+use triple_arena::{Arena, Ptr};
 
-use crate::{Bit, Lut, Note, PBit, PNote, Perm, TDag};
+use crate::{Note, PNote, TDag, TNode};
 
-impl TDag {
+impl<PTNode: Ptr> TDag<PTNode> {
     /// Constructs a directed acyclic graph of permutations from an
     /// `awint_dag::Dag`. `op_dag.noted` are translated as bits in lsb to msb
     /// order.
@@ -22,8 +23,7 @@ impl TDag {
     /// tools like `render_to_svg_file` can be used.
     pub fn from_op_dag(op_dag: &mut Dag) -> (Self, Result<Vec<PNote>, EvalError>) {
         let mut res = Self {
-            bits: ChainArena::new(),
-            luts: Arena::new(),
+            a: Arena::new(),
             visit_gen: 0,
             notes: Arena::new(),
         };
@@ -34,7 +34,7 @@ impl TDag {
     pub fn add_group(&mut self, op_dag: &mut Dag) -> Result<Vec<PNote>, EvalError> {
         op_dag.visit_gen += 1;
         let gen = op_dag.visit_gen;
-        let mut map = HashMap::<PNode, Vec<PBit>>::new();
+        let mut map = HashMap::<PNode, Vec<PTNode>>::new();
         // DFS
         let noted_len = op_dag.noted.len();
         for j in 0..noted_len {
@@ -52,11 +52,9 @@ impl TDag {
                             Literal(ref lit) => {
                                 let mut v = vec![];
                                 for i in 0..lit.bw() {
-                                    v.push(self.bits.insert_new(Bit {
-                                        lut: None,
-                                        state: Some(lit.get(i).unwrap()),
-                                        ..Default::default()
-                                    }));
+                                    let mut tnode = TNode::new(0);
+                                    tnode.val = Some(lit.get(i).unwrap());
+                                    v.push(self.a.insert(tnode));
                                 }
                                 map.insert(p, v);
                             }
@@ -64,11 +62,7 @@ impl TDag {
                                 let bw = op_dag.get_bw(p).get();
                                 let mut v = vec![];
                                 for _ in 0..bw {
-                                    v.push(self.bits.insert_new(Bit {
-                                        lut: None,
-                                        state: None,
-                                        ..Default::default()
-                                    }));
+                                    v.push(self.a.insert(TNode::new(0)));
                                 }
                                 map.insert(p, v);
                             }
@@ -88,13 +82,21 @@ impl TDag {
                                 let source_bits = &map[&x];
                                 let mut v = vec![];
                                 for bit in source_bits {
-                                    v.push(self.copy_bit(*bit).unwrap());
+                                    let mut tnode = TNode::new(0);
+                                    tnode.inp = smallvec!(*bit);
+                                    let p_new = self.a.insert(tnode);
+                                    self.a[bit].out.push(p_new);
+                                    v.push(p_new);
                                 }
                                 map.insert(p, v);
                             }
                             StaticGet([bits], inx) => {
                                 let bit = map[&bits][inx];
-                                map.insert(p, vec![self.copy_bit(bit).unwrap()]);
+                                let mut tnode = TNode::new(0);
+                                tnode.inp = smallvec!(bit);
+                                let p_new = self.a.insert(tnode);
+                                self.a[bit].out.push(p_new);
+                                map.insert(p, vec![p_new]);
                             }
                             StaticSet([bits, bit], inx) => {
                                 let bit = &map[&bit];
@@ -108,7 +110,32 @@ impl TDag {
                             }
                             StaticLut([inx], ref table) => {
                                 let inxs = &map[&inx];
-                                let v = self.permutize_lut(inxs, table).unwrap();
+                                let num_entries = 1 << inxs.len();
+                                assert_eq!(table.bw() % num_entries, 0);
+                                let out_bw = table.bw() / num_entries;
+                                let mut v = vec![];
+                                // convert from multiple out to single out bit lut
+                                for i_bit in 0..out_bw {
+                                    let mut tnode = TNode::new(0);
+                                    tnode.inp = SmallVec::from_slice(inxs);
+                                    let single_bit_table = if out_bw == 1 {
+                                        table.clone()
+                                    } else {
+                                        let mut awi =
+                                            ExtAwi::zero(NonZeroUsize::new(num_entries).unwrap());
+                                        for i in 0..num_entries {
+                                            awi.set(i, table.get((i * out_bw) + i_bit).unwrap())
+                                                .unwrap();
+                                        }
+                                        awi
+                                    };
+                                    tnode.lut = Some(single_bit_table);
+                                    let p_new = self.a.insert(tnode);
+                                    for inx in inxs {
+                                        self.a[inx].out.push(p_new);
+                                    }
+                                    v.push(p_new);
+                                }
                                 map.insert(p, v);
                             }
                             ref op => {
@@ -136,165 +163,12 @@ impl TDag {
         // handle the noted
         for noted in op_dag.noted.iter().flatten() {
             let mut note = vec![];
-            // TODO what guarantees do we give?
-            //if op_dag[note].op.is_opaque() {}
             for bit in &map[noted] {
-                self.bits[bit].rc += 1;
+                self.a[bit].rc += 1;
                 note.push(*bit);
             }
             note_map.push(self.notes.insert(Note { bits: note }));
         }
         Ok(note_map)
-    }
-
-    /// Copies the bit at `p` with a reversible permutation if needed
-    pub fn copy_bit(&mut self, p: PBit) -> Option<PBit> {
-        if !self.bits.contains(p) {
-            return None
-        }
-
-        if let Some(new) = self.bits.insert_end(p, Bit::default()) {
-            // this is the first copy, use the end of the chain directly
-            Some(new)
-        } else {
-            // need to do a reversible copy
-            /*
-            zc cc 'z' for zero, `c` for the copied bit
-            00|00
-            01|11
-            10|10
-            11|01
-            'c' is copied if 'z' is zero, and the lsb 'c' is always correct
-            */
-            let perm = Perm::from_raw(bw(2), extawi!(01_10_11_00));
-            let mut res = None;
-            self.luts.insert_with(|lut| {
-                // insert a handle for the bit preserving LUT to latch on to
-                let copy0 = self
-                    .bits
-                    .insert((Some(p), None), Bit {
-                        lut: Some(lut),
-                        state: None,
-                        ..Default::default()
-                    })
-                    .unwrap();
-
-                let zero = self.bits.insert_new(Bit {
-                    lut: Some(lut),
-                    state: Some(false),
-                    ..Default::default()
-                });
-                res = Some(zero);
-                Lut {
-                    bits: vec![copy0, zero],
-                    perm,
-                    visit: self.visit_gen,
-                    bit_rc: 0,
-                }
-            });
-
-            res
-        }
-    }
-
-    #[allow(clippy::needless_range_loop)]
-    pub fn permutize_lut(&mut self, inxs: &[PBit], table: &Bits) -> Option<Vec<PBit>> {
-        // TODO have some kind of upstream protection for this
-        assert!(inxs.len() <= 4);
-        let num_entries = 1 << inxs.len();
-        assert_eq!(table.bw() % num_entries, 0);
-        let original_out_bw = table.bw() / num_entries;
-        assert!(original_out_bw <= 4);
-        // if all entries are the same value then 2^8 is needed
-        let mut set = inlawi!(0u256);
-        /*
-        consider a case like:
-        ab|y
-        00|0
-        01|0
-        10|0
-        11|1
-        There are 3 entries of '0', which means we need at least ceil(lb(3)) = 2 zero bits to turn
-        this into a permutation:
-        zzab|  y
-        0000|000 // concatenate with an incrementing value unique to the existing bit patterns
-        0001|010
-        0010|100
-        0011|001
-        ... then after the original table is preserved iterate over remaining needed entries in
-        order, which tends to give a more ideal table
-        */
-        let mut entries = vec![0; num_entries];
-        // counts the number of occurances of an entry value
-        let mut integer_counts = vec![0; num_entries];
-        let mut inx = extawi!(zero: ..(inxs.len())).unwrap();
-        let mut tmp = extawi!(zero: ..(original_out_bw)).unwrap();
-        let mut max_count = 0;
-        for i in 0..num_entries {
-            inx.usize_assign(i);
-            tmp.lut_assign(table, &inx).unwrap();
-            let original_entry = tmp.to_usize();
-            let count = integer_counts[original_entry];
-            max_count = max(count, max_count);
-            let new_entry = original_entry | (count << original_out_bw);
-            set.set(new_entry, true).unwrap();
-            entries[i] = new_entry;
-            integer_counts[original_entry] = count + 1;
-        }
-        let extra_bits = (64 - max_count.leading_zeros()) as usize;
-        let new_w = extra_bits + original_out_bw;
-        let mut perm = Perm::ident(NonZeroUsize::new(new_w).unwrap()).unwrap();
-        let mut j = entries.len();
-        for (i, entry) in entries.into_iter().enumerate() {
-            perm.unstable_set(i, entry).unwrap();
-        }
-        // all the remaining garbage entries
-        for i in 0..(1 << new_w) {
-            if !set.get(i).unwrap() {
-                perm.unstable_set(j, i).unwrap();
-                j += 1;
-            }
-        }
-
-        let mut extended_v = vec![];
-        // get copies of all index bits
-        for inx in inxs {
-            extended_v.push(self.copy_bit(*inx).unwrap());
-        }
-        // get the zero bits
-        for _ in inxs.len()..new_w {
-            extended_v.push(self.bits.insert_new(Bit {
-                lut: None,
-                state: Some(false),
-                ..Default::default()
-            }));
-        }
-        // because this is the actual point where LUTs are inserted, we need an extra
-        // layer to make room for the lut specification
-        let mut lut_layer = vec![];
-        self.luts.insert_with(|lut| {
-            for bit in extended_v {
-                lut_layer.push(
-                    self.bits
-                        .insert((Some(bit), None), Bit {
-                            lut: Some(lut),
-                            state: None,
-                            ..Default::default()
-                        })
-                        .unwrap(),
-                );
-            }
-            Lut {
-                bits: lut_layer.clone(),
-                perm,
-                visit: self.visit_gen,
-                bit_rc: 0,
-            }
-        });
-        // only return the part of the layer for the original LUT output
-        for _ in original_out_bw..new_w {
-            lut_layer.pop();
-        }
-        Some(lut_layer)
     }
 }
