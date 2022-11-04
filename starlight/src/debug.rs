@@ -6,7 +6,7 @@ use awint::awint_dag::EvalError;
 use triple_arena::{ptr_struct, Arena, ChainArena, Link, Ptr};
 use triple_arena_render::{DebugNode, DebugNodeTrait};
 
-use crate::{Bit, Lut, PBit, PLut, PermDag};
+use crate::{Bit, Lut, PBit, PLut, TDag};
 
 #[derive(Debug)]
 enum BitOrLut<P: Ptr> {
@@ -57,7 +57,7 @@ impl<P: Ptr> DebugNodeTrait<P> for BitOrLut<P> {
     }
 }
 
-impl PermDag {
+impl TDag {
     pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
         ptr_struct!(Q);
         ChainArena::_check_invariants(&self.bits).unwrap();

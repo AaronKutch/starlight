@@ -1,8 +1,8 @@
 use triple_arena::Link;
 
-use crate::{PBit, PermDag};
+use crate::{PBit, TDag};
 
-impl PermDag {
+impl TDag {
     /// Performs some basic simplification on `self` without invalidating noted
     /// bits. Should be run after `eval` has been run.
     pub fn contract(&mut self) {

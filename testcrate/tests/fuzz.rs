@@ -9,7 +9,7 @@ use rand_xoshiro::{
     rand_core::{RngCore, SeedableRng},
     Xoshiro128StarStar,
 };
-use starlight::PermDag;
+use starlight::TDag;
 use triple_arena::{ptr_struct, Arena};
 
 #[cfg(debug_assertions)]
@@ -98,7 +98,7 @@ impl Mem {
                 op_dag.mark_noted(*op_ptr);
             }
 
-            let (mut perm_dag, res) = PermDag::from_op_dag(&mut op_dag);
+            let (mut perm_dag, res) = TDag::from_op_dag(&mut op_dag);
             let note_map = res?;
 
             // restore literals and evaluate on both sides

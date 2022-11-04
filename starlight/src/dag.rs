@@ -1,171 +1,127 @@
-use std::fmt;
-
 use awint::awint_dag::EvalError;
-use triple_arena::{Arena, ChainArena, Link};
+use triple_arena::{Arena, Ptr};
 
-use crate::{PBit, PLut, PNote, Perm};
-
-#[derive(Clone)]
-pub struct Bit {
-    /// Lookup table permutation that results in this bit
-    pub lut: Option<PLut>,
-    pub state: Option<bool>,
-    /// Reference count for keeping this `Bit`
-    pub rc: u64,
-    pub visit: u64,
-    /// Used in algorithms
-    pub tmp: Option<bool>,
-}
-
-impl fmt::Debug for Bit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            if let Some(b) = self.state {
-                if b {
-                    "1"
-                } else {
-                    "0"
-                }
-            } else {
-                "*"
-            },
-        )
-    }
-}
-
-impl Bit {
-    pub fn new() -> Self {
-        Self {
-            lut: None,
-            state: None,
-            rc: 0,
-            visit: 0,
-            tmp: None,
-        }
-    }
-}
-
-impl Default for Bit {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Lookup table permutation with extra information
-#[derive(Debug, Clone)]
-pub struct Lut {
-    /// This is in order of the index bits of the lookup table
-    pub bits: Vec<PBit>,
-    pub perm: Perm,
-    /// Used in algorithms to check for visitation
-    pub visit: u64,
-    /// Used in algorithms to track how many bits have been handled
-    pub bit_rc: usize,
-}
+use crate::{PNote, TNode};
 
 #[derive(Debug, Clone)]
-pub struct Note {
-    pub bits: Vec<PBit>,
+pub struct Note<PTNode: Ptr> {
+    pub bits: Vec<PTNode>,
 }
 
-/// A DAG made of only permutations
+/// A DAG made primarily of lookup tables
 #[derive(Debug, Clone)]
-pub struct PermDag {
-    /// In a permutation DAG, bits are never created or destroyed so there will
-    /// be a single linear chain of `Bit`s for each bit.
-    pub bits: ChainArena<PBit, Bit>,
-    /// The lookup tables
-    pub luts: Arena<PLut, Lut>,
+pub struct TDag<PTNode: Ptr> {
+    pub a: Arena<PTNode, TNode<PTNode>>,
     /// A kind of generation counter tracking the highest `visit` number
     pub visit_gen: u64,
-    pub notes: Arena<PNote, Note>,
+    pub notes: Arena<PNote, Note<PTNode>>,
 }
 
-impl PermDag {
+impl<PTNode: Ptr> TDag<PTNode> {
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
-        for bit in self.bits.vals() {
-            if let Some(lut) = bit.t.lut {
-                if !self.luts.contains(lut) {
-                    return Err(EvalError::OtherStr("broken `Ptr` from `Bit` to `Lut`"))
+        // return errors in order of most likely to be root cause
+        for node in self.a.vals() {
+            for x in &node.inp {
+                if !self.a.contains(*x) {
+                    return Err(EvalError::OtherStr("broken input `PTNode`"))
+                }
+            }
+            for y in &node.out {
+                if !self.a.contains(*y) {
+                    return Err(EvalError::OtherStr("broken output `PTNode`"))
                 }
             }
         }
-        for (p_lut, lut) in &self.luts {
-            for bit in &lut.bits {
-                if let Some(bit) = self.bits.get(*bit) {
-                    if bit.t.lut != Some(p_lut) {
-                        // we just checked for containment before
-                        return Err(EvalError::OtherStr(
-                            "broken `Ptr` correspondance between `Lut` and `Bit`",
-                        ))
+        // round trip
+        for (p_node, node) in &self.a {
+            for x in &node.inp {
+                let mut found = false;
+                for i in 0..self.a[x].out.len() {
+                    if self.a[x].out[i] == p_node {
+                        found = true;
+                        break
                     }
-                } else {
-                    return Err(EvalError::OtherStr("broken `Ptr` from `Lut` to `Bit`"))
                 }
+                if !found {
+                    return Err(EvalError::OtherStr(
+                        "failed round trip between inputs and outputs",
+                    ))
+                }
+            }
+        }
+        for node in self.a.vals() {
+            if let Some(ref lut) = node.lut {
+                if node.inp.is_empty() {
+                    return Err(EvalError::OtherStr("no inputs for lookup table"))
+                }
+                if !lut.bw().is_power_of_two() {
+                    return Err(EvalError::OtherStr(
+                        "lookup table is not a power of two in bitwidth",
+                    ))
+                }
+                if (lut.bw().trailing_zeros() as usize) != node.inp.len() {
+                    return Err(EvalError::OtherStr(
+                        "number of inputs does not correspond to lookup table size",
+                    ))
+                }
+            } else if node.inp.len() > 1 {
+                return Err(EvalError::OtherStr(
+                    "`TNode` with no lookup table has more than one input",
+                ))
             }
         }
         for note in self.notes.vals() {
             for bit in &note.bits {
-                if let Some(bit) = self.bits.get(*bit) {
+                if let Some(bit) = self.a.get(*bit) {
                     if bit.rc == 0 {
                         return Err(EvalError::OtherStr("reference count for noted bit is zero"))
                     }
                 } else {
-                    return Err(EvalError::OtherStr("broken `Ptr` in the noted bits"))
+                    return Err(EvalError::OtherStr("broken `PTNode` in the noted bits"))
                 }
             }
         }
         Ok(())
     }
 
-    /// Evaluates `self` as much as possible
-    pub fn eval(&mut self) {
-        // acquire all evaluatable root bits
-        let mut front = vec![];
-        for (p_bit, bit) in &self.bits {
-            if Link::prev(bit).is_none() && bit.state.is_some() {
-                front.push(p_bit);
-            }
-        }
+    // TODO this would be for trivial missed optimizations
+    //pub fn verify_canonical(&self)
 
+    // TODO need multiple variations of `eval`, one that assumes `lut` structure is
+    // not changed and avoids propogation if equal values are detected.
+
+    /// Evaluates `self` as much as possible. Uses only root `Some` bit values
+    /// in propogation.
+    pub fn eval(&mut self) {
         self.visit_gen += 1;
         let this_visit = self.visit_gen;
 
-        while let Some(p_bit) = front.pop() {
-            if let Some(p_lut) = self.bits[p_bit].lut {
-                let lut = &mut self.luts[p_lut];
-                let len = lut.bits.len();
-                if lut.visit < this_visit {
-                    // reset temporaries
-                    lut.bit_rc = len;
-                    lut.visit = this_visit;
+        // acquire root nodes with values
+        let mut front = vec![];
+        for (p_node, node) in &mut self.a {
+            if node.inp.is_empty() && node.val.is_some() {
+                node.visit = this_visit;
+                front.push(p_node);
+            }
+        }
+
+        while let Some(p_node) = front.pop() {
+            self.a[p_node].visit = this_visit;
+            if self.a[p_node].lut.is_some() {
+                // acquire LUT input
+                let mut inx = 0;
+                for i in 0..self.a[p_node].inp.len() {
+                    inx |= (self.a[self.a[p_node].inp[i]].val.unwrap() as usize) << i;
                 }
-                if self.bits[p_bit].tmp.is_some() {
-                    lut.bit_rc -= 1;
-                    if lut.bit_rc == 0 {
-                        // acquire LUT input
-                        let mut inx = 0;
-                        for i in 0..len {
-                            inx |= (self.bits[lut.bits[i]].tmp.unwrap() as usize) << i;
-                        }
-                        // evaluate
-                        let out = lut.perm.get(inx).unwrap();
-                        for i in 0..len {
-                            let state = Some(((out >> i) & 1) != 0);
-                            self.bits[lut.bits[i]].state = state;
-                            // propogate
-                            if let Some(p_next) = Link::next(&self.bits[lut.bits[i]]) {
-                                self.bits[p_next].tmp = state;
-                            }
-                        }
-                    }
+                // evaluate
+                let val = self.a[p_node].lut.as_ref().unwrap().get(inx).unwrap();
+                self.a[p_node].val = Some(val);
+            }
+            // propogate
+            for i in 0..self.a[p_node].out.len() {
+                if self.a[self.a[p_node].out[i]].visit < this_visit {
+                    front.push(p_node);
                 }
-            } else if let Some(p_next) = Link::next(&self.bits[p_bit]) {
-                // propogate state
-                self.bits[p_next].tmp = self.bits[p_bit].state;
-                front.push(p_next);
             }
         }
     }

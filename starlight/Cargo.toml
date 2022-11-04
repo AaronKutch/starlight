@@ -14,7 +14,7 @@ categories = []
 [dependencies]
 awint = { path = "../../awint/awint", features = ["rand_support", "dag"] }
 rand_xoshiro = { version = "0.6", default-features = false }
-smallvec = { version = "1.9", features = ["const_generics", "const_new", "union"] }
+smallvec = { version = "1.10", features = ["const_generics", "const_new", "union"] }
 triple_arena = "0.6"
 triple_arena_render = { version = "0.6", optional = true }
 

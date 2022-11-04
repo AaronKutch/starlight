@@ -10,9 +10,9 @@ use awint::{
 };
 use triple_arena::{Arena, ChainArena};
 
-use crate::{Bit, Lut, Note, PBit, PNote, Perm, PermDag};
+use crate::{Bit, Lut, Note, PBit, PNote, Perm, TDag};
 
-impl PermDag {
+impl TDag {
     /// Constructs a directed acyclic graph of permutations from an
     /// `awint_dag::Dag`. `op_dag.noted` are translated as bits in lsb to msb
     /// order.

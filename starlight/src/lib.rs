@@ -1,10 +1,11 @@
-mod perm;
-pub use perm::*;
 mod dag;
-mod lower;
+mod tnode;
+//mod lower;
 pub use dag::*;
-mod common;
-#[cfg(feature = "debug")]
-mod debug;
-pub use common::*;
-mod contract;
+pub use tnode::*;
+//#[cfg(feature = "debug")]
+//mod debug;
+//mod contract;
+use triple_arena::ptr_struct;
+
+ptr_struct!(PNote);
