@@ -82,24 +82,28 @@ impl Mem {
             // and simplify
             let mut replacements = vec![];
             for p in op_dag_ptrs {
-                if let Op::Literal(lit) = op_dag[p].op.take() {
-                    if (self.rng.next_u32() & 1) == 0 {
+                if op_dag[p].op.is_literal() && ((self.rng.next_u32() & 1) == 0) {
+                    if let Op::Literal(lit) = op_dag[p].op.take() {
                         replacements.push((p, lit));
                         op_dag[p].op = Op::Opaque(vec![]);
                     } else {
-                        op_dag[p].op = Op::Literal(lit);
+                        unreachable!()
                     }
                 }
             }
 
             op_dag.lower_all_noted().unwrap();
 
+            for (op_ptr, _) in replacements.iter() {
+                op_dag.mark_noted(*op_ptr);
+            }
+
             let (mut perm_dag, res) = PermDag::from_op_dag(&mut op_dag);
             let note_map = res?;
 
             // restore literals and evaluate on both sides
 
-            for ((op_ptr, lit), note_ptr) in replacements.into_iter().zip(note_map.iter()) {
+            for ((op_ptr, lit), note_ptr) in replacements.into_iter().zip(note_map.iter().skip(1)) {
                 let len = perm_dag.notes[note_ptr].bits.len();
                 assert_eq!(lit.bw(), len);
                 for i in 0..len {
@@ -113,18 +117,20 @@ impl Mem {
             perm_dag.eval();
             perm_dag.verify_integrity().unwrap();
 
-            for (i, p_note) in note_map.iter().enumerate() {
-                if let Op::Literal(ref lit) = op_dag[op_dag.noted[i].unwrap()].op {
-                    let len = perm_dag.notes[p_note].bits.len();
-                    for j in 0..len {
-                        assert_eq!(
-                            perm_dag.bits[perm_dag.notes[p_note].bits[j]].state.unwrap(),
-                            lit.get(j).unwrap()
-                        );
-                    }
-                } else {
-                    panic!();
+            let p_node = op_dag.noted[0].unwrap();
+            if let Op::Literal(ref lit) = op_dag[p_node].op {
+                let len = perm_dag.notes[note_map[0]].bits.len();
+                assert_eq!(lit.bw(), len);
+                for i in 0..len {
+                    assert_eq!(
+                        perm_dag.bits[perm_dag.notes[note_map[0]].bits[i]]
+                            .state
+                            .unwrap(),
+                        lit.get(i).unwrap()
+                    );
                 }
+            } else {
+                unreachable!();
             }
         }
         Ok(())
