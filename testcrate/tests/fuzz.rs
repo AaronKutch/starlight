@@ -9,7 +9,7 @@ use rand_xoshiro::{
     rand_core::{RngCore, SeedableRng},
     Xoshiro128StarStar,
 };
-use starlight::TDag;
+use starlight::{PTNode, TDag};
 use triple_arena::{ptr_struct, Arena};
 
 #[cfg(debug_assertions)]
@@ -98,7 +98,7 @@ impl Mem {
                 op_dag.mark_noted(*op_ptr);
             }
 
-            let (mut perm_dag, res) = TDag::from_op_dag(&mut op_dag);
+            let (mut perm_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
             let note_map = res?;
 
             // restore literals and evaluate on both sides
@@ -107,8 +107,7 @@ impl Mem {
                 let len = perm_dag.notes[note_ptr].bits.len();
                 assert_eq!(lit.bw(), len);
                 for i in 0..len {
-                    perm_dag.bits[perm_dag.notes[note_ptr].bits[i]].state =
-                        Some(lit.get(i).unwrap());
+                    perm_dag.a[perm_dag.notes[note_ptr].bits[i]].val = Some(lit.get(i).unwrap());
                 }
                 op_dag[op_ptr].op = Op::Literal(lit);
             }
@@ -123,9 +122,7 @@ impl Mem {
                 assert_eq!(lit.bw(), len);
                 for i in 0..len {
                     assert_eq!(
-                        perm_dag.bits[perm_dag.notes[note_map[0]].bits[i]]
-                            .state
-                            .unwrap(),
+                        perm_dag.a[perm_dag.notes[note_map[0]].bits[i]].val.unwrap(),
                         lit.get(i).unwrap()
                     );
                 }
