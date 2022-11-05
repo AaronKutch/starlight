@@ -6,3 +6,5 @@ members = [
 ]
 
 [patch.crates-io]
+triple_arena = { path = "../triple_arena/triple_arena" }
+triple_arena_render = { path = "../triple_arena/triple_arena_render", optional = true }

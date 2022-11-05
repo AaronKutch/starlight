@@ -13,10 +13,10 @@ use starlight::{PTNode, TDag};
 use triple_arena::{ptr_struct, Arena};
 
 #[cfg(debug_assertions)]
-const N: (usize, usize) = (30, 1000);
+const N: (usize, usize) = (30, 100);
 
 #[cfg(not(debug_assertions))]
-const N: (usize, usize) = (50, 10000);
+const N: (usize, usize) = (50, 1000);
 
 ptr_struct!(P0);
 
@@ -98,31 +98,46 @@ impl Mem {
                 op_dag.mark_noted(*op_ptr);
             }
 
-            let (mut perm_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
+            let (mut t_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
             let note_map = res?;
+
+            // t_dag
+            //     .render_to_svg_file(std::path::PathBuf::from("rendered0.svg".to_owned()))
+            //     .unwrap();
+
+            t_dag.verify_integrity().unwrap();
 
             // restore literals and evaluate on both sides
 
             for ((op_ptr, lit), note_ptr) in replacements.into_iter().zip(note_map.iter().skip(1)) {
-                let len = perm_dag.notes[note_ptr].bits.len();
+                let len = t_dag.notes[note_ptr].bits.len();
                 assert_eq!(lit.bw(), len);
                 for i in 0..len {
-                    perm_dag.a[perm_dag.notes[note_ptr].bits[i]].val = Some(lit.get(i).unwrap());
+                    t_dag.a[t_dag.notes[note_ptr].bits[i]].val = Some(lit.get(i).unwrap());
                 }
                 op_dag[op_ptr].op = Op::Literal(lit);
             }
 
+            // t_dag
+            //     .render_to_svg_file(std::path::PathBuf::from("rendered1.svg".to_owned()))
+            //     .unwrap();
+
             op_dag.eval_all_noted().unwrap();
-            perm_dag.eval();
-            perm_dag.verify_integrity().unwrap();
+            t_dag.eval();
+
+            // t_dag
+            //     .render_to_svg_file(std::path::PathBuf::from("rendered2.svg".to_owned()))
+            //     .unwrap();
+
+            t_dag.verify_integrity().unwrap();
 
             let p_node = op_dag.noted[0].unwrap();
             if let Op::Literal(ref lit) = op_dag[p_node].op {
-                let len = perm_dag.notes[note_map[0]].bits.len();
+                let len = t_dag.notes[note_map[0]].bits.len();
                 assert_eq!(lit.bw(), len);
                 for i in 0..len {
                     assert_eq!(
-                        perm_dag.a[perm_dag.notes[note_map[0]].bits[i]].val.unwrap(),
+                        t_dag.a[t_dag.notes[note_map[0]].bits[i]].val.unwrap(),
                         lit.get(i).unwrap()
                     );
                 }

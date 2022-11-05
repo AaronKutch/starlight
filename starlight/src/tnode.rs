@@ -14,6 +14,8 @@ pub struct TNode<P: Ptr> {
     pub lut: Option<ExtAwi>,
     /// The value of the output
     pub val: Option<bool>,
+    /// Used in evaluation to check if a lookup table has all needed inputs
+    pub inp_rc: u8,
     /// reference count
     pub rc: u64,
     /// visit number
@@ -27,6 +29,7 @@ impl<P: Ptr> TNode<P> {
             out: SmallVec::new(),
             lut: None,
             val: None,
+            inp_rc: 0,
             rc: 0,
             visit,
         }

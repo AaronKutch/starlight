@@ -99,8 +99,9 @@ impl<PTNode: Ptr> TDag<PTNode> {
         // acquire root nodes with values
         let mut front = vec![];
         for (p_node, node) in &mut self.a {
-            if node.inp.is_empty() && node.val.is_some() {
-                node.visit = this_visit;
+            let len = node.inp.len() as u8;
+            node.inp_rc = len;
+            if (len == 0) && node.val.is_some() {
                 front.push(p_node);
             }
         }
@@ -116,11 +117,25 @@ impl<PTNode: Ptr> TDag<PTNode> {
                 // evaluate
                 let val = self.a[p_node].lut.as_ref().unwrap().get(inx).unwrap();
                 self.a[p_node].val = Some(val);
+            } else if !self.a[p_node].inp.is_empty() {
+                // wire propogation
+                self.a[p_node].val = self.a[self.a[p_node].inp[0]].val;
             }
+            if self.a[p_node].val.is_none() {
+                // val not updated
+                continue
+            }
+
             // propogate
             for i in 0..self.a[p_node].out.len() {
-                if self.a[self.a[p_node].out[i]].visit < this_visit {
-                    front.push(p_node);
+                let leaf = self.a[p_node].out[i];
+                if self.a[leaf].visit < this_visit {
+                    if self.a[leaf].inp_rc > 0 {
+                        self.a[leaf].inp_rc -= 1;
+                    }
+                    if self.a[leaf].inp_rc == 0 {
+                        front.push(self.a[p_node].out[i]);
+                    }
                 }
             }
         }
