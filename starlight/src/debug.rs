@@ -20,7 +20,7 @@ impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
                         Some(false) => "0",
                         Some(true) => "1",
                     },
-                    this.inp_rc,
+                    this.alg_rc,
                     this.rc,
                     this.visit,
                 ),

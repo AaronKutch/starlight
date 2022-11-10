@@ -14,8 +14,8 @@ pub struct TNode<P: Ptr> {
     pub lut: Option<ExtAwi>,
     /// The value of the output
     pub val: Option<bool>,
-    /// Used in evaluation to check if a lookup table has all needed inputs
-    pub inp_rc: u8,
+    /// Used in algorithms
+    pub alg_rc: u64,
     /// reference count
     pub rc: u64,
     /// visit number
@@ -29,9 +29,28 @@ impl<P: Ptr> TNode<P> {
             out: SmallVec::new(),
             lut: None,
             val: None,
-            inp_rc: 0,
+            alg_rc: 0,
             rc: 0,
             visit,
         }
+    }
+
+    #[must_use]
+    pub fn inc_rc(&mut self) -> Option<()> {
+        self.rc = self.rc.checked_add(1)?;
+        Some(())
+    }
+
+    #[must_use]
+    pub fn dec_rc(&mut self) -> Option<()> {
+        self.rc = self.rc.checked_sub(1)?;
+        Some(())
+    }
+
+    /// Returns `true` if decremented to zero
+    #[must_use]
+    pub fn dec_alg_rc(&mut self) -> Option<bool> {
+        self.alg_rc = self.alg_rc.checked_sub(1)?;
+        Some(self.alg_rc == 0)
     }
 }

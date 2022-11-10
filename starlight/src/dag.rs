@@ -99,8 +99,8 @@ impl<PTNode: Ptr> TDag<PTNode> {
         // acquire root nodes with values
         let mut front = vec![];
         for (p_node, node) in &mut self.a {
-            let len = node.inp.len() as u8;
-            node.inp_rc = len;
+            let len = node.inp.len() as u64;
+            node.alg_rc = len;
             if (len == 0) && node.val.is_some() {
                 front.push(p_node);
             }
@@ -130,10 +130,10 @@ impl<PTNode: Ptr> TDag<PTNode> {
             for i in 0..self.a[p_node].out.len() {
                 let leaf = self.a[p_node].out[i];
                 if self.a[leaf].visit < this_visit {
-                    if self.a[leaf].inp_rc > 0 {
-                        self.a[leaf].inp_rc -= 1;
+                    if self.a[leaf].alg_rc > 0 {
+                        self.a[leaf].alg_rc -= 1;
                     }
-                    if self.a[leaf].inp_rc == 0 {
+                    if self.a[leaf].alg_rc == 0 {
                         front.push(self.a[p_node].out[i]);
                     }
                 }

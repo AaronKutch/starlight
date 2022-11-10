@@ -2,6 +2,7 @@ mod dag;
 #[cfg(feature = "debug")]
 mod debug;
 mod lower;
+mod simplify;
 mod tnode;
 pub use dag::*;
 pub use tnode::*;
