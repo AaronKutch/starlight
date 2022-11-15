@@ -98,7 +98,7 @@ impl Mem {
                 op_dag.mark_noted(*op_ptr);
             }
 
-            let (mut t_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
+            let (mut t_dag, res) = TDag::<PTNode>::from_op_dag_using_noted(&mut op_dag);
             let note_map = res?;
 
             // t_dag
@@ -180,7 +180,7 @@ impl Mem {
                 op_dag.mark_noted(*op_ptr);
             }
 
-            let (mut t_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
+            let (mut t_dag, res) = TDag::<PTNode>::from_op_dag_using_noted(&mut op_dag);
             let note_map = res?;
 
             // Perform basic simplification before substitution. Opaques already have

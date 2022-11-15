@@ -5,7 +5,7 @@ use std::{
 };
 
 use awint::{
-    awint_dag::{Lineage, PState},
+    awint_dag::{dag, Lineage, PState},
     dag_prelude::{Bits, ExtAwi, InlAwi},
 };
 
@@ -112,11 +112,12 @@ impl Net {
         self.ports.get_mut(i).map(|x| x.as_mut())
     }
 
-    /// Drives all the ports with the `inx`th port.
+    /// Drives all the ports with the `inx`th port. Note that `inx` can be from
+    /// a `dag::usize`.
     ///
     /// If `inx` is out of range, the zeroeth port is driven (or nothing is
     /// driven at all if there are no ports on the net)
-    pub fn drive(self, inx: usize) -> LoopHandle {
+    pub fn drive(self, inx: impl Into<dag::usize>) -> LoopHandle {
         // zero the index if it is out of range
         let mut inx = InlAwi::from_usize(inx);
         let ge = inx.uge(&InlAwi::from_usize(self.ports.len())).unwrap();
