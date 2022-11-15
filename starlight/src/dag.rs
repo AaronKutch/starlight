@@ -18,6 +18,14 @@ pub struct TDag<PTNode: Ptr> {
 }
 
 impl<PTNode: Ptr> TDag<PTNode> {
+    pub fn new() -> Self {
+        Self {
+            a: Arena::new(),
+            visit_gen: 0,
+            notes: Arena::new(),
+        }
+    }
+
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
         // return errors in order of most likely to be root cause
         for node in self.a.vals() {

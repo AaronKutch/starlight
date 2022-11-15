@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 
 use awint::{
     awi,
-    awint_dag::{Dag, EvalError, Lineage, Op, StateEpoch},
+    awint_dag::{EvalError, Lineage, Op, OpDag, StateEpoch},
     dag,
 };
 use rand_xoshiro::{
@@ -74,7 +74,7 @@ impl Mem {
 
     pub fn verify_equivalence(&mut self) -> Result<(), EvalError> {
         for node in self.a.vals() {
-            let (mut op_dag, res) = Dag::new(&[node.state()], &[node.state()]);
+            let (mut op_dag, res) = OpDag::new(&[node.state()], &[node.state()]);
             res?;
 
             let op_dag_ptrs = op_dag.ptrs();
@@ -156,7 +156,7 @@ impl Mem {
 
     pub fn verify_equivalence_basic_simplify(&mut self) -> Result<(), EvalError> {
         for node in self.a.vals() {
-            let (mut op_dag, res) = Dag::new(&[node.state()], &[node.state()]);
+            let (mut op_dag, res) = OpDag::new(&[node.state()], &[node.state()]);
             res?;
 
             let op_dag_ptrs = op_dag.ptrs();

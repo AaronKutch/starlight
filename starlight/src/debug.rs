@@ -6,6 +6,7 @@ use triple_arena_render::{DebugNode, DebugNodeTrait};
 
 use crate::{TDag, TNode};
 
+#[cfg(not(feature = "debug_min"))]
 impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
     fn debug_node(p_this: P, this: &Self) -> DebugNode<P> {
         DebugNode {
@@ -24,9 +25,29 @@ impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
                     this.rc,
                     this.visit,
                 ),
-                //format!("{:?}", this),
+                format!("{:?}", this.loopback),
             ],
-            sinks: vec![], //this.out.iter().map(|p| (*p, String::new())).collect(),
+            sinks: vec![],
+        }
+    }
+}
+
+#[cfg(feature = "debug_min")]
+impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
+    fn debug_node(_p_this: P, this: &Self) -> DebugNode<P> {
+        DebugNode {
+            sources: this.inp.iter().map(|p| (*p, String::new())).collect(),
+            center: {
+                let mut v = vec![];
+                if let Some(ref lut) = this.lut {
+                    v.push(format!("{:?}", lut));
+                }
+                if let Some(loopback) = this.loopback {
+                    v.push(format!("->{:?}", loopback));
+                }
+                v
+            },
+            sinks: vec![],
         }
     }
 }

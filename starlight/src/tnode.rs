@@ -14,6 +14,9 @@ pub struct TNode<P: Ptr> {
     pub lut: Option<ExtAwi>,
     /// The value of the output
     pub val: Option<bool>,
+    /// If the value toroidally loops back to a root
+    pub loopback: Option<P>,
+    pub is_loopback_driven: bool,
     /// Used in algorithms
     pub alg_rc: u64,
     /// reference count
@@ -29,6 +32,8 @@ impl<P: Ptr> TNode<P> {
             out: SmallVec::new(),
             lut: None,
             val: None,
+            loopback: None,
+            is_loopback_driven: false,
             alg_rc: 0,
             rc: 0,
             visit,

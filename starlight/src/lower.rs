@@ -2,7 +2,7 @@ use std::{collections::HashMap, num::NonZeroUsize};
 
 use awint::{
     awint_dag::{
-        lowering::{Dag, PNode},
+        lowering::{OpDag, PNode},
         EvalError,
         Op::*,
     },
@@ -15,23 +15,34 @@ use crate::{Note, PNote, TDag, TNode};
 
 impl<PTNode: Ptr> TDag<PTNode> {
     /// Constructs a directed acyclic graph of permutations from an
-    /// `awint_dag::Dag`. `op_dag.noted` are translated as bits in lsb to msb
+    /// `awint_dag::OpDag`. `op_dag.noted` are translated as bits in lsb to msb
     /// order.
     ///
     /// If an error occurs, the DAG (which may be in an unfinished or completely
     /// broken state) is still returned along with the error enum, so that debug
     /// tools like `render_to_svg_file` can be used.
-    pub fn from_op_dag(op_dag: &mut Dag) -> (Self, Result<Vec<PNote>, EvalError>) {
+    pub fn from_op_dag_using_noted(op_dag: &mut OpDag) -> (Self, Result<Vec<PNote>, EvalError>) {
         let mut res = Self {
             a: Arena::new(),
             visit_gen: 0,
             notes: Arena::new(),
         };
-        let err = res.add_group(op_dag);
+        let err = res.add_group_using_noted(op_dag);
         (res, err)
     }
 
-    pub fn add_group(&mut self, op_dag: &mut Dag) -> Result<Vec<PNote>, EvalError> {
+    pub fn add_group_using_noted(&mut self, op_dag: &mut OpDag) -> Result<Vec<PNote>, EvalError> {
+        #[cfg(debug_assertions)]
+        {
+            // this is in case users are triggering problems such as with epochs
+            let res = op_dag.verify_integrity();
+            if res.is_err() {
+                return Err(EvalError::OtherString(format!(
+                    "verification error adding `OpDag` group to `TDag`: {:?}",
+                    res
+                )))
+            }
+        }
         op_dag.visit_gen += 1;
         let gen = op_dag.visit_gen;
         let mut map = HashMap::<PNode, Vec<PTNode>>::new();
@@ -138,6 +149,31 @@ impl<PTNode: Ptr> TDag<PTNode> {
                                 }
                                 map.insert(p, v);
                             }
+                            Opaque(ref v) => {
+                                if v.len() == 2 {
+                                    // special case for `Loop`
+                                    let root = map[&v[0]].clone();
+                                    for bit in &root {
+                                        self.a[bit].is_loopback_driven = true;
+                                        // temporal optimizers can subtract one for themselves,
+                                        // other optimizers don't have to do extra tracking
+                                        self.a[bit].rc += 1;
+                                        self.a[bit].val = Some(false);
+                                    }
+                                    let driver = &map[&v[1]];
+                                    for (root_bit, driver_bit) in root.iter().zip(driver.iter()) {
+                                        self.a[driver_bit].loopback = Some(*root_bit);
+                                        self.a[driver_bit].rc += 1;
+                                    }
+                                    // map the handle to the root
+                                    map.insert(p, root);
+                                } else {
+                                    return Err(EvalError::OtherStr(
+                                        "cannot lower opaque with number of arguments not equal \
+                                         to 0 or 2",
+                                    ))
+                                }
+                            }
                             ref op => {
                                 return Err(EvalError::OtherString(format!("cannot lower {:?}", op)))
                             }
@@ -163,7 +199,7 @@ impl<PTNode: Ptr> TDag<PTNode> {
         // handle the noted
         for noted in op_dag.noted.iter().flatten() {
             let mut note = vec![];
-            for bit in &map[noted] {
+            for bit in &map[&noted] {
                 self.a[bit].inc_rc().unwrap();
                 note.push(*bit);
             }

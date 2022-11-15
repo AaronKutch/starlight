@@ -20,3 +20,4 @@ triple_arena_render = { version = "0.6", optional = true }
 
 [features]
 debug = ["triple_arena_render"]
+debug_min = ["debug"]
