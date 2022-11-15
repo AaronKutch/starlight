@@ -13,6 +13,7 @@ use awint::{
 /// [awint::awint_dag::Lineage] so that the whole DAG can be captured. In most
 /// cases, you will collect all the handles and add them to the `leaves`
 /// argument of [awint::awint_dag::OpDag::new]
+#[derive(Debug)]
 pub struct LoopHandle {
     // just use this for now to have the non-sendability
     awi: ExtAwi,
@@ -32,7 +33,7 @@ impl Lineage for LoopHandle {
 ///
 /// The fundamental reason for temporal asymmetry is that there needs to be a
 /// well defined initial evaluation node and value.
-#[derive(Debug, Clone)]
+#[derive(Debug)] // do not implement `Clone`
 pub struct Loop {
     awi: ExtAwi,
 }
@@ -88,6 +89,7 @@ impl AsRef<Bits> for Loop {
 /// that chooses one input to drive the outputs
 ///
 /// Implements `Index` and `IndexMut` for quick port access
+#[derive(Debug)]
 pub struct Net {
     driver: Loop,
     ports: Vec<ExtAwi>,
