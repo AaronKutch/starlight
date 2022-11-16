@@ -96,14 +96,34 @@ pub struct Net {
 }
 
 impl Net {
+    // we make it return `None` because it would drop the meaning of `bw` and the
+    // purpose of the `Loop`. `len: usize` to help with type distinction, and
+    // because almost always we have it in `usize` form
+
     /// Returns `None` if `n == 0`
-    pub fn zero(bw: NonZeroUsize, n: usize) -> Self {
+    pub fn zero(bw: NonZeroUsize, len: usize) -> Option<Self> {
+        if len == 0 {
+            return None
+        }
         let driver = Loop::zero(bw);
         let mut ports = vec![];
-        for _ in 0..n {
+        for _ in 0..len {
             ports.push(ExtAwi::from(driver.as_ref()));
         }
-        Self { driver, ports }
+        Some(Self { driver, ports })
+    }
+
+    /// Returns the number of ports
+    pub fn len(&self) -> usize {
+        self.ports.len()
+    }
+
+    pub fn nzbw(&self) -> NonZeroUsize {
+        self.ports[0].nzbw()
+    }
+
+    pub fn bw(&self) -> usize {
+        self.nzbw().get()
     }
 
     pub fn get(&self, i: usize) -> Option<&Bits> {
@@ -117,8 +137,7 @@ impl Net {
     /// Drives all the ports with the `inx`th port. Note that `inx` can be from
     /// a `dag::usize`.
     ///
-    /// If `inx` is out of range, the zeroeth port is driven (or nothing is
-    /// driven at all if there are no ports on the net)
+    /// If `inx` is out of range, the zeroeth port is driven
     pub fn drive(self, inx: impl Into<dag::usize>) -> LoopHandle {
         // zero the index if it is out of range
         let mut inx = InlAwi::from_usize(inx);
