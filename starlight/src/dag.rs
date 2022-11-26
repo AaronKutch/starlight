@@ -149,3 +149,9 @@ impl<PTNode: Ptr> TDag<PTNode> {
         }
     }
 }
+
+impl<PTNode: Ptr> Default for TDag<PTNode> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

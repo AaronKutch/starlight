@@ -85,8 +85,8 @@ impl AsRef<Bits> for Loop {
     }
 }
 
-/// A reconfigurable `Net` that has a number of inputs, outputs, and an index
-/// that chooses one input to drive the outputs
+/// A reconfigurable `Net` that has a number of inputs, outputs, and is driven
+/// by an possibly dynamic index that chooses one input to drive the outputs
 ///
 /// Implements `Index` and `IndexMut` for quick port access
 #[derive(Debug)]
@@ -96,28 +96,23 @@ pub struct Net {
 }
 
 impl Net {
-    // we make it return `None` because it would drop the meaning of `bw` and the
-    // purpose of the `Loop`. `len: usize` to help with type distinction, and
-    // because almost always we have it in `usize` form
-
-    /// Returns `None` if `n == 0`
-    pub fn zero(bw: NonZeroUsize, len: usize) -> Option<Self> {
-        if len == 0 {
-            return None
+    pub fn zero(bw: NonZeroUsize) -> Self {
+        Self {
+            driver: Loop::zero(bw),
+            ports: vec![],
         }
-        let driver = Loop::zero(bw);
-        let mut ports = vec![];
-        for _ in 0..len {
-            ports.push(ExtAwi::from(driver.as_ref()));
-        }
-        Some(Self { driver, ports })
     }
 
-    /// Returns the number of ports
+    /// Returns the current number of ports
     pub fn len(&self) -> usize {
         self.ports.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.ports.is_empty()
+    }
+
+    /// Returns the bitwidth of the ports
     pub fn nzbw(&self) -> NonZeroUsize {
         self.ports[0].nzbw()
     }
@@ -126,6 +121,14 @@ impl Net {
         self.nzbw().get()
     }
 
+    /// Pushes on a new port that is initialized to a zero value, and returns a
+    /// mutable reference to that value.
+    pub fn push_zero(&mut self) -> &mut Bits {
+        self.ports.push(ExtAwi::from(self.driver.as_ref()));
+        self.ports.last_mut().unwrap()
+    }
+
+    /// Returns a reference to the `i`th port
     pub fn get(&self, i: usize) -> Option<&Bits> {
         self.ports.get(i).map(|x| x.as_ref())
     }
@@ -135,19 +138,26 @@ impl Net {
     }
 
     /// Drives all the ports with the `inx`th port. Note that `inx` can be from
-    /// a `dag::usize`.
+    /// a dynamic `dag::usize`.
     ///
-    /// If `inx` is out of range, the zeroeth port is driven
-    pub fn drive(self, inx: impl Into<dag::usize>) -> LoopHandle {
+    /// If `inx` is out of range, the zeroeth port is driven. If `self.len()` is
+    /// 0, the `LoopHandle` points to a zeroed loop driving itself.
+    pub fn drive(mut self, inx: impl Into<dag::usize>) -> LoopHandle {
+        // I feel like there is no need to return a `None`, nothing has been read or
+        // written
+        if self.is_empty() {
+            self.push_zero();
+        }
+
         // zero the index if it is out of range
         let mut inx = InlAwi::from_usize(inx);
-        let ge = inx.uge(&InlAwi::from_usize(self.ports.len())).unwrap();
+        let ge = inx.uge(&InlAwi::from_usize(self.len())).unwrap();
         inx.mux_assign(&InlAwi::from_usize(0), ge).unwrap();
 
-        let mut selector = ExtAwi::uone(NonZeroUsize::new(self.ports.len()).unwrap());
+        let mut selector = ExtAwi::uone(NonZeroUsize::new(self.len()).unwrap());
         selector.shl_assign(inx.to_usize()).unwrap();
         let mut tmp = ExtAwi::zero(self.ports[0].nzbw());
-        for i in 0..self.ports.len() {
+        for i in 0..self.len() {
             tmp.mux_assign(&self[i], selector.get(i).unwrap()).unwrap();
         }
         self.driver.drive(&tmp).unwrap()

@@ -199,7 +199,7 @@ impl<PTNode: Ptr> TDag<PTNode> {
         // handle the noted
         for noted in op_dag.noted.iter().flatten() {
             let mut note = vec![];
-            for bit in &map[&noted] {
+            for bit in &map[noted] {
                 self.a[bit].inc_rc().unwrap();
                 note.push(*bit);
             }
