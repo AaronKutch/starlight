@@ -57,7 +57,7 @@ impl Loop {
         if self.awi.bw() != driver.bw() {
             None
         } else {
-            self.awi.opaque_assign_with(&[driver]);
+            self.awi.opaque_with_(&[driver]);
             Some(LoopHandle { awi: self.awi })
         }
     }
@@ -141,24 +141,25 @@ impl Net {
     /// a dynamic `dag::usize`.
     ///
     /// If `inx` is out of range, the zeroeth port is driven. If `self.len()` is
-    /// 0, the `LoopHandle` points to a zeroed loop driving itself.
+    /// 0, the `LoopHandle` points to an opaque loop driving itself.
     pub fn drive(mut self, inx: impl Into<dag::usize>) -> LoopHandle {
         // I feel like there is no need to return a `None`, nothing has been read or
         // written
         if self.is_empty() {
+            // TODO make opaque
             self.push_zero();
         }
 
         // zero the index if it is out of range
         let mut inx = InlAwi::from_usize(inx);
         let ge = inx.uge(&InlAwi::from_usize(self.len())).unwrap();
-        inx.mux_assign(&InlAwi::from_usize(0), ge).unwrap();
+        inx.mux_(&InlAwi::from_usize(0), ge).unwrap();
 
         let mut selector = ExtAwi::uone(NonZeroUsize::new(self.len()).unwrap());
-        selector.shl_assign(inx.to_usize()).unwrap();
+        selector.shl_(inx.to_usize()).unwrap();
         let mut tmp = ExtAwi::zero(self.ports[0].nzbw());
         for i in 0..self.len() {
-            tmp.mux_assign(&self[i], selector.get(i).unwrap()).unwrap();
+            tmp.mux_(&self[i], selector.get(i).unwrap()).unwrap();
         }
         self.driver.drive(&tmp).unwrap()
     }

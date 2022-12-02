@@ -56,7 +56,7 @@ impl Mem {
             self.v[w][(self.rng.next_u32() as usize) % self.v[w].len()]
         } else {
             let mut lit = awi::ExtAwi::zero(NonZeroUsize::new(w).unwrap());
-            lit.rand_assign_using(&mut self.rng).unwrap();
+            lit.rand_(&mut self.rng).unwrap();
             let p = self.a.insert(dag::ExtAwi::from(lit.as_ref()));
             self.v[w].push(p);
             p
@@ -77,11 +77,14 @@ impl Mem {
             let (mut op_dag, res) = OpDag::new(&[node.state()], &[node.state()]);
             res?;
 
-            let op_dag_ptrs = op_dag.ptrs();
             // randomly replace literals with opaques, because lower_all_noted can evaluate
             // and simplify
             let mut replacements = vec![];
-            for p in op_dag_ptrs {
+            let (mut p, mut b) = op_dag.a.first_ptr();
+            loop {
+                if b {
+                    break
+                }
                 if op_dag[p].op.is_literal() && ((self.rng.next_u32() & 1) == 0) {
                     if let Op::Literal(lit) = op_dag[p].op.take() {
                         replacements.push((p, lit));
@@ -90,6 +93,7 @@ impl Mem {
                         unreachable!()
                     }
                 }
+                op_dag.a.next_ptr(&mut p, &mut b);
             }
 
             op_dag.lower_all_noted().unwrap();
@@ -159,11 +163,14 @@ impl Mem {
             let (mut op_dag, res) = OpDag::new(&[node.state()], &[node.state()]);
             res?;
 
-            let op_dag_ptrs = op_dag.ptrs();
             // randomly replace literals with opaques, because lower_all_noted can evaluate
             // and simplify
             let mut replacements = vec![];
-            for p in op_dag_ptrs {
+            let (mut p, mut b) = op_dag.a.first_ptr();
+            loop {
+                if b {
+                    break
+                }
                 if op_dag[p].op.is_literal() && ((self.rng.next_u32() & 1) == 0) {
                     if let Op::Literal(lit) = op_dag[p].op.take() {
                         replacements.push((p, lit));
@@ -172,6 +179,7 @@ impl Mem {
                         unreachable!()
                     }
                 }
+                op_dag.a.next_ptr(&mut p, &mut b);
             }
 
             op_dag.lower_all_noted().unwrap();
@@ -245,7 +253,7 @@ fn op_perm_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
             let to = m.next(w);
             if to != from {
                 let (to, from) = m.a.get2_mut(to, from).unwrap();
-                to.copy_assign(from).unwrap();
+                to.copy_(from).unwrap();
             }
         }
         // Get-Set
@@ -262,7 +270,7 @@ fn op_perm_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
             let lut = m.next(out_w * (1 << inx_w));
             let lut_a = m.get_op(lut);
             let inx_a = m.get_op(inx);
-            m.a[out].lut_assign(&lut_a, &inx_a).unwrap();
+            m.a[out].lut_(&lut_a, &inx_a).unwrap();
         }
         _ => unreachable!(),
     }
