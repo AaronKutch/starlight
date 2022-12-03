@@ -180,16 +180,21 @@ impl Net {
         let gt = inx.ugt(&last).unwrap();
         inx.mux_(&last, gt).unwrap();
 
-        // TODO need an optimized selector from `awint_dag`
+        // TODO need an optimized onehot selector from `awint_dag`
         let mut selector = ExtAwi::uone(NonZeroUsize::new(self.len()).unwrap());
         selector.shl_(inx.to_usize()).unwrap();
         let mut tmp = ExtAwi::zero(self.nzbw());
         for i in 0..self.len() {
-            tmp.mux_(&self.get_mut(i).unwrap(), selector.get(i).unwrap())
+            tmp.mux_(self.get_mut(i).unwrap(), selector.get(i).unwrap())
                 .unwrap();
         }
         self.driver.drive(&tmp).unwrap()
     }
+
+    // TODO we can do this
+    // Drives with a one-hot vector of selectors.
+    //pub fn drive_priority(mut self, inx: impl Into<dag::usize>) -> LoopHandle {
+    //pub fn drive_onehot(mut self, onehot)
 }
 
 impl Deref for Net {
