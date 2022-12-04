@@ -46,17 +46,20 @@ impl Loop {
     // TODO pub fn opaque() umax(), etc
 
     /// Returns the bitwidth of `self` as a `NonZeroUsize`
+    #[must_use]
     pub fn nzbw(&self) -> NonZeroUsize {
         self.awi.nzbw()
     }
 
     /// Returns the bitwidth of `self` as a `usize`
+    #[must_use]
     pub fn bw(&self) -> usize {
         self.awi.bw()
     }
 
     /// Get the driven value. This can conveniently be obtained by the `Deref`,
     /// `Borrow<Bits>`, and `AsRef<Bits>` impls on `Loop`.
+    #[must_use]
     pub fn get(&self) -> &Bits {
         &self.awi
     }
@@ -64,6 +67,7 @@ impl Loop {
     /// Consumes `self`, looping back with the value of `driver` to change the
     /// `Loop`s temporal value in a iterative temporal evaluation. Returns a
     /// `LoopHandle`. Returns `None` if `self.bw() != driver.bw()`.
+    #[must_use]
     pub fn drive(mut self, driver: &Bits) -> Option<LoopHandle> {
         // TODO use id from `awi`, for now since there are only `Loops` we denote a loop
         // with a double input `Opaque`
@@ -122,21 +126,25 @@ impl Net {
     }
 
     /// Returns the current number of ports
+    #[must_use]
     pub fn len(&self) -> usize {
         self.ports.len()
     }
 
     /// Returns if there are no ports on this `Net`
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.ports.is_empty()
     }
 
     /// Returns the bitwidth of `self` as a `NonZeroUsize`
+    #[must_use]
     pub fn nzbw(&self) -> NonZeroUsize {
         self.driver.nzbw()
     }
 
     /// Returns the bitwidth of `self` as a `usize`
+    #[must_use]
     pub fn bw(&self) -> usize {
         self.driver.bw()
     }
@@ -154,13 +162,28 @@ impl Net {
 
     /// Get the temporal value. This can conveniently be obtained by the
     /// `Deref`, `Borrow<Bits>`, and `AsRef<Bits>` impls on `Net`.
+    #[must_use]
     pub fn get(&self) -> &Bits {
         &self.driver
     }
 
     /// Gets the port at index `i`. Returns `None` if `i >= self.len()`.
+    #[must_use]
     pub fn get_mut(&mut self, i: usize) -> Option<&mut Bits> {
         self.ports.get_mut(i).map(|x| x.as_mut())
+    }
+
+    /// Adds a port to `self` and `other` that use each other's temporal values
+    /// as inputs. Returns `None` if bitwidths mismatch
+    #[must_use]
+    pub fn exchange(&mut self, rhs: &mut Self) -> Option<()> {
+        if self.bw() != rhs.bw() {
+            None
+        } else {
+            self.ports.push(ExtAwi::from(rhs.get()));
+            rhs.ports.push(ExtAwi::from(self.get()));
+            Some(())
+        }
     }
 
     /// Drives with the value of the `inx`th port. Note that `inx` can be from
@@ -169,6 +192,7 @@ impl Net {
     /// If `inx` is out of range, the initial value is driven (and _not_ the
     /// current temporal value). If `self.is_empty()`, the `LoopHandle` points
     /// to a loop being driven with the initial value.
+    #[must_use]
     pub fn drive(mut self, inx: impl Into<dag::usize>) -> LoopHandle {
         let last = InlAwi::from_usize(self.len());
         // this elegantly handles the `self.is_empty()` case in addition to the out of
