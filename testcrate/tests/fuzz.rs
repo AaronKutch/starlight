@@ -1,16 +1,18 @@
 use std::num::NonZeroUsize;
 
-use awint::{
-    awi,
-    awint_dag::{EvalError, Lineage, Op, OpDag, StateEpoch},
-    dag,
-};
 use rand_xoshiro::{
     rand_core::{RngCore, SeedableRng},
     Xoshiro128StarStar,
 };
-use starlight::{PTNode, TDag};
-use triple_arena::{ptr_struct, Arena};
+use starlight::{
+    awint::{
+        awi,
+        awint_dag::{EvalError, Lineage, Op, OpDag, StateEpoch},
+        dag,
+    },
+    triple_arena::{ptr_struct, Arena},
+    PTNode, TDag,
+};
 
 #[cfg(debug_assertions)]
 const N: (usize, usize) = (30, 100);

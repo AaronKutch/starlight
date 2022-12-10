@@ -1,6 +1,7 @@
 use awint::ExtAwi;
 use smallvec::SmallVec;
-use triple_arena::Ptr;
+
+use crate::triple_arena::Ptr;
 
 /// A "table" node meant to evoke some kind of one-way table in a DAG.
 #[derive(Debug, Clone)]

@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
 use awint::awint_dag::EvalError;
-use triple_arena::Ptr;
-use triple_arena_render::{DebugNode, DebugNodeTrait};
 
-use crate::{TDag, TNode};
+use crate::{
+    triple_arena::Ptr,
+    triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
+    TDag, TNode,
+};
 
 #[cfg(not(feature = "debug_min"))]
 impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
@@ -55,7 +57,7 @@ impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
 impl<P: Ptr> TDag<P> {
     pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
         let res = self.verify_integrity();
-        triple_arena_render::render_to_svg_file(&self.a, false, out_file).unwrap();
+        render_to_svg_file(&self.a, false, out_file).unwrap();
         res
     }
 }

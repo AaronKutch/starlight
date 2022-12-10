@@ -2,9 +2,8 @@ use std::num::NonZeroUsize;
 
 use awint::ExtAwi;
 use smallvec::SmallVec;
-use triple_arena::Ptr;
 
-use crate::TDag;
+use crate::{triple_arena::Ptr, TDag};
 
 impl<PTNode: Ptr> TDag<PTNode> {
     /// Removes a node, cleaning up bidirectional references

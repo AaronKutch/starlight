@@ -9,9 +9,11 @@ use awint::{
     ExtAwi,
 };
 use smallvec::{smallvec, SmallVec};
-use triple_arena::{Arena, Ptr};
 
-use crate::{Note, PNote, TDag, TNode};
+use crate::{
+    triple_arena::{Arena, Ptr},
+    Note, PNote, TDag, TNode,
+};
 
 impl<PTNode: Ptr> TDag<PTNode> {
     /// Constructs a directed acyclic graph of permutations from an

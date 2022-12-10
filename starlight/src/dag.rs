@@ -1,7 +1,9 @@
 use awint::awint_dag::EvalError;
-use triple_arena::{Arena, Ptr};
 
-use crate::{PNote, TNode};
+use crate::{
+    triple_arena::{Arena, Ptr},
+    PNote, TNode,
+};
 
 #[derive(Debug, Clone)]
 pub struct Note<PTNode: Ptr> {

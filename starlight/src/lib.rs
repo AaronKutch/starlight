@@ -5,6 +5,9 @@ mod lower;
 mod simplify;
 mod tnode;
 mod toroidal;
+#[cfg(feature = "debug")]
+pub use awint::awint_dag::triple_arena_render;
+pub use awint::{self, awint_dag, awint_dag::triple_arena};
 pub use dag::*;
 pub use tnode::*;
 pub use toroidal::*;
