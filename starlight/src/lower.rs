@@ -198,13 +198,19 @@ impl<PTNode: Ptr> TDag<PTNode> {
         }
         let mut note_map = vec![];
         // handle the noted
-        for noted in op_dag.noted.iter().flatten() {
-            let mut note = vec![];
-            for bit in &map[noted] {
-                self.a[bit].inc_rc().unwrap();
-                note.push(*bit);
+        for noted in op_dag.noted.iter() {
+            if let Some(noted) = noted {
+                let mut note = vec![];
+                for bit in &map[noted] {
+                    self.a[bit].inc_rc().unwrap();
+                    note.push(*bit);
+                }
+                note_map.push(self.notes.insert(Note { bits: note }));
+            } else {
+                // need a better way to handle
+                panic!();
+                //note_map.push(self.notes.insert(Note { bits: vec![] }));
             }
-            note_map.push(self.notes.insert(Note { bits: note }));
         }
         self.mark_nonloop_roots_permanent();
         self.propogate_permanence();

@@ -1,4 +1,6 @@
-use awint::awint_dag::EvalError;
+use std::num::NonZeroUsize;
+
+use awint::{awint_dag::EvalError, ExtAwi};
 
 use crate::{
     triple_arena::{Arena, Ptr},
@@ -203,6 +205,15 @@ impl<PTNode: Ptr> TDag<PTNode> {
             }
             self.a.next_ptr(&mut p, &mut b);
         }
+    }
+
+    pub fn get_noted_as_extawi(&self, p_note: PNote) -> ExtAwi {
+        let note = &self.notes[p_note];
+        let mut x = ExtAwi::zero(NonZeroUsize::new(note.bits.len()).unwrap());
+        for (i, bit) in note.bits.iter().enumerate() {
+            x.set(i, self.a[bit].val.unwrap()).unwrap();
+        }
+        x
     }
 }
 
