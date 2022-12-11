@@ -13,22 +13,28 @@ impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
     fn debug_node(p_this: P, this: &Self) -> DebugNode<P> {
         DebugNode {
             sources: this.inp.iter().map(|p| (*p, String::new())).collect(),
-            center: vec![
-                format!("{:?}", p_this),
-                format!("{:?}", this.lut),
-                format!(
-                    "{} {} {} {}",
-                    match this.val {
-                        None => "*",
-                        Some(false) => "0",
-                        Some(true) => "1",
-                    },
-                    this.alg_rc,
-                    this.rc,
-                    this.visit,
-                ),
-                format!("{:?}", this.loopback),
-            ],
+            center: {
+                let mut v = vec![format!("{:?}", p_this)];
+                if let Some(ref lut) = this.lut {
+                    v.push(format!("{:?}", lut));
+                }
+                v.push(format!(
+                    "a_rc:{} rc:{} vis:{}",
+                    this.alg_rc, this.rc, this.visit,
+                ));
+                match this.val {
+                    None => v.push("*".to_string()),
+                    Some(false) => v.push("0".to_string()),
+                    Some(true) => v.push("1".to_string()),
+                }
+                if let Some(loopback) = this.loopback {
+                    v.push(format!("->{:?}", loopback));
+                }
+                if this.is_loopback_driven {
+                    v.push("loopback driven".to_string())
+                }
+                v
+            },
             sinks: vec![],
         }
     }
@@ -43,6 +49,11 @@ impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
                 let mut v = vec![];
                 if let Some(ref lut) = this.lut {
                     v.push(format!("{:?}", lut));
+                }
+                match this.val {
+                    None => (),
+                    Some(false) => v.push("0".to_string()),
+                    Some(true) => v.push("1".to_string()),
                 }
                 if let Some(loopback) = this.loopback {
                     v.push(format!("->{:?}", loopback));
