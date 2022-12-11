@@ -94,6 +94,47 @@ impl<PTNode: Ptr> TDag<PTNode> {
         Ok(())
     }
 
+    pub fn mark_nonloop_roots_permanent(&mut self) {
+        for node in self.a.vals_mut() {
+            if node.inp.is_empty() && node.loop_driver.is_none() {
+                node.is_permanent = true;
+            }
+        }
+    }
+
+    pub fn propogate_permanence(&mut self) {
+        self.visit_gen += 1;
+        let this_visit = self.visit_gen;
+
+        // acquire root nodes with permanence
+        let mut front = vec![];
+        for (p_node, node) in &mut self.a {
+            let len = node.inp.len() as u64;
+            node.alg_rc = len;
+            if (len == 0) && node.is_permanent {
+                front.push(p_node);
+            }
+        }
+
+        while let Some(p_node) = front.pop() {
+            self.a[p_node].visit = this_visit;
+
+            // propogate
+            for i in 0..self.a[p_node].out.len() {
+                let leaf = self.a[p_node].out[i];
+                if self.a[leaf].visit < this_visit {
+                    if self.a[leaf].alg_rc > 0 {
+                        self.a[leaf].alg_rc -= 1;
+                    }
+                    if self.a[leaf].alg_rc == 0 {
+                        self.a[leaf].is_permanent = true;
+                        front.push(leaf);
+                    }
+                }
+            }
+        }
+    }
+
     // TODO this would be for trivial missed optimizations
     //pub fn verify_canonical(&self)
 
@@ -144,10 +185,23 @@ impl<PTNode: Ptr> TDag<PTNode> {
                         self.a[leaf].alg_rc -= 1;
                     }
                     if self.a[leaf].alg_rc == 0 {
-                        front.push(self.a[p_node].out[i]);
+                        front.push(leaf);
                     }
                 }
             }
+        }
+    }
+
+    pub fn drive_loops(&mut self) {
+        let (mut p, mut b) = self.a.first_ptr();
+        loop {
+            if b {
+                break
+            }
+            if let Some(driver) = self.a[p].loop_driver {
+                self.a[p].val = self.a[driver].val;
+            }
+            self.a.next_ptr(&mut p, &mut b);
         }
     }
 }

@@ -43,7 +43,7 @@ impl<PTNode: Ptr> TDag<PTNode> {
                     }
                     for i in 0..self.a[p].inp.len() {
                         let inp = self.a[p].inp[i];
-                        if let Some(val) = self.a[inp].val {
+                        if let Some(val) = self.a[inp].permanent_val() {
                             let new_bw = lut.bw() / 2;
                             assert!((lut.bw() % 2) == 0);
                             let mut new_lut = ExtAwi::zero(NonZeroUsize::new(new_bw).unwrap());
@@ -174,10 +174,10 @@ impl<PTNode: Ptr> TDag<PTNode> {
             if b {
                 break
             }
-            if self.a[p].val.is_some() {
+            if self.a[p].permanent_val().is_some() {
                 v.push(p);
                 while let Some(p) = v.pop() {
-                    if self.a[p].val.is_some() {
+                    if self.a[p].permanent_val().is_some() {
                         // since we have our value, delete input edges
                         for i in 0..self.a[p].inp.len() {
                             let inp = self.a[p].inp[i];

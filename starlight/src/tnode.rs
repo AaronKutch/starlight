@@ -15,9 +15,11 @@ pub struct TNode<P: Ptr> {
     pub lut: Option<ExtAwi>,
     /// The value of the output
     pub val: Option<bool>,
-    /// If the value toroidally loops back to a root
-    pub loopback: Option<P>,
-    pub is_loopback_driven: bool,
+    /// If the value cannot be temporally changed with respect to what the
+    /// simplification algorithms can assume.
+    pub is_permanent: bool,
+    /// If the value is temporally driven by a `Loop`
+    pub loop_driver: Option<P>,
     /// Used in algorithms
     pub alg_rc: u64,
     /// reference count
@@ -33,8 +35,8 @@ impl<P: Ptr> TNode<P> {
             out: SmallVec::new(),
             lut: None,
             val: None,
-            loopback: None,
-            is_loopback_driven: false,
+            is_permanent: false,
+            loop_driver: None,
             alg_rc: 0,
             rc: 0,
             visit,
@@ -58,5 +60,15 @@ impl<P: Ptr> TNode<P> {
     pub fn dec_alg_rc(&mut self) -> Option<bool> {
         self.alg_rc = self.alg_rc.checked_sub(1)?;
         Some(self.alg_rc == 0)
+    }
+
+    /// Returns the value of this node if it is both non-opaque and permanent
+    #[must_use]
+    pub fn permanent_val(&self) -> Option<bool> {
+        if self.is_permanent {
+            self.val
+        } else {
+            None
+        }
     }
 }

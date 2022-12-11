@@ -22,16 +22,17 @@ impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
                     "a_rc:{} rc:{} vis:{}",
                     this.alg_rc, this.rc, this.visit,
                 ));
-                match this.val {
-                    None => v.push("*".to_string()),
-                    Some(false) => v.push("0".to_string()),
-                    Some(true) => v.push("1".to_string()),
-                }
-                if let Some(loopback) = this.loopback {
-                    v.push(format!("->{:?}", loopback));
-                }
-                if this.is_loopback_driven {
-                    v.push("loopback driven".to_string())
+                v.push(format!(
+                    "{} {}",
+                    match this.val {
+                        None => "*",
+                        Some(false) => "0",
+                        Some(true) => "1",
+                    },
+                    if this.is_permanent { "(perm)" } else { "" }
+                ));
+                if let Some(driver) = this.loop_driver {
+                    v.push(format!("driver:{:?}", driver));
                 }
                 v
             },
@@ -55,8 +56,8 @@ impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
                     Some(false) => v.push("0".to_string()),
                     Some(true) => v.push("1".to_string()),
                 }
-                if let Some(loopback) = this.loopback {
-                    v.push(format!("->{:?}", loopback));
+                if let Some(driver) = this.loop_driver {
+                    v.push(format!("->{:?}", driver));
                 }
                 v
             },

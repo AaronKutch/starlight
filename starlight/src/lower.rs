@@ -17,8 +17,8 @@ use crate::{
 
 impl<PTNode: Ptr> TDag<PTNode> {
     /// Constructs a directed acyclic graph of permutations from an
-    /// `awint_dag::OpDag`. `op_dag.noted` are translated as bits in lsb to msb
-    /// order.
+    /// `awint_dag::OpDag`. Non-`Loop`ing root nodes are marked as permanent and
+    /// permanence is propogated.
     ///
     /// If an error occurs, the DAG (which may be in an unfinished or completely
     /// broken state) is still returned along with the error enum, so that debug
@@ -154,21 +154,20 @@ impl<PTNode: Ptr> TDag<PTNode> {
                             Opaque(ref v) => {
                                 if v.len() == 2 {
                                     // special case for `Loop`
-                                    let root = map[&v[0]].clone();
-                                    for bit in &root {
-                                        self.a[bit].is_loopback_driven = true;
+                                    let w = map[&v[0]].len();
+                                    assert_eq!(w, map[&v[1]].len());
+                                    for i in 0..w {
+                                        let looper = map[&v[0]][i];
+                                        let driver = map[&v[1]][i];
                                         // temporal optimizers can subtract one for themselves,
                                         // other optimizers don't have to do extra tracking
-                                        self.a[bit].rc += 1;
-                                        self.a[bit].val = Some(false);
+                                        self.a[looper].rc += 1;
+                                        self.a[looper].val = Some(false);
+                                        self.a[looper].loop_driver = Some(driver);
+                                        self.a[driver].rc += 1;
                                     }
-                                    let driver = &map[&v[1]];
-                                    for (root_bit, driver_bit) in root.iter().zip(driver.iter()) {
-                                        self.a[driver_bit].loopback = Some(*root_bit);
-                                        self.a[driver_bit].rc += 1;
-                                    }
-                                    // map the handle to the root
-                                    map.insert(p, root);
+                                    // map the handle to the looper
+                                    map.insert(p, map[&v[0]].clone());
                                 } else {
                                     return Err(EvalError::OtherStr(
                                         "cannot lower opaque with number of arguments not equal \
@@ -207,6 +206,8 @@ impl<PTNode: Ptr> TDag<PTNode> {
             }
             note_map.push(self.notes.insert(Note { bits: note }));
         }
+        self.mark_nonloop_roots_permanent();
+        self.propogate_permanence();
         Ok(note_map)
     }
 }
