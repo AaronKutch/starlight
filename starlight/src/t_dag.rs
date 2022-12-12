@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use awint::{awint_dag::EvalError, ExtAwi};
+use awint::{awint_dag::EvalError, Bits, ExtAwi};
 
 use crate::{
     triple_arena::{Arena, Ptr},
@@ -214,6 +214,14 @@ impl<PTNode: Ptr> TDag<PTNode> {
             x.set(i, self.a[bit].val.unwrap()).unwrap();
         }
         x
+    }
+
+    pub fn set_noted(&mut self, p_note: PNote, val: &Bits) {
+        let note = &self.notes[p_note];
+        assert_eq!(note.bits.len(), val.bw());
+        for (i, bit) in note.bits.iter().enumerate() {
+            self.a[bit].val = Some(val.get(i).unwrap());
+        }
     }
 }
 

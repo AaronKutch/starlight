@@ -1,9 +1,11 @@
 use starlight::{
+    awi,
     awint_dag::{Lineage, OpDag},
     dag_prelude::*,
     PTNode, TDag,
 };
 
+// tests an incrementing counter
 #[test]
 fn incrementer() {
     let looper = Loop::zero(bw(4));
@@ -40,5 +42,44 @@ fn incrementer() {
 
         t_dag.drive_loops();
         t_dag.eval();
+    }
+}
+
+// tests getting and setting outputs
+#[test]
+fn multiplier() {
+    let input_a = inlawi!(opaque: ..16);
+    let input_b = inlawi!(opaque: ..16);
+    let mut output = inlawi!(zero: ..32);
+    output.arb_umul_add_(&input_a, &input_b);
+
+    let leaves = vec![output.state()];
+
+    let mut noted = leaves.clone();
+    noted.push(input_a.state());
+    noted.push(input_b.state());
+
+    let (mut op_dag, res) = OpDag::new(&leaves, &noted);
+    op_dag.lower_all_noted().unwrap();
+    res.unwrap();
+
+    let (mut t_dag, res) = TDag::<PTNode>::from_op_dag_using_noted(&mut op_dag);
+
+    let notes = res.unwrap();
+    t_dag.basic_simplify();
+    let output = notes[0];
+    let input_a = notes[1];
+    let input_b = notes[2];
+
+    {
+        use awi::*;
+        t_dag.set_noted(input_a, inlawi!(123u16).as_ref());
+        t_dag.set_noted(input_b, inlawi!(77u16).as_ref());
+        t_dag.eval();
+        assert_eq!(t_dag.get_noted_as_extawi(output), extawi!(9471u32));
+
+        t_dag.set_noted(input_a, inlawi!(10u16).as_ref());
+        t_dag.eval();
+        assert_eq!(t_dag.get_noted_as_extawi(output), extawi!(770u32));
     }
 }

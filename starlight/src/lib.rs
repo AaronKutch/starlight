@@ -13,6 +13,16 @@ pub use tnode::*;
 pub use toroidal::*;
 use triple_arena::ptr_struct;
 
+// TODO need mimicking `Option` and a thread local panic handler equivalent
+// assertion bit
+
+// TODO need the `?` helper macro
+
+// TODO need something like an `AutoAwi` type that seamlessly interfaces with
+// internally or externally running DAGs / regular Awi functions / operational
+// mimick functions? Make evaluation lazy so things are not simulated until
+// `AutoAwi`s are read, track write status and possible update DAGs
+
 // TODO "regular" loop versions for completeness
 
 pub mod prelude {
