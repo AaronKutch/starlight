@@ -12,7 +12,8 @@ keywords = []
 categories = []
 
 [dependencies]
-awint = { path = "../../awint/awint", features = ["rand_support", "dag"] }
+#awint = { path = "../../awint/awint", features = ["rand_support", "dag"] }
+awint = { git = "https://github.com/AaronKutch/awint", rev = "ace81d64d7a1d32a3b3caafdcfa8c9bd7225473b", features = ["rand_support", "dag"] }
 rand_xoshiro = { version = "0.6", default-features = false }
 smallvec = { version = "1.10", features = ["const_generics", "const_new", "union"] }
 
