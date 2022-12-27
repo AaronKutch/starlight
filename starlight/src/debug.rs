@@ -49,7 +49,7 @@ impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
             center: {
                 let mut v = vec![];
                 if let Some(ref lut) = this.lut {
-                    v.push(format!("{:?}", lut));
+                    v.push(format!("{lut:?}"));
                 }
                 match this.val {
                     None => (),
@@ -57,7 +57,7 @@ impl<P: Ptr> DebugNodeTrait<P> for TNode<P> {
                     Some(true) => v.push("1".to_string()),
                 }
                 if let Some(driver) = this.loop_driver {
-                    v.push(format!("->{:?}", driver));
+                    v.push(format!("->{driver:?}"));
                 }
                 v
             },

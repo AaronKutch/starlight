@@ -40,8 +40,7 @@ impl<PTNode: Ptr> TDag<PTNode> {
             let res = op_dag.verify_integrity();
             if res.is_err() {
                 return Err(EvalError::OtherString(format!(
-                    "verification error adding `OpDag` group to `TDag`: {:?}",
-                    res
+                    "verification error adding `OpDag` group to `TDag`: {res:?}"
                 )))
             }
         }
@@ -80,7 +79,7 @@ impl<PTNode: Ptr> TDag<PTNode> {
                                 map.insert(p, v);
                             }
                             ref op => {
-                                return Err(EvalError::OtherString(format!("cannot lower {:?}", op)))
+                                return Err(EvalError::OtherString(format!("cannot lower {op:?}")))
                             }
                         }
                         path.pop().unwrap();
@@ -176,7 +175,7 @@ impl<PTNode: Ptr> TDag<PTNode> {
                                 }
                             }
                             ref op => {
-                                return Err(EvalError::OtherString(format!("cannot lower {:?}", op)))
+                                return Err(EvalError::OtherString(format!("cannot lower {op:?}")))
                             }
                         }
                         path.pop().unwrap();
