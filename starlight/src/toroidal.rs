@@ -1,8 +1,8 @@
 use std::{borrow::Borrow, num::NonZeroUsize, ops::Deref};
 
 use awint::{
-    awint_dag::{dag, Lineage, PState},
-    dag_prelude::{Bits, ExtAwi, InlAwi},
+    awint_dag::{Lineage, PState},
+    dag::{self, Bits, ExtAwi, InlAwi},
 };
 
 /// Returned from `Loop::drive` and other structures like `Net::drive` that use

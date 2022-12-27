@@ -1,7 +1,7 @@
 use starlight::{
     awi,
     awint_dag::{Lineage, OpDag},
-    dag_prelude::*,
+    dag::*,
     PTNode, TDag,
 };
 
@@ -38,7 +38,7 @@ fn incrementer() {
     t_dag.basic_simplify();
 
     for i in 0..16 {
-        assert_eq!(i, t_dag.get_noted_as_extawi(p_val).to_usize());
+        std::assert_eq!(i, t_dag.get_noted_as_extawi(p_val).to_usize());
 
         t_dag.drive_loops();
         t_dag.eval();
@@ -76,10 +76,10 @@ fn multiplier() {
         t_dag.set_noted(input_a, inlawi!(123u16).as_ref());
         t_dag.set_noted(input_b, inlawi!(77u16).as_ref());
         t_dag.eval();
-        assert_eq!(t_dag.get_noted_as_extawi(output), extawi!(9471u32));
+        std::assert_eq!(t_dag.get_noted_as_extawi(output), extawi!(9471u32));
 
         t_dag.set_noted(input_a, inlawi!(10u16).as_ref());
         t_dag.eval();
-        assert_eq!(t_dag.get_noted_as_extawi(output), extawi!(770u32));
+        std::assert_eq!(t_dag.get_noted_as_extawi(output), extawi!(770u32));
     }
 }

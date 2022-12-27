@@ -13,34 +13,33 @@ pub use tnode::*;
 pub use toroidal::*;
 use triple_arena::ptr_struct;
 
-// TODO need mimicking `Option` and a thread local panic handler equivalent
-// assertion bit
-
 // TODO need the `?` helper macro
 
 // TODO need something like an `AutoAwi` type that seamlessly interfaces with
 // internally or externally running DAGs / regular Awi functions / operational
 // mimick functions? Make evaluation lazy so things are not simulated until
 // `AutoAwi`s are read, track write status and possible update DAGs
+//
+// Can RefCells and mutation be used in `AsRef`?
 
 // TODO "regular" loop versions for completeness
 
-pub mod prelude {
-    pub use awint::prelude::*;
-}
-
+/// Reexports all the regular arbitrary width integer structs, macros, common
+/// enums, and most of `core::primitive::*`. This is useful for glob importing
+/// everything or for when using the regular items in a context with structs
+/// imported from `awint_dag`.
 pub mod awi {
     pub use awint::awi::*;
+    pub use Option::{None, Some};
+    pub use Result::{Err, Ok};
 }
 
-pub mod dag_prelude {
-    pub use awint::dag_prelude::*;
-
-    pub use crate::{Loop, LoopHandle, Net};
-}
-
+/// Reexports all the mimicking versions of `awi` items
 pub mod dag {
-    pub use awint::dag::*;
+    pub use awint::dag::{
+        Option::{None, Some},
+        *,
+    };
 
     pub use crate::{Loop, LoopHandle, Net};
 }

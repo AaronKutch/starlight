@@ -17,5 +17,6 @@ rand_xoshiro = { version = "0.6", default-features = false }
 smallvec = { version = "1.10", features = ["const_generics", "const_new", "union"] }
 
 [features]
+try_support = ["awint/try_support"]
 debug = ["awint/debug"]
 debug_min = ["debug"]
