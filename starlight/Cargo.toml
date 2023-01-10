@@ -17,6 +17,16 @@ rand_xoshiro = { version = "0.6", default-features = false }
 smallvec = { version = "1.10", features = ["const_generics", "const_new", "union"] }
 
 [features]
+# note: "dag", "rand_support", and "std" are all turned on always
+default = ["try_support", "const_support"]
+# Turns on nightly features required for some functions to be marked `const`
+const_support = ["awint/const_support"]
+# Turns on nightly features required for `Try` to work with some mimick types
 try_support = ["awint/try_support"]
+# Turns on `serde` support
+serde_support = ["awint/serde_support"]
+# Turns on `zeroize` support
+zeroize_support = ["awint/zeroize_support"]
 debug = ["awint/debug"]
+# reduces number of things in debug tree
 debug_min = ["debug"]
