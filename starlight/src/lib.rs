@@ -38,6 +38,7 @@ pub mod awi {
 pub mod dag {
     pub use awint::dag::{
         Option::{None, Some},
+        Result::{Err, Ok},
         *,
     };
 
