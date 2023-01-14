@@ -74,11 +74,15 @@ impl Mem {
         self.a[inx].clone()
     }
 
-    pub fn verify_equivalence(&mut self, epoch: &StateEpoch) -> Result<(), EvalError> {
+    pub fn verify_equivalence<F: FnMut(&mut TDag<PTNode>)>(
+        &mut self,
+        mut f: F,
+        epoch: &StateEpoch,
+    ) -> Result<(), EvalError> {
         let (mut op_dag, res) = OpDag::from_epoch(epoch);
         res?;
 
-        // randomly replace literals with opaques, because lower_all_noted can evaluate
+        // randomly replace literals with opaques, because lower_all can evaluate
         // and simplify
         let mut replacements = vec![];
         let (mut p, mut b) = op_dag.a.first_ptr();
@@ -105,6 +109,8 @@ impl Mem {
 
         let (mut t_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
         res.unwrap();
+
+        f(&mut t_dag);
 
         t_dag.verify_integrity().unwrap();
 
@@ -142,11 +148,6 @@ impl Mem {
         }
         Ok(())
     }
-
-    // TODO better code and execution reuse while still being able to test for one
-    // thing at a time
-
-    // FIXME simplifying version
 }
 
 fn op_perm_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
@@ -191,11 +192,10 @@ fn fuzz_lower_and_eval() {
         for _ in 0..N.0 {
             op_perm_duo(&mut rng, &mut m)
         }
-        let res = m.verify_equivalence(&epoch);
+        let res = m.verify_equivalence(|_| {}, &epoch);
         res.unwrap();
-        // FIXME
-        //let res = m.verify_equivalence_basic_simplify(&epoch);
-        //res.unwrap();
+        let res = m.verify_equivalence(|t_dag| t_dag.basic_simplify(), &epoch);
+        res.unwrap();
         drop(epoch);
         m.clear();
     }
