@@ -1,10 +1,13 @@
 use std::num::NonZeroUsize;
 
-use awint::{awint_dag::EvalError, Bits, ExtAwi};
+use awint::{
+    awint_dag::{EvalError, OpDag, PNote},
+    Bits, ExtAwi,
+};
 
 use crate::{
     triple_arena::{Arena, Ptr},
-    PNote, TNode,
+    TNode,
 };
 
 #[derive(Debug, Clone)]
@@ -28,6 +31,31 @@ impl<PTNode: Ptr> TDag<PTNode> {
             visit_gen: 0,
             notes: Arena::new(),
         }
+    }
+
+    // TODO use "permanence" for more static-like ideas, use "noted" or "stable"?
+
+    // but how to handle notes
+    /*pub fn from_epoch(epoch: &StateEpoch) -> (Self, Result<(), EvalError>) {
+        let (mut op_dag, res) = OpDag::from_epoch(epoch);
+        if res.is_err() {
+            return (Self::new(), res);
+        }
+        op_dag.lower_all()?;
+        Self::from_op_dag(&mut op_dag)
+    }*/
+
+    /// Constructs a directed acyclic graph of lookup tables from an
+    /// [awint::awint_dag::OpDag]. `op_dag` is taken by mutable reference only
+    /// for the purposes of visitation updates.
+    ///
+    /// If an error occurs, the DAG (which may be in an unfinished or completely
+    /// broken state) is still returned along with the error enum, so that debug
+    /// tools like `render_to_svg_file` can be used.
+    pub fn from_op_dag(op_dag: &mut OpDag) -> (Self, Result<(), EvalError>) {
+        let mut res = Self::new();
+        let err = res.add_op_dag(op_dag);
+        (res, err)
     }
 
     pub fn verify_integrity(&self) -> Result<(), EvalError> {

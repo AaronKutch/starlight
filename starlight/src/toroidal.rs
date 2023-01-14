@@ -8,7 +8,7 @@ use awint::{
 /// Returned from `Loop::drive` and other structures like `Net::drive` that use
 /// `Loop`s internally, implements [awint::awint_dag::Lineage] so that the whole
 /// DAG can be captured. In most cases, you will collect all the handles and add
-/// them to the `leaves` argument of [awint::awint_dag::OpDag::new]
+/// them to the `leaves` argument of [awint::awint_dag::OpDag::from_epoch]
 #[derive(Debug, Clone)] // TODO make Copy
 pub struct LoopHandle {
     // just use this for now to have the non-sendability

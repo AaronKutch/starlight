@@ -1,6 +1,6 @@
 use starlight::{
     awi,
-    awint_dag::{Lineage, OpDag},
+    awint_dag::{Lineage, OpDag, StateEpoch},
     dag::*,
     PTNode, TDag,
 };
@@ -8,32 +8,25 @@ use starlight::{
 // tests an incrementing counter
 #[test]
 fn incrementer() {
+    let epoch0 = StateEpoch::new();
     let looper = Loop::zero(bw(4));
     let val = ExtAwi::from(looper.as_ref());
     let mut tmp = ExtAwi::from(looper.as_ref());
     tmp.inc_(true);
-    let handle = looper.drive(&tmp).unwrap();
-
-    let leaves = vec![handle.state(), val.state()];
-
-    let noted = leaves.clone();
-
-    // TODO how we handle noted things in the future, is that we have an external
-    // arena type that states can be put into (and the user can get a unified
-    // pointer from for use past the TDag stage), and that gets passed to
-    // `OpDag::new`
+    looper.drive(&tmp).unwrap();
 
     // TODO also have a single function for taking `Lineage` capable structs
     // straight to `TDag`s
 
-    let (mut op_dag, res) = OpDag::new(&leaves, &noted);
-    op_dag.lower_all_noted().unwrap();
+    let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
     res.unwrap();
 
-    let (mut t_dag, res) = TDag::<PTNode>::from_op_dag_using_noted(&mut op_dag);
+    let p_val = op_dag.note_pstate(val.state()).unwrap();
 
-    let notes = res.unwrap();
-    let p_val = notes[1];
+    op_dag.lower_all().unwrap();
+
+    let (mut t_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
+    res.unwrap();
 
     t_dag.basic_simplify();
 
@@ -48,28 +41,24 @@ fn incrementer() {
 // tests getting and setting outputs
 #[test]
 fn multiplier() {
+    let epoch0 = StateEpoch::new();
     let input_a = inlawi!(opaque: ..16);
     let input_b = inlawi!(opaque: ..16);
     let mut output = inlawi!(zero: ..32);
     output.arb_umul_add_(&input_a, &input_b);
 
-    let leaves = vec![output.state()];
-
-    let mut noted = leaves.clone();
-    noted.push(input_a.state());
-    noted.push(input_b.state());
-
-    let (mut op_dag, res) = OpDag::new(&leaves, &noted);
-    op_dag.lower_all_noted().unwrap();
+    let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
     res.unwrap();
 
-    let (mut t_dag, res) = TDag::<PTNode>::from_op_dag_using_noted(&mut op_dag);
+    let output = op_dag.note_pstate(output.state()).unwrap();
+    let input_a = op_dag.note_pstate(input_a.state()).unwrap();
+    let input_b = op_dag.note_pstate(input_b.state()).unwrap();
 
-    let notes = res.unwrap();
+    op_dag.lower_all().unwrap();
+
+    let (mut t_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
+    res.unwrap();
     t_dag.basic_simplify();
-    let output = notes[0];
-    let input_a = notes[1];
-    let input_b = notes[2];
 
     {
         use awi::*;

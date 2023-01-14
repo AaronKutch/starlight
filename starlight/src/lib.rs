@@ -45,7 +45,7 @@ pub mod dag {
     pub use crate::{Loop, LoopHandle, Net};
 }
 
-ptr_struct!(PNote; PTNode);
+ptr_struct!(PTNode);
 
 // TODO use modified Lagrangians that appear different to nets with different
 // requirements on critical path, plus small differencing values to prevent
