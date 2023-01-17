@@ -75,7 +75,7 @@ impl Loop {
         if self.awi.bw() != driver.bw() {
             None
         } else {
-            self.awi.opaque_with_(&[driver]);
+            self.awi.opaque_with_(&[driver], Some("LoopHandle"));
             Some(LoopHandle { awi: self.awi })
         }
     }

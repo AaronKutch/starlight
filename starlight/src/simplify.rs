@@ -1,7 +1,6 @@
 use std::num::NonZeroUsize;
 
-use awint::ExtAwi;
-use smallvec::SmallVec;
+use awint::{awint_dag::smallvec::SmallVec, ExtAwi};
 
 use crate::{triple_arena::Ptr, TDag};
 

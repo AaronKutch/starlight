@@ -10,6 +10,7 @@ use starlight::{
         awint_dag::{EvalError, Op, OpDag, StateEpoch},
         dag,
     },
+    awint_dag::smallvec::smallvec,
     triple_arena::{ptr_struct, Arena},
     PTNode, TDag,
 };
@@ -94,7 +95,7 @@ impl Mem {
                 if (self.rng.next_u32() & 1) == 0 {
                     if let Op::Literal(lit) = op_dag[p].op.take() {
                         replacements.push((op_dag.note_pnode(p).unwrap(), lit));
-                        op_dag[p].op = Op::Opaque(vec![]);
+                        op_dag[p].op = Op::Opaque(smallvec![], None);
                     } else {
                         unreachable!()
                     }

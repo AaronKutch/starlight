@@ -1,4 +1,4 @@
-use awint::ExtAwi;
+use awint::{awint_dag::smallvec, ExtAwi};
 use smallvec::SmallVec;
 
 use crate::triple_arena::Ptr;

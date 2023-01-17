@@ -3,12 +3,12 @@ use std::{collections::HashMap, num::NonZeroUsize};
 use awint::{
     awint_dag::{
         lowering::{OpDag, PNode},
+        smallvec::{smallvec, SmallVec},
         EvalError,
         Op::*,
     },
     ExtAwi,
 };
-use smallvec::{smallvec, SmallVec};
 
 use crate::{triple_arena::Ptr, Note, TDag, TNode};
 
@@ -57,7 +57,13 @@ impl<PTNode: Ptr> TDag<PTNode> {
                             }
                             map.insert(p, v);
                         }
-                        Opaque(_) => {
+                        Opaque(_, name) => {
+                            if let Some(name) = name {
+                                return Err(EvalError::OtherString(format!(
+                                    "cannot lower opaque with name {name}"
+                                )))
+                            }
+                            assert!(name.is_none());
                             let bw = op_dag.get_bw(p).get();
                             let mut v = vec![];
                             for _ in 0..bw {
@@ -137,8 +143,8 @@ impl<PTNode: Ptr> TDag<PTNode> {
                             }
                             map.insert(p, v);
                         }
-                        Opaque(ref v) => {
-                            if v.len() == 2 {
+                        Opaque(ref v, name) => {
+                            if name == Some("LoopHandle") {
                                 // special case for `Loop`
                                 let w = map[&v[0]].len();
                                 assert_eq!(w, map[&v[1]].len());
@@ -154,10 +160,13 @@ impl<PTNode: Ptr> TDag<PTNode> {
                                 }
                                 // map the handle to the looper
                                 map.insert(p, map[&v[0]].clone());
+                            } else if let Some(name) = name {
+                                return Err(EvalError::OtherString(format!(
+                                    "cannot lower opaque with name {name}"
+                                )))
                             } else {
                                 return Err(EvalError::OtherStr(
-                                    "cannot lower opaque with number of arguments not equal to 0 \
-                                     or 2",
+                                    "cannot lower opaque with no name and multiple inputs",
                                 ))
                             }
                         }
