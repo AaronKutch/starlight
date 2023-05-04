@@ -12,12 +12,12 @@ keywords = []
 categories = []
 
 [dependencies]
-awint = { path = "../../awint/awint", features = ["rand_support", "dag"] }
+awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
 rand_xoshiro = { version = "0.6", default-features = false }
 
 [features]
 # note: "dag", "rand_support", and "std" are all turned on always
-default = ["try_support", "const_support"]
+default = ["try_support"]
 # Turns on nightly features required for some functions to be marked `const`
 const_support = ["awint/const_support"]
 # Turns on nightly features required for `Try` to work with some mimick types
