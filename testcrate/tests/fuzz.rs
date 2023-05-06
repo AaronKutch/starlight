@@ -12,7 +12,7 @@ use starlight::{
     },
     awint_dag::smallvec::smallvec,
     triple_arena::{ptr_struct, Arena},
-    PTNode, TDag,
+    TDag,
 };
 
 #[cfg(debug_assertions)]
@@ -75,7 +75,7 @@ impl Mem {
         self.a[inx].clone()
     }
 
-    pub fn verify_equivalence<F: FnMut(&mut TDag<PTNode>)>(
+    pub fn verify_equivalence<F: FnMut(&mut TDag)>(
         &mut self,
         mut f: F,
         epoch: &StateEpoch,
@@ -108,7 +108,7 @@ impl Mem {
 
         op_dag.lower_all().unwrap();
 
-        let (mut t_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
+        let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
         res.unwrap();
 
         f(&mut t_dag);

@@ -2,9 +2,9 @@ use std::num::NonZeroUsize;
 
 use awint::{awint_dag::smallvec::SmallVec, ExtAwi};
 
-use crate::{triple_arena::Ptr, TDag};
+use crate::{PTNode, TDag};
 
-impl<PTNode: Ptr> TDag<PTNode> {
+impl TDag {
     /// Removes a node, cleaning up bidirectional references
     fn remove_tnode(&mut self, p: PTNode) {
         let removed = self.a.remove(p).unwrap();

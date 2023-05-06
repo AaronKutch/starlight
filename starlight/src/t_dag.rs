@@ -5,26 +5,23 @@ use awint::{
     Bits, ExtAwi,
 };
 
-use crate::{
-    triple_arena::{Arena, Ptr},
-    TNode,
-};
+use crate::{triple_arena::Arena, PTNode, TNode};
 
 #[derive(Debug, Clone)]
-pub struct Note<PTNode: Ptr> {
+pub struct Note {
     pub bits: Vec<PTNode>,
 }
 
 /// A DAG made primarily of lookup tables
 #[derive(Debug, Clone)]
-pub struct TDag<PTNode: Ptr> {
-    pub a: Arena<PTNode, TNode<PTNode>>,
+pub struct TDag {
+    pub a: Arena<PTNode, TNode>,
     /// A kind of generation counter tracking the highest `visit` number
     pub visit_gen: u64,
-    pub notes: Arena<PNote, Note<PTNode>>,
+    pub notes: Arena<PNote, Note>,
 }
 
-impl<PTNode: Ptr> TDag<PTNode> {
+impl TDag {
     pub fn new() -> Self {
         Self {
             a: Arena::new(),
@@ -253,7 +250,7 @@ impl<PTNode: Ptr> TDag<PTNode> {
     }
 }
 
-impl<PTNode: Ptr> Default for TDag<PTNode> {
+impl Default for TDag {
     fn default() -> Self {
         Self::new()
     }

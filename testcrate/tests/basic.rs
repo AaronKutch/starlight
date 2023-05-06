@@ -2,7 +2,7 @@ use starlight::{
     awi,
     awint_dag::{Lineage, OpDag, StateEpoch},
     dag::*,
-    PTNode, TDag,
+    TDag,
 };
 
 // tests an incrementing counter
@@ -25,7 +25,7 @@ fn incrementer() {
 
     op_dag.lower_all().unwrap();
 
-    let (mut t_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
+    let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
     res.unwrap();
 
     t_dag.basic_simplify();
@@ -56,7 +56,7 @@ fn multiplier() {
 
     op_dag.lower_all().unwrap();
 
-    let (mut t_dag, res) = TDag::<PTNode>::from_op_dag(&mut op_dag);
+    let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
     res.unwrap();
     t_dag.basic_simplify();
 

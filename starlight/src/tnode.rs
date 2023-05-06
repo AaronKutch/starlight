@@ -1,15 +1,15 @@
 use awint::{awint_dag::smallvec, ExtAwi};
 use smallvec::SmallVec;
 
-use crate::triple_arena::Ptr;
+use crate::PTNode;
 
 /// A "table" node meant to evoke some kind of one-way table in a DAG.
 #[derive(Debug, Clone)]
-pub struct TNode<P: Ptr> {
+pub struct TNode {
     /// Inputs
-    pub inp: SmallVec<[P; 4]>,
+    pub inp: SmallVec<[PTNode; 4]>,
     /// Outputs, the value of which will all be the same
-    pub out: SmallVec<[P; 4]>,
+    pub out: SmallVec<[PTNode; 4]>,
     /// Lookup Table that outputs one bit
     // TODO make a SmallAwi
     pub lut: Option<ExtAwi>,
@@ -19,7 +19,7 @@ pub struct TNode<P: Ptr> {
     /// simplification algorithms can assume.
     pub is_permanent: bool,
     /// If the value is temporally driven by a `Loop`
-    pub loop_driver: Option<P>,
+    pub loop_driver: Option<PTNode>,
     /// Used in algorithms
     pub alg_rc: u64,
     /// reference count
@@ -28,7 +28,7 @@ pub struct TNode<P: Ptr> {
     pub visit: u64,
 }
 
-impl<P: Ptr> TNode<P> {
+impl TNode {
     pub fn new(visit: u64) -> Self {
         Self {
             inp: SmallVec::new(),
