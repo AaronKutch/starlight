@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 
 use crate::triple_arena::ptr_struct;
 
-// UnionArena<PEClass, EClass>
+// SurjectArena<PEClass, EClass>
 // BTreeMap<ENode, PEClass>
 
 // We use this because our algorithms depend on generation counters
