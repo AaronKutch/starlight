@@ -1,7 +1,13 @@
 use awint::{awint_dag::smallvec, ExtAwi};
 use smallvec::SmallVec;
 
-use crate::PTNode;
+use crate::triple_arena::ptr_struct;
+
+// UnionArena<PEClass, EClass>
+// BTreeMap<ENode, PEClass>
+
+// We use this because our algorithms depend on generation counters
+ptr_struct!(PTNode);
 
 /// A "table" node meant to evoke some kind of one-way table in a DAG.
 #[derive(Debug, Clone)]

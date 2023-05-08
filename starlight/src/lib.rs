@@ -5,15 +5,16 @@ mod simplify;
 mod t_dag;
 mod tnode;
 mod toroidal;
+mod union_arena;
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
 pub use awint::{self, awint_dag, awint_dag::triple_arena};
 pub use t_dag::*;
 pub use tnode::*;
 pub use toroidal::*;
+pub use union_arena::*;
 mod queue_simplify;
 pub use queue_simplify::*;
-use triple_arena::ptr_struct;
 
 // TODO need the `?` helper macro
 
@@ -46,9 +47,6 @@ pub mod dag {
 
     pub use crate::{Loop, LoopHandle, Net};
 }
-
-// We use this because our algorithms depend on generation counters
-ptr_struct!(PTNode);
 
 // TODO use modified Lagrangians that appear different to nets with different
 // requirements on critical path, plus small differencing values to prevent
