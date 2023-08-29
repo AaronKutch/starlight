@@ -215,8 +215,7 @@ impl TDag {
         let mut front = vec![];
         let mut adv = self.a.advancer();
         while let Some(p) = adv.advance(&self.a) {
-            // only deal with self referential keys, other backreferences will be redundant
-            if *self.a.get_key(p).unwrap() == p {
+            if *self.a.get_key(p).unwrap() == self.a.get_val(p).unwrap().p_self {
                 let node = self.a.get_val_mut(p).unwrap();
                 let len = node.inp.len();
                 node.alg_rc = u64::try_from(len).unwrap();

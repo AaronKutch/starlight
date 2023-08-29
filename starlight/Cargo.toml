@@ -19,7 +19,7 @@ rand_xoshiro = { version = "0.6", default-features = false }
 # note: "dag", "rand_support", and "std" are all turned on always
 default = ["try_support"]
 # Turns on nightly features required for some functions to be marked `const`
-const_support = ["awint/const_support"]
+#const_support = ["awint/const_support"] # TODO
 # Turns on nightly features required for `Try` to work with some mimick types
 try_support = ["awint/try_support"]
 # Turns on `serde` support

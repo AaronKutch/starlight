@@ -155,6 +155,7 @@ impl TDag {
                                     let p_looper = map[&v[0]][i];
                                     let p_driver = map[&v[1]][i];
                                     self.make_loop(p_looper, p_driver).unwrap();
+                                    self.a.get_val_mut(p_looper).unwrap().val = Some(false);
                                 }
                                 // map the handle to the looper
                                 map.insert(p, map[&v[0]].clone());
