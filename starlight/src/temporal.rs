@@ -58,7 +58,7 @@ impl Loop {
         self.awi.bw()
     }
 
-    /// Get the driven value. This can conveniently be obtained by the `Deref`,
+    /// Get the loop value. This can conveniently be obtained by the `Deref`,
     /// `Borrow<Bits>`, and `AsRef<Bits>` impls on `Loop`.
     #[must_use]
     pub fn get(&self) -> &Bits {
@@ -153,7 +153,7 @@ impl Net {
     /// Pushes on a new port that is initially set to the initial value this
     /// `Net` was constructed with (and not the temporal value). If nothing is
     /// done to the port, and this port is selected as the driver, then the
-    /// driven value will be the initial value this `Net` was originally
+    /// loop value will be the initial value this `Net` was originally
     /// constructed with. Returns a mutable reference to the port for
     /// immediate use (or the port can be accessed later by `get_mut`).
     pub fn push(&mut self) -> &mut Bits {

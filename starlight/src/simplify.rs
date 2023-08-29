@@ -5,8 +5,8 @@ use awint::{awint_dag::smallvec::SmallVec, ExtAwi};
 use crate::{PTNode, TDag};
 
 impl TDag {
-    /// Removes a node, cleaning up bidirectional references
-    fn remove_tnode(&mut self, p: PTNode) {
+    /// Removes a key on the usage of a table output, propogating removals of trees as necessary
+    fn remove_tnode_key(&mut self, p: PTNode) {
         let removed = self.a.remove(p).unwrap();
         for inp in &removed.inp {
             for (i, out) in self.a[inp].out.iter().enumerate() {

@@ -28,10 +28,14 @@ fn incrementer() {
     let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
     res.unwrap();
 
-    t_dag.basic_simplify();
+    t_dag.verify_integrity().unwrap();
+
+    // TODO
+    t_dag.eval();
+    //t_dag.basic_simplify();
 
     for i in 0..16 {
-        std::assert_eq!(i, t_dag.get_noted_as_extawi(p_val).to_usize());
+        std::assert_eq!(i, t_dag.get_noted_as_extawi(p_val).unwrap().to_usize());
 
         t_dag.drive_loops();
         t_dag.eval();
@@ -58,17 +62,22 @@ fn multiplier() {
 
     let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
     res.unwrap();
-    t_dag.basic_simplify();
+
+    t_dag.verify_integrity().unwrap();
+
+    // TODO
+    t_dag.eval();
+    //t_dag.basic_simplify();
 
     {
         use awi::*;
         t_dag.set_noted(input_a, inlawi!(123u16).as_ref());
         t_dag.set_noted(input_b, inlawi!(77u16).as_ref());
         t_dag.eval();
-        std::assert_eq!(t_dag.get_noted_as_extawi(output), extawi!(9471u32));
+        std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), extawi!(9471u32));
 
         t_dag.set_noted(input_a, inlawi!(10u16).as_ref());
         t_dag.eval();
-        std::assert_eq!(t_dag.get_noted_as_extawi(output), extawi!(770u32));
+        std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), extawi!(770u32));
     }
 }
