@@ -23,6 +23,8 @@ pub struct TDag {
     /// A kind of generation counter tracking the highest `visit` number
     visit_gen: NonZeroU64,
     pub notes: Arena<PNote, Note>,
+    /// temporary used in evaluations
+    front: Vec<PTNode>,
 }
 
 impl TDag {
@@ -31,13 +33,13 @@ impl TDag {
             a: SurjectArena::new(),
             visit_gen: NonZeroU64::new(2).unwrap(),
             notes: Arena::new(),
+            front: vec![],
         }
     }
 
     pub fn next_visit_gen(&mut self) -> NonZeroU64 {
-        let res = self.visit_gen;
-        self.visit_gen = NonZeroU64::new(res.get().checked_add(1).unwrap()).unwrap();
-        res
+        self.visit_gen = NonZeroU64::new(self.visit_gen.get().checked_add(1).unwrap()).unwrap();
+        self.visit_gen
     }
 
     // TODO use "permanence" for more static-like ideas, use "noted" or "stable"?
@@ -212,24 +214,23 @@ impl TDag {
         let this_visit = self.next_visit_gen();
 
         // set `alg_rc` and get the initial front
-        let mut front = vec![];
+        self.front.clear();
         let mut adv = self.a.advancer();
         while let Some(p) = adv.advance(&self.a) {
-            if *self.a.get_key(p).unwrap() == self.a.get_val(p).unwrap().p_self {
-                let node = self.a.get_val_mut(p).unwrap();
+            let key = *self.a.get_key(p).unwrap();
+            let node = self.a.get_val_mut(p).unwrap();
+            if key == node.p_self {
                 let len = node.inp.len();
                 node.alg_rc = u64::try_from(len).unwrap();
                 if (len == 0) && node.val.is_some() {
-                    front.push(p);
+                    self.front.push(p);
                 }
             }
         }
 
-        while let Some(p_node) = front.pop() {
-            let node = self.a.get_val_mut(p_node).unwrap();
-            node.visit = this_visit;
+        while let Some(p_node) = self.front.pop() {
             let node = self.a.get_val(p_node).unwrap();
-            if node.lut.is_some() {
+            let (val, propogate) = if node.lut.is_some() {
                 // acquire LUT input
                 let mut inx = 0;
                 let len = node.inp.len();
@@ -238,24 +239,28 @@ impl TDag {
                 }
                 // evaluate
                 let val = node.lut.as_ref().unwrap().get(inx).unwrap();
-                let node = self.a.get_val_mut(p_node).unwrap();
-                node.val = Some(val);
+                (Some(val), true)
             } else if node.inp.len() == 1 {
                 // wire propogation
                 let val = self.a.get_val(node.inp[0]).unwrap().val;
-                let node = self.a.get_val_mut(p_node).unwrap();
+                (val, true)
+            } else {
+                (None, false)
+            };
+            let node = self.a.get_val_mut(p_node).unwrap();
+            if propogate {
                 node.val = val;
             }
+            node.visit = this_visit;
             // propogate
             let mut adv = self.a.advancer_surject(p_node);
             while let Some(p_backref) = adv.advance(&self.a) {
-                let (key, next) = self.a.get_mut(p_backref).unwrap();
-                // skip self backrefs
-                if (*key != p_backref) && (next.visit < this_visit) {
-                    if next.alg_rc > 0 {
-                        next.alg_rc -= 1;
-                    } else {
-                        front.push(p_backref);
+                let p_next = *self.a.get_key(p_backref).unwrap();
+                let next = self.a.get_val_mut(p_next).unwrap();
+                if (next.visit < this_visit) && (next.alg_rc != 0) {
+                    next.alg_rc -= 1;
+                    if next.alg_rc == 0 {
+                        self.front.push(next.p_self);
                     }
                 }
             }

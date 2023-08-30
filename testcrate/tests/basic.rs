@@ -30,8 +30,8 @@ fn incrementer() {
 
     t_dag.verify_integrity().unwrap();
 
-    // TODO
     t_dag.eval();
+    // TODO
     //t_dag.basic_simplify();
 
     for i in 0..16 {
@@ -65,8 +65,8 @@ fn multiplier() {
 
     t_dag.verify_integrity().unwrap();
 
-    // TODO
     t_dag.eval();
+    // TODO
     //t_dag.basic_simplify();
 
     {
