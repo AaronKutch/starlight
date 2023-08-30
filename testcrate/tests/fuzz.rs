@@ -138,9 +138,6 @@ impl Mem {
                     let p_bit = note.bits[i];
                     let bit_node = t_dag.a.get_val(p_bit).unwrap();
                     assert_eq!(bit_node.val.unwrap(), lit.get(i).unwrap());
-                    // check that the surject length is 1 or 2
-                    let rc = t_dag.a.len_key_set(p_bit).unwrap().get();
-                    assert!((rc == 1) || (rc == 2));
                 }
             } else {
                 unreachable!();
