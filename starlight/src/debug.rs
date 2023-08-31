@@ -1,14 +1,54 @@
-use std::path::PathBuf;
+use std::{num::NonZeroU64, path::PathBuf};
 
-use awint::{awint_dag::EvalError, awint_macro_internals::triple_arena::Arena};
+use awint::{
+    awint_dag::{smallvec::SmallVec, EvalError},
+    awint_macro_internals::triple_arena::Arena,
+    ExtAwi,
+};
 
 use crate::{
+    triple_arena::Ptr,
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
     PTNode, TDag, TNode,
 };
 
+/// This is a separate struct so that all `PBack`s can be replaced with
+/// `PTNode`s
+#[derive(Debug, Clone)]
+pub struct DebugTNode {
+    pub p_back_self: PTNode,
+    pub inp: SmallVec<[PTNode; 4]>,
+    pub lut: Option<ExtAwi>,
+    pub val: Option<bool>,
+    pub loop_driver: Option<PTNode>,
+    pub alg_rc: u64,
+    pub visit: NonZeroU64,
+}
+
+impl DebugTNode {
+    pub fn from_tnode(tnode: &TNode, tdag: &TDag) -> Self {
+        Self {
+            p_back_self: tdag
+                .get_p_tnode(tnode.p_back_self)
+                .unwrap_or(Ptr::invalid()),
+            inp: tnode
+                .inp
+                .iter()
+                .map(|p| tdag.get_p_tnode(*p).unwrap_or(Ptr::invalid()))
+                .collect(),
+            lut: tnode.lut.clone(),
+            val: tnode.val,
+            loop_driver: tnode
+                .loop_driver
+                .map(|p| tdag.get_p_tnode(p).unwrap_or(Ptr::invalid())),
+            alg_rc: tnode.alg_rc,
+            visit: tnode.visit,
+        }
+    }
+}
+
 #[cfg(not(feature = "debug_min"))]
-impl DebugNodeTrait<PTNode> for TNode {
+impl DebugNodeTrait<PTNode> for DebugTNode {
     fn debug_node(p_this: PTNode, this: &Self) -> DebugNode<PTNode> {
         DebugNode {
             sources: this
@@ -39,7 +79,7 @@ impl DebugNodeTrait<PTNode> for TNode {
 }
 
 #[cfg(feature = "debug_min")]
-impl DebugNodeTrait<PTNode> for TNode {
+impl DebugNodeTrait<PTNode> for DebugTNode {
     fn debug_node(_p_this: PTNode, this: &Self) -> DebugNode<PTNode> {
         DebugNode {
             sources: this.inp.iter().map(|p| (*p, String::new())).collect(),
@@ -63,46 +103,12 @@ impl DebugNodeTrait<PTNode> for TNode {
     }
 }
 
-enum BackRefOrTNode {
-    BackRef(PTNode, PTNode),
-    ExtraRef(PTNode, PTNode),
-    TNode(TNode),
-}
-
-impl DebugNodeTrait<PTNode> for BackRefOrTNode {
-    fn debug_node(_p_this: PTNode, this: &Self) -> DebugNode<PTNode> {
-        match this {
-            BackRefOrTNode::BackRef(p_this, p_val) => DebugNode {
-                sources: vec![(*p_val, "p_val".to_owned())],
-                center: vec![format!("{p_this}")],
-                sinks: vec![],
-            },
-            BackRefOrTNode::TNode(tnode) => DebugNodeTrait::debug_node(_p_this, tnode),
-            BackRefOrTNode::ExtraRef(p_this, p_val) => DebugNode {
-                sources: vec![(*p_val, "p_val".to_owned())],
-                center: vec![format!("{p_this}"), "extra".to_owned()],
-                sinks: vec![],
-            },
-        }
-    }
-}
-
 impl TDag {
     pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
         let res = self.verify_integrity();
-        let mut arena = Arena::<PTNode, BackRefOrTNode>::new();
-        self.a.clone_keys_to_arena(&mut arena, |p_this, k| {
-            if p_this == *k {
-                let p_node = self.a.get_val(p_this).unwrap().p_self;
-                if p_this == p_node {
-                    BackRefOrTNode::TNode(self.a.get_val(p_this).unwrap().clone())
-                } else {
-                    BackRefOrTNode::ExtraRef(p_this, p_node)
-                }
-            } else {
-                BackRefOrTNode::BackRef(p_this, self.a.get_val(p_this).unwrap().p_self)
-            }
-        });
+        let mut arena = Arena::<PTNode, DebugTNode>::new();
+        self.tnodes
+            .clone_keys_to_arena(&mut arena, |_, tnode| DebugTNode::from_tnode(tnode, self));
         render_to_svg_file(&arena, false, out_file).unwrap();
         res
     }

@@ -11,8 +11,8 @@ pub use awint::{self, awint_dag, awint_dag::triple_arena};
 pub use t_dag::*;
 pub use temporal::*;
 pub use tnode::*;
-mod queue_simplify;
-pub use queue_simplify::*;
+mod optimize;
+pub use optimize::*;
 
 // TODO need something like an `AutoAwi` type that seamlessly interfaces with
 // internally or externally running DAGs / regular Awi functions / operational

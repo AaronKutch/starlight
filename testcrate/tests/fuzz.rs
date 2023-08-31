@@ -118,13 +118,13 @@ impl Mem {
             assert_eq!(lit.bw(), len);
             for i in 0..len {
                 let p_bit = t_dag.notes[p_note].bits[i];
-                t_dag.a.get_val_mut(p_bit).unwrap().val = Some(lit.get(i).unwrap());
+                t_dag.get_tnode_mut(p_bit).unwrap().val = Some(lit.get(i).unwrap());
             }
             op_dag.pnote_get_mut_node(p_note).unwrap().op = Op::Literal(lit);
         }
 
         op_dag.eval_all().unwrap();
-        t_dag.eval();
+        t_dag.eval_all();
 
         t_dag.verify_integrity().unwrap();
 
@@ -136,7 +136,7 @@ impl Mem {
                 assert_eq!(lit.bw(), len);
                 for i in 0..len {
                     let p_bit = note.bits[i];
-                    let bit_node = t_dag.a.get_val(p_bit).unwrap();
+                    let bit_node = t_dag.get_tnode(p_bit).unwrap();
                     assert_eq!(bit_node.val.unwrap(), lit.get(i).unwrap());
                 }
             } else {

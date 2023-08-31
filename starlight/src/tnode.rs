@@ -5,19 +5,15 @@ use smallvec::SmallVec;
 
 use crate::triple_arena::ptr_struct;
 
-// SurjectArena<PEClass, EClass>
-// BTreeMap<ENode, PEClass>
-
 // We use this because our algorithms depend on generation counters
-ptr_struct!(PTNode);
+ptr_struct!(PTNode; PBack);
 
 /// A "table" node meant to evoke some kind of one-way table in a DAG.
 #[derive(Debug, Clone)]
 pub struct TNode {
-    /// Self reference of the surject
-    pub p_self: PTNode,
+    pub p_back_self: PBack,
     /// Inputs
-    pub inp: SmallVec<[PTNode; 4]>,
+    pub inp: SmallVec<[PBack; 4]>,
     /// Lookup Table that outputs one bit
     // TODO make a SmallAwi
     pub lut: Option<ExtAwi>,
@@ -27,7 +23,7 @@ pub struct TNode {
     // simplification algorithms can assume.
     //pub is_permanent: bool,
     /// If the value is temporally driven by a `Loop`
-    pub loop_driver: Option<PTNode>,
+    pub loop_driver: Option<PBack>,
     /// Used in algorithms
     pub alg_rc: u64,
     /// visit number
@@ -35,9 +31,9 @@ pub struct TNode {
 }
 
 impl TNode {
-    pub fn new(p_self: PTNode) -> Self {
+    pub fn new(p_back_self: PBack) -> Self {
         Self {
-            p_self,
+            p_back_self,
             inp: SmallVec::new(),
             lut: None,
             val: None,

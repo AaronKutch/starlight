@@ -1,25 +1,41 @@
 use std::num::{NonZeroU64, NonZeroUsize};
 
 use awint::{
-    awint_dag::{smallvec::smallvec, EvalError, OpDag, PNote},
+    awint_dag::{EvalError, OpDag, PNote},
     awint_macro_internals::triple_arena::Advancer,
     Bits, ExtAwi,
 };
 
 use crate::{
     triple_arena::{Arena, SurjectArena},
-    PTNode, TNode,
+    PBack, PTNode, TNode,
 };
 
 #[derive(Debug, Clone)]
 pub struct Note {
-    pub bits: Vec<PTNode>,
+    pub bits: Vec<PBack>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Equiv {}
+
+impl Equiv {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for Equiv {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// A DAG made primarily of lookup tables
 #[derive(Debug, Clone)]
 pub struct TDag {
-    pub a: SurjectArena<PTNode, PTNode, TNode>,
+    pub backrefs: SurjectArena<PBack, PTNode, ()>,
+    pub tnodes: SurjectArena<PTNode, TNode, Equiv>,
     /// A kind of generation counter tracking the highest `visit` number
     visit_gen: NonZeroU64,
     pub notes: Arena<PNote, Note>,
@@ -30,7 +46,8 @@ pub struct TDag {
 impl TDag {
     pub fn new() -> Self {
         Self {
-            a: SurjectArena::new(),
+            backrefs: SurjectArena::new(),
+            tnodes: SurjectArena::new(),
             visit_gen: NonZeroU64::new(2).unwrap(),
             notes: Arena::new(),
             front: vec![],
@@ -69,38 +86,49 @@ impl TDag {
 
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
         // return errors in order of most likely to be root cause
-        for node in self.a.vals() {
-            if let Some(p_backref) = self.a.get_key(node.p_self) {
-                if node.p_self != *p_backref {
-                    return Err(EvalError::OtherStr("`p_self` backref is broken"))
+        for (p_tnode, tnode, _) in &self.tnodes {
+            if let Some(p_backref) = self.backrefs.get_key(tnode.p_back_self) {
+                if p_tnode != *p_backref {
+                    return Err(EvalError::OtherString(format!(
+                        "{p_tnode}: {tnode:?} `p_back_self` is broken"
+                    )))
                 }
             } else {
-                return Err(EvalError::OtherStr("broken `p_self`"))
+                return Err(EvalError::OtherString(format!(
+                    "{p_tnode}: {tnode:?} `p_back_self` is invalid"
+                )))
             }
-            for p_input in &node.inp {
-                if let Some(p_backref) = self.a.get_key(*p_input) {
-                    if *p_backref != node.p_self {
-                        return Err(EvalError::OtherStr("input backref does not agree"))
+            for p_input in &tnode.inp {
+                if let Some(p_backref) = self.backrefs.get_key(*p_input) {
+                    if !self.tnodes.contains(*p_backref) {
+                        return Err(EvalError::OtherString(format!(
+                            "{p_tnode}: {tnode:?} input {p_input} has backref {p_backref} which \
+                             is invalid"
+                        )))
                     }
                 } else {
-                    return Err(EvalError::OtherStr("broken input `PTNode`"))
+                    return Err(EvalError::OtherString(format!(
+                        "{p_tnode}: {tnode:?} input {p_input} is invalid"
+                    )))
                 }
             }
-            if let Some(loop_driver) = node.loop_driver {
-                if let Some(p_backref) = self.a.get_key(loop_driver) {
-                    if node.p_self != *p_backref {
-                        return Err(EvalError::OtherStr("loop driver backref does not agree"))
+            if let Some(loop_driver) = tnode.loop_driver {
+                if let Some(p_backref) = self.backrefs.get_key(loop_driver) {
+                    if p_tnode != *p_backref {
+                        return Err(EvalError::OtherString(format!(
+                            "{p_tnode}: {tnode:?} loop_driver {loop_driver} is broken"
+                        )))
                     }
                 } else {
-                    return Err(EvalError::OtherStr(
-                        "broken input `PTNode` of `loop_driver`",
-                    ))
+                    return Err(EvalError::OtherString(format!(
+                        "{p_tnode}: {tnode:?} loop_driver {loop_driver} is invalid"
+                    )))
                 }
             }
         }
-        for node in self.a.vals() {
-            if let Some(ref lut) = node.lut {
-                if node.inp.is_empty() {
+        for tnode in self.tnodes.keys() {
+            if let Some(ref lut) = tnode.lut {
+                if tnode.inp.is_empty() {
                     return Err(EvalError::OtherStr("no inputs for lookup table"))
                 }
                 if !lut.bw().is_power_of_two() {
@@ -108,12 +136,12 @@ impl TDag {
                         "lookup table is not a power of two in bitwidth",
                     ))
                 }
-                if (lut.bw().trailing_zeros() as usize) != node.inp.len() {
+                if (lut.bw().trailing_zeros() as usize) != tnode.inp.len() {
                     return Err(EvalError::OtherStr(
                         "number of inputs does not correspond to lookup table size",
                     ))
                 }
-            } else if node.inp.len() > 1 {
+            } else if tnode.inp.len() > 1 {
                 return Err(EvalError::OtherStr(
                     "`TNode` with no lookup table has more than one input",
                 ))
@@ -121,12 +149,14 @@ impl TDag {
         }
         for note in self.notes.vals() {
             for p_bit in &note.bits {
-                if let Some(p_backref) = self.a.get_key(*p_bit) {
-                    if p_bit != p_backref {
-                        return Err(EvalError::OtherStr("note backref does not agree"))
+                if let Some(p_backref) = self.backrefs.get_key(*p_bit) {
+                    if self.tnodes.get_key(*p_backref).is_none() {
+                        return Err(EvalError::OtherString(format!(
+                            "note {p_bit}: backref {p_backref} is invalid"
+                        )))
                     }
                 } else {
-                    return Err(EvalError::OtherStr("broken note `PTNode`"))
+                    return Err(EvalError::OtherString(format!("note {p_bit} is invalid")))
                 }
             }
         }
@@ -135,29 +165,12 @@ impl TDag {
 
     /// Inserts a `TNode` with `lit` value and returns a `PTNode` to it
     pub fn make_literal(&mut self, lit: Option<bool>) -> PTNode {
-        self.a.insert_with(|p| {
-            let mut tnode = TNode::new(p);
+        self.tnodes.insert_with(|p| {
+            let p_back_self = self.backrefs.insert(p, ());
+            let mut tnode = TNode::new(p_back_self);
             tnode.val = lit;
-            (p, tnode)
+            (tnode, Equiv::new())
         })
-    }
-
-    /// Makes a single bit copying `TNode` that uses `copy` and returns a
-    /// `PTNode` to it. Returns `None` if `p_copy` is invalid.
-    pub fn make_copy(&mut self, p_copy: PTNode) -> Option<PTNode> {
-        if !self.a.contains(p_copy) {
-            return None
-        }
-        // inserts a surject with a self referential key and the tnode value
-        let p_new_tnode = self.a.insert_with(|p| {
-            let tnode = TNode::new(p);
-            (p, tnode)
-        });
-        // inserts a backreference to the surject of the copied node
-        let p_backref = self.a.insert_key(p_copy, p_new_tnode).unwrap();
-        // use the backreference key as the input to the tnode
-        self.a.get_val_mut(p_new_tnode).unwrap().inp = smallvec![p_backref];
-        Some(p_new_tnode)
     }
 
     /// Makes a single output bit lookup table `TNode` and returns a `PTNode` to
@@ -169,98 +182,94 @@ impl TDag {
             return None
         }
         for p_inx in p_inxs {
-            if !self.a.contains(*p_inx) {
+            if !self.tnodes.contains(*p_inx) {
                 return None
             }
         }
-        let p_new_tnode = self.a.insert_with(|p| {
-            let mut tnode = TNode::new(p);
+        let p_new_tnode = self.tnodes.insert_with(|p_tnode| {
+            let p_back_self = self.backrefs.insert(p_tnode, ());
+            let mut tnode = TNode::new(p_back_self);
             tnode.lut = Some(ExtAwi::from(table));
-            (p, tnode)
+            for p_inx in p_inxs {
+                let p_back_self = tnode.p_back_self;
+                let p_back = self.backrefs.insert_key(p_back_self, *p_inx).unwrap();
+                tnode.inp.push(p_back);
+            }
+            (tnode, Equiv::new())
         });
-        for p_inx in p_inxs {
-            let p_backref = self.a.insert_key(*p_inx, p_new_tnode).unwrap();
-            self.a.get_val_mut(p_new_tnode).unwrap().inp.push(p_backref);
-        }
         Some(p_new_tnode)
     }
 
     /// Sets up a loop from the loop source `p_looper` and driver `p_driver`
     pub fn make_loop(&mut self, p_looper: PTNode, p_driver: PTNode) -> Option<()> {
-        if !self.a.contains(p_looper) {
-            return None
-        }
-        if !self.a.contains(p_driver) {
-            return None
-        }
-        let p_backref = self.a.insert_key(p_driver, p_looper).unwrap();
-
-        let looper = self.a.get_val_mut(p_looper).unwrap();
+        let p_back_driver = self.tnodes.get_key(p_driver)?.p_back_self;
+        let looper = self.tnodes.get_key_mut(p_looper)?;
+        let p_backref = self.backrefs.insert_key(p_back_driver, p_looper).unwrap();
         looper.loop_driver = Some(p_backref);
         Some(())
     }
 
     /// Sets up an extra reference to `p_refer`
-    pub fn make_extra_reference(&mut self, p_refer: PTNode) -> Option<PTNode> {
-        self.a.insert_key_with(p_refer, |p| p)
+    pub fn make_extra_reference(&mut self, p_refer: PTNode) -> Option<PBack> {
+        let p_back_self = self.tnodes.get_key_mut(p_refer)?.p_back_self;
+        let p_back_new = self.backrefs.insert_key(p_back_self, p_refer).unwrap();
+        Some(p_back_new)
     }
 
     // TODO need multiple variations of `eval`, one that assumes `lut` structure is
     // not changed and avoids propogation if equal values are detected.
 
-    /// Evaluates `self` as much as possible. Uses only root `Some` bit values
-    /// in propogation.
-    pub fn eval(&mut self) {
+    /// Evaluates everything and checks equivalences
+    pub fn eval_all(&mut self) {
         let this_visit = self.next_visit_gen();
 
         // set `alg_rc` and get the initial front
         self.front.clear();
-        let mut adv = self.a.advancer();
-        while let Some(p) = adv.advance(&self.a) {
-            let key = *self.a.get_key(p).unwrap();
-            let node = self.a.get_val_mut(p).unwrap();
-            if key == node.p_self {
-                let len = node.inp.len();
-                node.alg_rc = u64::try_from(len).unwrap();
-                if (len == 0) && node.val.is_some() {
-                    self.front.push(p);
-                }
+        let mut adv = self.tnodes.advancer();
+        while let Some(p_tnode) = adv.advance(&self.tnodes) {
+            let tnode = self.tnodes.get_key_mut(p_tnode).unwrap();
+            let len = tnode.inp.len();
+            tnode.alg_rc = u64::try_from(len).unwrap();
+            if (len == 0) && tnode.val.is_some() {
+                self.front.push(p_tnode);
             }
         }
 
-        while let Some(p_node) = self.front.pop() {
-            let node = self.a.get_val(p_node).unwrap();
-            let (val, propogate) = if node.lut.is_some() {
+        while let Some(p_tnode) = self.front.pop() {
+            let tnode = self.tnodes.get_key(p_tnode).unwrap();
+            let (val, propogate) = if tnode.lut.is_some() {
                 // acquire LUT input
                 let mut inx = 0;
-                let len = node.inp.len();
+                let len = tnode.inp.len();
                 for i in 0..len {
-                    inx |= (self.a.get_val(node.inp[i]).unwrap().val.unwrap() as usize) << i;
+                    let inp_p_tnode = self.backrefs.get_key(tnode.inp[i]).unwrap();
+                    let inp_tnode = self.tnodes.get_key(*inp_p_tnode).unwrap();
+                    inx |= (inp_tnode.val.unwrap() as usize) << i;
                 }
                 // evaluate
-                let val = node.lut.as_ref().unwrap().get(inx).unwrap();
+                let val = tnode.lut.as_ref().unwrap().get(inx).unwrap();
                 (Some(val), true)
-            } else if node.inp.len() == 1 {
+            } else if tnode.inp.len() == 1 {
                 // wire propogation
-                let val = self.a.get_val(node.inp[0]).unwrap().val;
-                (val, true)
+                let inp_p_tnode = self.backrefs.get_key(tnode.inp[0]).unwrap();
+                let inp_tnode = self.tnodes.get_key(*inp_p_tnode).unwrap();
+                (inp_tnode.val, true)
             } else {
                 (None, false)
             };
-            let node = self.a.get_val_mut(p_node).unwrap();
+            let tnode = self.tnodes.get_key_mut(p_tnode).unwrap();
             if propogate {
-                node.val = val;
+                tnode.val = val;
             }
-            node.visit = this_visit;
+            tnode.visit = this_visit;
             // propogate
-            let mut adv = self.a.advancer_surject(p_node);
-            while let Some(p_backref) = adv.advance(&self.a) {
-                let p_next = *self.a.get_key(p_backref).unwrap();
-                let next = self.a.get_val_mut(p_next).unwrap();
+            let mut adv = self.tnodes.advancer_surject(p_tnode);
+            while let Some(p_backref) = adv.advance(&self.tnodes) {
+                let next = self.tnodes.get_key_mut(p_backref).unwrap();
                 if (next.visit < this_visit) && (next.alg_rc != 0) {
                     next.alg_rc -= 1;
                     if next.alg_rc == 0 {
-                        self.front.push(next.p_self);
+                        self.front.push(p_backref);
                     }
                 }
             }
@@ -268,19 +277,35 @@ impl TDag {
     }
 
     pub fn drive_loops(&mut self) {
-        let mut adv = self.a.advancer();
-        while let Some(p) = adv.advance(&self.a) {
-            if let Some(driver) = self.a.get_val(p).unwrap().loop_driver {
-                self.a.get_val_mut(p).unwrap().val = self.a.get_val(driver).unwrap().val;
+        let mut adv = self.tnodes.advancer();
+        while let Some(p_tnode) = adv.advance(&self.tnodes) {
+            if let Some(driver) = self.tnodes.get_key(p_tnode).unwrap().loop_driver {
+                let p_driver = self.backrefs.get_key(driver).unwrap();
+                self.tnodes.get_key_mut(p_tnode).unwrap().val =
+                    self.tnodes.get_key(*p_driver).unwrap().val;
             }
         }
+    }
+
+    pub fn get_p_tnode(&self, p_back: PBack) -> Option<PTNode> {
+        Some(*self.backrefs.get_key(p_back)?)
+    }
+
+    pub fn get_tnode(&self, p_back: PBack) -> Option<&TNode> {
+        let backref = self.backrefs.get_key(p_back)?;
+        self.tnodes.get_key(*backref)
+    }
+
+    pub fn get_tnode_mut(&mut self, p_back: PBack) -> Option<&mut TNode> {
+        let backref = self.backrefs.get_key(p_back)?;
+        self.tnodes.get_key_mut(*backref)
     }
 
     pub fn get_noted_as_extawi(&self, p_note: PNote) -> Option<ExtAwi> {
         let note = self.notes.get(p_note)?;
         let mut x = ExtAwi::zero(NonZeroUsize::new(note.bits.len())?);
         for (i, p_bit) in note.bits.iter().enumerate() {
-            let bit = self.a.get_val(*p_bit)?;
+            let bit = self.get_tnode(*p_bit)?;
             let val = bit.val?;
             x.set(i, val).unwrap();
         }
@@ -288,12 +313,16 @@ impl TDag {
     }
 
     #[track_caller]
-    pub fn set_noted(&mut self, p_note: PNote, val: &Bits) {
-        let note = &self.notes[p_note];
+    pub fn set_noted(&mut self, p_note: PNote, val: &Bits) -> Option<()> {
+        let note = self.notes.get(p_note)?;
         assert_eq!(note.bits.len(), val.bw());
         for (i, bit) in note.bits.iter().enumerate() {
-            self.a.get_val_mut(*bit).unwrap().val = Some(val.get(i).unwrap());
+            let val = Some(val.get(i).unwrap());
+            let backref = self.backrefs.get_key(*bit)?;
+            let tnode = self.tnodes.get_key_mut(*backref)?;
+            tnode.val = val;
         }
+        Some(())
     }
 }
 
