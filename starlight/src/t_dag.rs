@@ -347,16 +347,24 @@ impl TDag {
                 common_val = Some(tnode.val);
             }
 
+            // notify dependencies
             let mut adv_backref = self.backrefs.advancer_surject(tnode.p_self);
             while let Some(p_back) = adv_backref.advance(&self.backrefs) {
-                let p_next = self.backrefs.get_val(p_back).unwrap();
-                let next = self.tnodes.get_key_mut(*p_next).unwrap();
-                // also ends up skipping self `Ptr`s
-                if next.visit < this_visit {
-                    next.alg_rc = next.alg_rc.checked_sub(1).unwrap();
-                    if next.alg_rc == 0 {
-                        self.tnode_front.push(*p_next);
+                match self.backrefs.get_key(p_back).unwrap() {
+                    Referent::This => (),
+                    Referent::ThisEquiv => (),
+                    Referent::Input(p_dep) => {
+                        let dep = self.tnodes.get_key_mut(*p_dep).unwrap();
+                        // also ends up skipping self `Ptr`s
+                        if dep.visit < this_visit {
+                            dep.alg_rc = dep.alg_rc.checked_sub(1).unwrap();
+                            if dep.alg_rc == 0 {
+                                self.tnode_front.push(*p_dep);
+                            }
+                        }
                     }
+                    Referent::LoopDriver(_) => (),
+                    Referent::Note(_) => (),
                 }
             }
         }
