@@ -7,9 +7,9 @@ use awint::{
 };
 
 use crate::{
-    triple_arena::Ptr,
+    triple_arena::{ChainArena, Ptr},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
-    PTNode, TDag, TNode,
+    PBack, PTNode, Referent, TDag, TNode,
 };
 
 /// This is a separate struct so that all `PBack`s can be replaced with
@@ -28,9 +28,7 @@ pub struct DebugTNode {
 impl DebugTNode {
     pub fn from_tnode(tnode: &TNode, tdag: &TDag) -> Self {
         Self {
-            p_back_self: tdag
-                .get_p_tnode(tnode.p_back_self)
-                .unwrap_or(Ptr::invalid()),
+            p_back_self: tdag.get_p_tnode(tnode.p_self).unwrap_or(Ptr::invalid()),
             inp: tnode
                 .inp
                 .iter()
@@ -104,12 +102,23 @@ impl DebugNodeTrait<PTNode> for DebugTNode {
 }
 
 impl TDag {
-    pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
-        let res = self.verify_integrity();
+    pub fn backrefs_to_chain_arena(&self) -> ChainArena<PBack, Referent> {
+        let mut chain_arena = ChainArena::new();
+        self.backrefs
+            .clone_keys_to_chain_arena(&mut chain_arena, |_, p_tnode| *p_tnode);
+        chain_arena
+    }
+
+    pub fn to_debug_tdag(&self) -> Arena<PTNode, DebugTNode> {
         let mut arena = Arena::<PTNode, DebugTNode>::new();
         self.tnodes
             .clone_keys_to_arena(&mut arena, |_, tnode| DebugTNode::from_tnode(tnode, self));
-        render_to_svg_file(&arena, false, out_file).unwrap();
+        arena
+    }
+
+    pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
+        let res = self.verify_integrity();
+        render_to_svg_file(&self.to_debug_tdag(), false, out_file).unwrap();
         res
     }
 }

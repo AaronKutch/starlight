@@ -154,8 +154,7 @@ impl TDag {
                                 for i in 0..w {
                                     let p_looper = map[&v[0]][i];
                                     let p_driver = map[&v[1]][i];
-                                    self.make_loop(p_looper, p_driver).unwrap();
-                                    self.tnodes.get_key_mut(p_looper).unwrap().val = Some(false);
+                                    self.make_loop(p_looper, p_driver, Some(false)).unwrap();
                                 }
                                 // map the handle to the looper
                                 map.insert(p, map[&v[0]].clone());
@@ -191,7 +190,7 @@ impl TDag {
         for (p_note, p_node) in &op_dag.note_arena {
             let mut note = vec![];
             for bit in &map[p_node] {
-                note.push(self.make_extra_reference(*bit).unwrap());
+                note.push(self.make_note(p_note, *bit).unwrap());
             }
             self.notes[p_note] = Note { bits: note };
         }

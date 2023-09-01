@@ -11,7 +11,7 @@ ptr_struct!(PTNode; PBack);
 /// A "table" node meant to evoke some kind of one-way table in a DAG.
 #[derive(Debug, Clone)]
 pub struct TNode {
-    pub p_back_self: PBack,
+    pub p_self: PBack,
     /// Inputs
     pub inp: SmallVec<[PBack; 4]>,
     /// Lookup Table that outputs one bit
@@ -31,9 +31,9 @@ pub struct TNode {
 }
 
 impl TNode {
-    pub fn new(p_back_self: PBack) -> Self {
+    pub fn new(p_self: PBack) -> Self {
         Self {
-            p_back_self,
+            p_self,
             inp: SmallVec::new(),
             lut: None,
             val: None,

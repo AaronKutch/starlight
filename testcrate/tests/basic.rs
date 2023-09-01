@@ -30,7 +30,7 @@ fn incrementer() {
 
     t_dag.verify_integrity().unwrap();
 
-    t_dag.eval_all();
+    t_dag.eval_all().unwrap();
     // TODO
     //t_dag.basic_simplify();
 
@@ -38,7 +38,7 @@ fn incrementer() {
         std::assert_eq!(i, t_dag.get_noted_as_extawi(p_val).unwrap().to_usize());
 
         t_dag.drive_loops();
-        t_dag.eval_all();
+        t_dag.eval_all().unwrap();
     }
 }
 
@@ -65,7 +65,7 @@ fn multiplier() {
 
     t_dag.verify_integrity().unwrap();
 
-    t_dag.eval_all();
+    t_dag.eval_all().unwrap();
     // TODO
     //t_dag.basic_simplify();
 
@@ -73,11 +73,11 @@ fn multiplier() {
         use awi::*;
         t_dag.set_noted(input_a, inlawi!(123u16).as_ref());
         t_dag.set_noted(input_b, inlawi!(77u16).as_ref());
-        t_dag.eval_all();
+        t_dag.eval_all().unwrap();
         std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), extawi!(9471u32));
 
         t_dag.set_noted(input_a, inlawi!(10u16).as_ref());
-        t_dag.eval_all();
+        t_dag.eval_all().unwrap();
         std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), extawi!(770u32));
     }
 }

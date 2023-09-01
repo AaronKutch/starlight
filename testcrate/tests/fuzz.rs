@@ -124,7 +124,7 @@ impl Mem {
         }
 
         op_dag.eval_all().unwrap();
-        t_dag.eval_all();
+        t_dag.eval_all().unwrap();
 
         t_dag.verify_integrity().unwrap();
 
