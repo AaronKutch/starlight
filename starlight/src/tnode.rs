@@ -17,8 +17,6 @@ pub struct TNode {
     /// Lookup Table that outputs one bit
     // TODO make a SmallAwi
     pub lut: Option<ExtAwi>,
-    /// The value of the output
-    pub val: Option<bool>,
     // If the value cannot be temporally changed with respect to what the
     // simplification algorithms can assume.
     //pub is_permanent: bool,
@@ -36,7 +34,6 @@ impl TNode {
             p_self,
             inp: SmallVec::new(),
             lut: None,
-            val: None,
             loop_driver: None,
             alg_rc: 0,
             visit: NonZeroU64::new(2).unwrap(),

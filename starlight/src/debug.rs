@@ -9,7 +9,7 @@ use awint::{
 use crate::{
     triple_arena::{ChainArena, Ptr},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
-    PBack, PTNode, Referent, TDag, TNode,
+    PBack, PTNode, Referent, TDag, TNode, Value,
 };
 
 /// This is a separate struct so that all `PBack`s can be replaced with
@@ -19,7 +19,7 @@ pub struct DebugTNode {
     pub p_back_self: PTNode,
     pub inp: SmallVec<[PTNode; 4]>,
     pub lut: Option<ExtAwi>,
-    pub val: Option<bool>,
+    pub val: Option<Value>,
     pub loop_driver: Option<PTNode>,
     pub alg_rc: u64,
     pub visit: NonZeroU64,
@@ -35,7 +35,7 @@ impl DebugTNode {
                 .map(|p| tdag.get_p_tnode(*p).unwrap_or(Ptr::invalid()))
                 .collect(),
             lut: tnode.lut.clone(),
-            val: tnode.val,
+            val: tdag.get_val(tnode.p_self),
             loop_driver: tnode
                 .loop_driver
                 .map(|p| tdag.get_p_tnode(p).unwrap_or(Ptr::invalid())),
@@ -61,11 +61,10 @@ impl DebugNodeTrait<PTNode> for DebugTNode {
                     v.push(format!("{:?}", lut));
                 }
                 v.push(format!("alg_rc:{} vis:{}", this.alg_rc, this.visit,));
-                v.push(format!("{}", match this.val {
-                    None => "*",
-                    Some(false) => "0",
-                    Some(true) => "1",
-                },));
+                v.push(match this.val {
+                    None => "invalid p_self".to_owned(),
+                    Some(val) => format!("{val:?}"),
+                });
                 if let Some(driver) = this.loop_driver {
                     v.push(format!("driver: {:?}", driver));
                 }
@@ -86,11 +85,10 @@ impl DebugNodeTrait<PTNode> for DebugTNode {
                 if let Some(ref lut) = this.lut {
                     v.push(format!("{lut:?}"));
                 }
-                match this.val {
-                    None => (),
-                    Some(false) => v.push("0".to_string()),
-                    Some(true) => v.push("1".to_string()),
-                }
+                v.push(match this.val {
+                    None => "invalid p_self".to_owned(),
+                    Some(val) => format!("{val:?}"),
+                });
                 if let Some(driver) = this.loop_driver {
                     v.push(format!("->{driver:?}"));
                 }
@@ -111,8 +109,7 @@ impl TDag {
 
     pub fn to_debug_tdag(&self) -> Arena<PTNode, DebugTNode> {
         let mut arena = Arena::<PTNode, DebugTNode>::new();
-        self.tnodes
-            .clone_keys_to_arena(&mut arena, |_, tnode| DebugTNode::from_tnode(tnode, self));
+        arena.clone_from_with(&self.tnodes, |_, tnode| DebugTNode::from_tnode(tnode, self));
         arena
     }
 

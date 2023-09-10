@@ -12,7 +12,7 @@ use starlight::{
     },
     awint_dag::smallvec::smallvec,
     triple_arena::{ptr_struct, Advancer, Arena},
-    TDag,
+    TDag, Value,
 };
 
 #[cfg(debug_assertions)]
@@ -118,7 +118,7 @@ impl Mem {
             assert_eq!(lit.bw(), len);
             for i in 0..len {
                 let p_bit = t_dag.notes[p_note].bits[i];
-                t_dag.get_tnode_mut(p_bit).unwrap().val = Some(lit.get(i).unwrap());
+                t_dag.backrefs.get_val_mut(p_bit).unwrap().val = Value::Const(lit.get(i).unwrap());
             }
             op_dag.pnote_get_mut_node(p_note).unwrap().op = Op::Literal(lit);
         }
@@ -136,8 +136,16 @@ impl Mem {
                 assert_eq!(lit.bw(), len);
                 for i in 0..len {
                     let p_bit = note.bits[i];
-                    let bit_node = t_dag.get_tnode(p_bit).unwrap();
-                    assert_eq!(bit_node.val.unwrap(), lit.get(i).unwrap());
+                    let equiv = t_dag.backrefs.get_val(p_bit).unwrap();
+                    match equiv.val {
+                        Value::Unknown => panic!(),
+                        Value::Const(val) => {
+                            assert_eq!(val, lit.get(i).unwrap());
+                        }
+                        Value::Dynam(val, _) => {
+                            assert_eq!(val, lit.get(i).unwrap());
+                        }
+                    }
                 }
             } else {
                 unreachable!();

@@ -10,7 +10,7 @@ use awint::{
     ExtAwi,
 };
 
-use crate::{Note, PTNode, TDag};
+use crate::{Note, PBack, TDag, Value};
 
 impl TDag {
     pub(crate) fn add_op_dag(&mut self, op_dag: &mut OpDag) -> Result<(), EvalError> {
@@ -29,12 +29,12 @@ impl TDag {
         }
         self.notes
             .clone_from_with(&op_dag.note_arena, |_, _| Note { bits: vec![] });
-        op_dag.visit_gen += 1;
+        op_dag.visit_gen = op_dag.visit_gen.checked_add(1).unwrap();
         let gen = op_dag.visit_gen;
 
         // TODO this is quadratically suboptimal
         // we definitely need a static concat operation
-        let mut map = HashMap::<PNode, Vec<PTNode>>::new();
+        let mut map = HashMap::<PNode, Vec<PBack>>::new();
         let mut adv = op_dag.a.advancer();
         while let Some(leaf) = adv.advance(&op_dag.a) {
             if op_dag[leaf].visit == gen {
@@ -154,7 +154,12 @@ impl TDag {
                                 for i in 0..w {
                                     let p_looper = map[&v[0]][i];
                                     let p_driver = map[&v[1]][i];
-                                    self.make_loop(p_looper, p_driver, Some(false)).unwrap();
+                                    self.make_loop(
+                                        p_looper,
+                                        p_driver,
+                                        Value::Dynam(false, self.visit_gen()),
+                                    )
+                                    .unwrap();
                                 }
                                 // map the handle to the looper
                                 map.insert(p, map[&v[0]].clone());
