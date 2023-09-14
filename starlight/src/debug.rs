@@ -28,9 +28,10 @@ impl DebugNodeTrait<PBack> for DebugTDag {
                 center: {
                     let mut v = vec![format!("{:?}", p_this)];
                     if let Some(ref lut) = tnode.lut {
-                        v.push(format!("{:?}", lut));
+                        v.push(format!("{:?} ", lut));
                     }
-                    v.push(format!("alg_rc:{} vis:{}", tnode.alg_rc, tnode.visit,));
+                    v.push(format!("alg_rc:{}", tnode.alg_rc));
+                    v.push(format!("visit:{}", tnode.visit));
                     if let Some(driver) = tnode.loop_driver {
                         v.push(format!("driver: {:?}", driver));
                     }
@@ -42,8 +43,9 @@ impl DebugNodeTrait<PBack> for DebugTDag {
                 sources: p_tnodes.iter().map(|p| (*p, String::new())).collect(),
                 center: {
                     vec![
-                        format!("{:?} {}", equiv.p_self_equiv, equiv.equiv_alg_rc),
+                        format!("{:?}", equiv.p_self_equiv),
                         format!("{:?}", equiv.val),
+                        format!("rc:{}", equiv.equiv_alg_rc),
                     ]
                 },
                 sinks: vec![],
@@ -81,15 +83,18 @@ impl TDag {
                         let mut tnode = self.tnodes.get(*p_tnode).unwrap().clone();
                         // forward to the `PBack`s of TNodes
                         for inp in &mut tnode.inp {
-                            if let Referent::Input(p_input) = self.backrefs.get_key(*inp).unwrap() {
-                                *inp = self.tnodes.get(*p_input).unwrap().p_self;
+                            if let Referent::Input(_) = self.backrefs.get_key(*inp).unwrap() {
+                                let p_input = self.backrefs.get_val(*inp).unwrap().p_self_equiv;
+                                *inp = p_input;
                             }
                         }
                         if let Some(loop_driver) = tnode.loop_driver.as_mut() {
-                            if let Referent::LoopDriver(p_driver) =
+                            if let Referent::LoopDriver(_) =
                                 self.backrefs.get_key(*loop_driver).unwrap()
                             {
-                                *loop_driver = self.tnodes.get(*p_driver).unwrap().p_self;
+                                let p_driver =
+                                    self.backrefs.get_val(*loop_driver).unwrap().p_self_equiv;
+                                *loop_driver = p_driver;
                             }
                         }
                         DebugTDag::TNode(tnode)

@@ -417,6 +417,13 @@ impl TDag {
         // set `alg_rc` and get the initial front
         self.tnode_front.clear();
         self.equiv_front.clear();
+        for (p, tnode) in &mut self.tnodes {
+            let len = tnode.inp.len();
+            tnode.alg_rc = u64::try_from(len).unwrap();
+            if len == 0 {
+                self.tnode_front.push(p);
+            }
+        }
         for equiv in self.backrefs.vals_mut() {
             equiv.equiv_alg_rc = 0;
         }
@@ -425,20 +432,17 @@ impl TDag {
             let (referent, equiv) = self.backrefs.get_mut(p_back).unwrap();
             match referent {
                 Referent::ThisEquiv => (),
-                Referent::ThisTNode(p_tnode) => {
+                Referent::ThisTNode(_) => {
                     equiv.equiv_alg_rc += 1;
-
-                    let tnode = self.tnodes.get_mut(*p_tnode).unwrap();
-                    let len = tnode.inp.len();
-                    tnode.alg_rc = u64::try_from(len).unwrap();
-                    // include `tnode.val.is_none()` values so that we can propogate `None`s
-                    if len == 0 {
-                        self.tnode_front.push(*p_tnode);
-                    }
                 }
                 Referent::Input(_) => (),
                 Referent::LoopDriver(_) => (),
                 Referent::Note(_) => (),
+            }
+        }
+        for equiv in self.backrefs.vals() {
+            if equiv.equiv_alg_rc == 0 {
+                self.equiv_front.push(equiv.p_self_equiv);
             }
         }
 
