@@ -347,24 +347,22 @@ impl TDag {
                 Equiv::new(p_self_equiv, Value::Unknown),
             )
         });
-        let p_new_tnode = self.tnodes.insert_with(|p_tnode| {
+        self.tnodes.insert_with(|p_tnode| {
             let p_self = self
                 .backrefs
                 .insert_key(p_equiv, Referent::ThisTNode(p_tnode))
                 .unwrap();
             let mut tnode = TNode::new(p_self);
             tnode.lut = Some(ExtAwi::from(table));
+            for p_inx in p_inxs {
+                let p_back = self
+                    .backrefs
+                    .insert_key(*p_inx, Referent::Input(p_tnode))
+                    .unwrap();
+                tnode.inp.push(p_back);
+            }
             tnode
         });
-        for p_inx in p_inxs {
-            let p_back_input = self.backrefs.get_val(*p_inx).unwrap().p_self_equiv;
-            let p_back = self
-                .backrefs
-                .insert_key(p_back_input, Referent::Input(p_new_tnode))
-                .unwrap();
-            let tnode = self.tnodes.get_mut(p_new_tnode).unwrap();
-            tnode.inp.push(p_back);
-        }
         Some(p_equiv)
     }
 
@@ -558,16 +556,19 @@ impl TDag {
         }
     }
 
-    pub fn get_p_tnode(&self, p_this_tnode: PBack) -> Option<PTNode> {
-        if let Some(Referent::ThisTNode(p_tnode)) = self.backrefs.get_key(p_this_tnode) {
-            Some(*p_tnode)
-        } else {
-            None
+    /*pub fn get_p_tnode(&self, p_back: PBack) -> Option<PTNode> {
+        let referent = self.backrefs.get_key(p_back)?;
+        match referent {
+            Referent::ThisEquiv => None,
+            Referent::ThisTNode(p_tnode) => Some(*p_tnode),
+            Referent::Input(p_tnode) => Some(*p_tnode),
+            Referent::LoopDriver(p_tnode) => Some(*p_tnode),
+            Referent::Note(_) => todo!(),
         }
-    }
+    }*/
 
-    pub fn get_val(&self, p_this_tnode: PBack) -> Option<Value> {
-        Some(self.backrefs.get_val(p_this_tnode)?.val)
+    pub fn get_val(&self, p_back: PBack) -> Option<Value> {
+        Some(self.backrefs.get_val(p_back)?.val)
     }
 
     pub fn get_noted_as_extawi(&self, p_note: PNote) -> Option<ExtAwi> {

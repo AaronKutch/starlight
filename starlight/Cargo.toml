@@ -27,5 +27,3 @@ serde_support = ["awint/serde_support"]
 # Turns on `zeroize` support
 zeroize_support = ["awint/zeroize_support"]
 debug = ["awint/debug"]
-# reduces number of things in debug tree
-debug_min = ["debug"]

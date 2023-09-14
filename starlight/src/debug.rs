@@ -1,100 +1,54 @@
-use std::{num::NonZeroU64, path::PathBuf};
+use std::path::PathBuf;
 
-use awint::{
-    awint_dag::{smallvec::SmallVec, EvalError},
-    awint_macro_internals::triple_arena::Arena,
-    ExtAwi,
-};
+use awint::{awint_dag::EvalError, awint_macro_internals::triple_arena::Arena};
 
 use crate::{
-    triple_arena::{ChainArena, Ptr},
+    triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
-    PBack, PTNode, Referent, TDag, TNode, Value,
+    Equiv, PBack, Referent, TDag, TNode,
 };
 
-/// This is a separate struct so that all `PBack`s can be replaced with
-/// `PTNode`s
 #[derive(Debug, Clone)]
-pub struct DebugTNode {
-    pub p_back_self: PTNode,
-    pub inp: SmallVec<[PTNode; 4]>,
-    pub lut: Option<ExtAwi>,
-    pub val: Option<Value>,
-    pub loop_driver: Option<PTNode>,
-    pub alg_rc: u64,
-    pub visit: NonZeroU64,
+pub enum DebugTDag {
+    TNode(TNode),
+    Equiv(Equiv, Vec<PBack>),
+    Remove,
 }
 
-impl DebugTNode {
-    pub fn from_tnode(tnode: &TNode, tdag: &TDag) -> Self {
-        Self {
-            p_back_self: tdag.get_p_tnode(tnode.p_self).unwrap_or(Ptr::invalid()),
-            inp: tnode
-                .inp
-                .iter()
-                .map(|p| tdag.get_p_tnode(*p).unwrap_or(Ptr::invalid()))
-                .collect(),
-            lut: tnode.lut.clone(),
-            val: tdag.get_val(tnode.p_self),
-            loop_driver: tnode
-                .loop_driver
-                .map(|p| tdag.get_p_tnode(p).unwrap_or(Ptr::invalid())),
-            alg_rc: tnode.alg_rc,
-            visit: tnode.visit,
-        }
-    }
-}
-
-#[cfg(not(feature = "debug_min"))]
-impl DebugNodeTrait<PTNode> for DebugTNode {
-    fn debug_node(p_this: PTNode, this: &Self) -> DebugNode<PTNode> {
-        DebugNode {
-            sources: this
-                .inp
-                .iter()
-                .enumerate()
-                .map(|(i, p)| (*p, format!("{i}")))
-                .collect(),
-            center: {
-                let mut v = vec![format!("{:?}", p_this)];
-                if let Some(ref lut) = this.lut {
-                    v.push(format!("{:?}", lut));
-                }
-                v.push(format!("alg_rc:{} vis:{}", this.alg_rc, this.visit,));
-                v.push(match this.val {
-                    None => "invalid p_self".to_owned(),
-                    Some(val) => format!("{val:?}"),
-                });
-                if let Some(driver) = this.loop_driver {
-                    v.push(format!("driver: {:?}", driver));
-                }
-                v
+impl DebugNodeTrait<PBack> for DebugTDag {
+    fn debug_node(p_this: PBack, this: &Self) -> DebugNode<PBack> {
+        match this {
+            DebugTDag::TNode(tnode) => DebugNode {
+                sources: tnode
+                    .inp
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| (*p, format!("{i}")))
+                    .collect(),
+                center: {
+                    let mut v = vec![format!("{:?}", p_this)];
+                    if let Some(ref lut) = tnode.lut {
+                        v.push(format!("{:?}", lut));
+                    }
+                    v.push(format!("alg_rc:{} vis:{}", tnode.alg_rc, tnode.visit,));
+                    if let Some(driver) = tnode.loop_driver {
+                        v.push(format!("driver: {:?}", driver));
+                    }
+                    v
+                },
+                sinks: vec![],
             },
-            sinks: vec![],
-        }
-    }
-}
-
-#[cfg(feature = "debug_min")]
-impl DebugNodeTrait<PTNode> for DebugTNode {
-    fn debug_node(_p_this: PTNode, this: &Self) -> DebugNode<PTNode> {
-        DebugNode {
-            sources: this.inp.iter().map(|p| (*p, String::new())).collect(),
-            center: {
-                let mut v = vec![];
-                if let Some(ref lut) = this.lut {
-                    v.push(format!("{lut:?}"));
-                }
-                v.push(match this.val {
-                    None => "invalid p_self".to_owned(),
-                    Some(val) => format!("{val:?}"),
-                });
-                if let Some(driver) = this.loop_driver {
-                    v.push(format!("->{driver:?}"));
-                }
-                v
+            DebugTDag::Equiv(equiv, p_tnodes) => DebugNode {
+                sources: p_tnodes.iter().map(|p| (*p, String::new())).collect(),
+                center: {
+                    vec![
+                        format!("{:?} {}", equiv.p_self_equiv, equiv.equiv_alg_rc),
+                        format!("{:?}", equiv.val),
+                    ]
+                },
+                sinks: vec![],
             },
-            sinks: vec![],
+            DebugTDag::Remove => panic!("should have been removed"),
         }
     }
 }
@@ -107,9 +61,48 @@ impl TDag {
         chain_arena
     }
 
-    pub fn to_debug_tdag(&self) -> Arena<PTNode, DebugTNode> {
-        let mut arena = Arena::<PTNode, DebugTNode>::new();
-        arena.clone_from_with(&self.tnodes, |_, tnode| DebugTNode::from_tnode(tnode, self));
+    pub fn to_debug_tdag(&self) -> Arena<PBack, DebugTDag> {
+        let mut arena = Arena::<PBack, DebugTDag>::new();
+        self.backrefs
+            .clone_keys_to_arena(&mut arena, |p_self, referent| {
+                match referent {
+                    Referent::ThisEquiv => {
+                        let mut v = vec![];
+                        let mut adv = self.backrefs.advancer_surject(p_self);
+                        while let Some(p) = adv.advance(&self.backrefs) {
+                            if let Referent::ThisTNode(_) = self.backrefs.get_key(p).unwrap() {
+                                // get every TNode that is in this equivalence
+                                v.push(p);
+                            }
+                        }
+                        DebugTDag::Equiv(self.backrefs.get_val(p_self).unwrap().clone(), v)
+                    }
+                    Referent::ThisTNode(p_tnode) => {
+                        let mut tnode = self.tnodes.get(*p_tnode).unwrap().clone();
+                        // forward to the `PBack`s of TNodes
+                        for inp in &mut tnode.inp {
+                            if let Referent::Input(p_input) = self.backrefs.get_key(*inp).unwrap() {
+                                *inp = self.tnodes.get(*p_input).unwrap().p_self;
+                            }
+                        }
+                        if let Some(loop_driver) = tnode.loop_driver.as_mut() {
+                            if let Referent::LoopDriver(p_driver) =
+                                self.backrefs.get_key(*loop_driver).unwrap()
+                            {
+                                *loop_driver = self.tnodes.get(*p_driver).unwrap().p_self;
+                            }
+                        }
+                        DebugTDag::TNode(tnode)
+                    }
+                    _ => DebugTDag::Remove,
+                }
+            });
+        let mut adv = arena.advancer();
+        while let Some(p) = adv.advance(&arena) {
+            if let DebugTDag::Remove = arena.get(p).unwrap() {
+                arena.remove(p).unwrap();
+            }
+        }
         arena
     }
 
