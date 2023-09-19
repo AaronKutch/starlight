@@ -2,6 +2,7 @@
 mod debug;
 mod lower;
 //mod simplify;
+mod rng;
 mod t_dag;
 mod temporal;
 mod tnode;
@@ -13,6 +14,7 @@ pub use temporal::*;
 pub use tnode::*;
 mod optimize;
 pub use optimize::*;
+pub use rng::StarRng;
 
 // TODO need something like an `AutoAwi` type that seamlessly interfaces with
 // internally or externally running DAGs / regular Awi functions / operational

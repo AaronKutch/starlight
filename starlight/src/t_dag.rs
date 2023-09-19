@@ -8,7 +8,7 @@ use awint::{
 
 use crate::{
     triple_arena::{Arena, SurjectArena},
-    PBack, PTNode, TNode,
+    Optimizer, PBack, PTNode, TNode,
 };
 
 #[derive(Debug, Clone)]
@@ -72,7 +72,7 @@ pub enum Referent {
 #[derive(Debug, Clone)]
 pub struct TDag {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
-    pub(crate) tnodes: Arena<PTNode, TNode>,
+    pub tnodes: Arena<PTNode, TNode>,
     /// A kind of generation counter tracking the highest `visit` number
     visit_gen: NonZeroU64,
     pub notes: Arena<PNote, Note>,
@@ -560,17 +560,6 @@ impl TDag {
         }
     }
 
-    /*pub fn get_p_tnode(&self, p_back: PBack) -> Option<PTNode> {
-        let referent = self.backrefs.get_key(p_back)?;
-        match referent {
-            Referent::ThisEquiv => None,
-            Referent::ThisTNode(p_tnode) => Some(*p_tnode),
-            Referent::Input(p_tnode) => Some(*p_tnode),
-            Referent::LoopDriver(p_tnode) => Some(*p_tnode),
-            Referent::Note(_) => todo!(),
-        }
-    }*/
-
     pub fn get_val(&self, p_back: PBack) -> Option<Value> {
         Some(self.backrefs.get_val(p_back)?.val)
     }
@@ -599,6 +588,12 @@ impl TDag {
             equiv.val = Value::Dynam(val.get(i).unwrap(), self.visit_gen);
         }
         Some(())
+    }
+
+    pub fn optimize_basic(&mut self) {
+        // all 0 gas optimizations
+        let mut opt = Optimizer::new(0);
+        opt.optimize(self);
     }
 }
 

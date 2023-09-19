@@ -2,7 +2,7 @@ use starlight::{
     awi,
     awint_dag::{Lineage, OpDag, StateEpoch},
     dag::*,
-    TDag,
+    StarRng, TDag,
 };
 
 // tests an incrementing counter
@@ -79,5 +79,70 @@ fn multiplier() {
         t_dag.set_noted(input_a, inlawi!(10u16).as_ref());
         t_dag.eval_all().unwrap();
         std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), extawi!(770u32));
+    }
+}
+
+// test LUT simplifications
+#[test]
+fn luts() {
+    let mut rng = StarRng::new(0);
+    for input_w in 1usize..=8 {
+        let lut_w = 1 << input_w;
+        for _ in 0..100 {
+            let epoch0 = StateEpoch::new();
+            let mut test_input = awi::ExtAwi::zero(bw(input_w));
+            rng.next_bits(&mut test_input);
+            let mut input = ExtAwi::opaque(bw(input_w));
+            let input_state = input.state();
+            let mut opaque_set = awi::ExtAwi::umax(bw(input_w));
+            for i in 0..input_w {
+                // randomly set some bits to a constant and leave some as opaque
+                if rng.next_bool() {
+                    input.set(i, test_input.get(i).unwrap()).unwrap();
+                    opaque_set.set(i, false).unwrap();
+                }
+            }
+            let mut lut = awi::ExtAwi::zero(bw(lut_w));
+            rng.next_bits(&mut lut);
+            let mut x = ExtAwi::zero(bw(1));
+            x.lut_(&ExtAwi::from(&lut), &input).unwrap();
+
+            let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
+            res.unwrap();
+
+            let p_x = op_dag.note_pstate(x.state()).unwrap();
+            let p_input = op_dag.note_pstate(input_state).unwrap();
+
+            op_dag.lower_all().unwrap();
+
+            let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
+            res.unwrap();
+
+            t_dag.optimize_basic();
+
+            {
+                use awi::{assert, assert_eq, *};
+                // assert that there is at most one TNode with constant inputs optimized away
+                let mut tnodes = t_dag.tnodes.vals();
+                if let Some(tnode) = tnodes.next() {
+                    assert!(tnode.inp.len() <= opaque_set.count_ones());
+                    assert!(tnodes.next().is_none());
+                }
+
+                t_dag.set_noted(p_input, &test_input).unwrap();
+
+                t_dag.eval_all().unwrap();
+
+                // check that the value is correct
+                let opt_res = t_dag.get_noted_as_extawi(p_x).unwrap();
+                assert_eq!(opt_res.bw(), 1);
+                let opt_res = opt_res.to_bool();
+                let res = lut.get(test_input.to_usize()).unwrap();
+                if opt_res != res {
+                    dbg!(test_input, lut, opaque_set);
+                }
+                assert_eq!(opt_res, res);
+            }
+        }
     }
 }
