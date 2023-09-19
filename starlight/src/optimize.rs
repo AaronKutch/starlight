@@ -135,17 +135,11 @@ impl Optimizer {
                 }
             }
 
-            // finally check for constant LUT
-            let res = if lut.is_zero() {
+            // input independence automatically reduces all zeros and all ones LUTs, so just
+            // need to check if the LUT is one bit for constant generation
+            let res = if lut.bw() == 1 {
                 let equiv = t_dag.backrefs.get_val_mut(tnode.p_self).unwrap();
-                equiv.val = Value::Const(false);
-                let _ = self
-                    .optimizations
-                    .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv), ());
-                true
-            } else if lut.is_umax() {
-                let equiv = t_dag.backrefs.get_val_mut(tnode.p_self).unwrap();
-                equiv.val = Value::Const(true);
+                equiv.val = Value::Const(lut.to_bool());
                 let _ = self
                     .optimizations
                     .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv), ());
