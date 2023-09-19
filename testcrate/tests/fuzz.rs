@@ -1,9 +1,5 @@
 use std::num::NonZeroUsize;
 
-use rand_xoshiro::{
-    rand_core::{RngCore, SeedableRng},
-    Xoshiro128StarStar,
-};
 use starlight::{
     awint::{
         awi,
@@ -12,7 +8,7 @@ use starlight::{
     },
     awint_dag::smallvec::smallvec,
     triple_arena::{ptr_struct, Advancer, Arena},
-    TDag, Value,
+    StarRng, TDag, Value,
 };
 
 #[cfg(debug_assertions)]
@@ -29,7 +25,7 @@ struct Mem {
     // the outer Vec has 5 vecs for all supported bitwidths plus one dummy 0 bitwidth vec, the
     // inner vecs are unsorted and used for random querying
     v: Vec<Vec<P0>>,
-    rng: Xoshiro128StarStar,
+    rng: StarRng,
 }
 
 impl Mem {
@@ -41,7 +37,7 @@ impl Mem {
         Self {
             a: Arena::new(),
             v,
-            rng: Xoshiro128StarStar::seed_from_u64(0),
+            rng: StarRng::new(0),
         }
     }
 
@@ -67,7 +63,7 @@ impl Mem {
     }
 
     pub fn next1_5(&mut self) -> (usize, P0) {
-        let w = ((self.rng.next_u32() as usize) % 4) + 1;
+        let w = ((self.rng.next_u8() as usize) % 4) + 1;
         (w, self.next(w))
     }
 
@@ -89,7 +85,7 @@ impl Mem {
         let mut adv = op_dag.a.advancer();
         while let Some(p) = adv.advance(&op_dag.a) {
             if op_dag[p].op.is_literal() {
-                if (self.rng.next_u32() & 1) == 0 {
+                if self.rng.next_bool() {
                     if let Op::Literal(lit) = op_dag[p].op.take() {
                         replacements.push((op_dag.note_pnode(p).unwrap(), lit));
                         op_dag[p].op = Op::Opaque(smallvec![], None);
@@ -155,8 +151,8 @@ impl Mem {
     }
 }
 
-fn op_perm_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
-    let next_op = rng.next_u32() % 3;
+fn op_perm_duo(rng: &mut StarRng, m: &mut Mem) {
+    let next_op = rng.next_u8() % 3;
     match next_op {
         // Copy
         0 => {
@@ -189,7 +185,7 @@ fn op_perm_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
 
 #[test]
 fn fuzz_lower_and_eval() {
-    let mut rng = Xoshiro128StarStar::seed_from_u64(0);
+    let mut rng = StarRng::new(0);
     let mut m = Mem::new();
 
     for _ in 0..N.1 {

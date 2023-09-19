@@ -62,8 +62,10 @@ impl StarRng {
         next_u32 u32 from_u32 to_u32,
         next_u64 u64 from_u64 to_u64,
         next_u128 u128 from_u128 to_u128,
-        next_usize usize from_usize to_usize,
     );
+
+    // note: do not implement `next_usize`, if it exists then there will be
+    // arch-dependent rng code in a lot of places
 
     pub fn new(seed: u64) -> Self {
         let mut rng = Xoshiro128StarStar::seed_from_u64(seed);
@@ -108,5 +110,37 @@ impl StarRng {
                 self.used = 0;
             }
         }
+    }
+}
+
+impl RngCore for StarRng {
+    fn next_u32(&mut self) -> u32 {
+        self.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        // TODO make faster
+        for byte in dest {
+            *byte = self.next_u8();
+        }
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_xoshiro::rand_core::Error> {
+        for byte in dest {
+            *byte = self.next_u8();
+        }
+        Ok(())
+    }
+}
+
+impl SeedableRng for StarRng {
+    type Seed = [u8; 8];
+
+    fn from_seed(seed: Self::Seed) -> Self {
+        Self::new(u64::from_le_bytes(seed))
     }
 }
