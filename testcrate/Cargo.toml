@@ -6,4 +6,4 @@ publish = false
 
 [dev-dependencies]
 rand_xoshiro = { version = "0.6", default-features = false }
-starlight = { path = "../starlight" }
+starlight = { path = "../starlight", features = ["debug"] }

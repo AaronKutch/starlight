@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use starlight::{
     awi,
     awint_dag::{Lineage, OpDag, StateEpoch},
@@ -93,6 +95,7 @@ fn luts() {
             let epoch0 = StateEpoch::new();
             let mut test_input = awi::ExtAwi::zero(bw(input_w));
             rng.next_bits(&mut test_input);
+            let original_input = test_input.clone();
             let mut input = ExtAwi::opaque(bw(input_w));
             let input_state = input.state();
             let mut opaque_set = awi::ExtAwi::umax(bw(input_w));
@@ -101,6 +104,19 @@ fn luts() {
                 if rng.next_bool() {
                     input.set(i, test_input.get(i).unwrap()).unwrap();
                     opaque_set.set(i, false).unwrap();
+                }
+            }
+            for _ in 0..input_w {
+                if (rng.next_u8() % 8) == 0 {
+                    let inx0 = (rng.next_u8() % (input_w as awi::u8)) as awi::usize;
+                    let inx1 = (rng.next_u8() % (input_w as awi::u8)) as awi::usize;
+                    if opaque_set.get(inx0).unwrap() && opaque_set.get(inx1).unwrap() {
+                        // randomly make some inputs duplicates from the same source
+                        let tmp = input.get(inx0).unwrap();
+                        input.set(inx1, tmp).unwrap();
+                        let tmp = test_input.get(inx0).unwrap();
+                        test_input.set(inx1, tmp).unwrap();
+                    }
                 }
             }
             let mut lut = awi::ExtAwi::zero(bw(lut_w));
@@ -131,7 +147,7 @@ fn luts() {
                     assert!(tnodes.next().is_none());
                 }
 
-                t_dag.set_noted(p_input, &test_input).unwrap();
+                t_dag.set_noted(p_input, &original_input).unwrap();
 
                 t_dag.eval_all().unwrap();
 
@@ -141,7 +157,13 @@ fn luts() {
                 let opt_res = opt_res.to_bool();
                 let res = lut.get(test_input.to_usize()).unwrap();
                 if opt_res != res {
-                    dbg!(test_input, lut, opaque_set);
+                    /*
+                    //dbg!(&t_dag);
+                    println!("{:0b}", &opaque_set);
+                    println!("{:0b}", &test_input);
+                    println!("{:0b}", &lut);
+                    t_dag.render_to_svg_file(PathBuf::from("./rendered0.svg".to_owned())).unwrap();
+                    */
                 }
                 assert_eq!(opt_res, res);
             }
@@ -149,6 +171,6 @@ fn luts() {
     }
     {
         use awi::assert_eq;
-        assert_eq!(inp_bits, 1581);
+        assert_eq!(inp_bits, 1561);
     }
 }

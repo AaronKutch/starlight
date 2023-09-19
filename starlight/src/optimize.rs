@@ -22,6 +22,11 @@ pub struct CostU8(pub u8);
 pub enum Optimization {
     /// Removes an entire equivalence class because it is unused
     RemoveEquiv(PBack),
+    /// If an equivalence is an identity function, any dependents should use its
+    /// inputs instead. This is high priority because the principle source of a
+    /// value needs to be known for various optimizations to work such as LUT
+    /// input duplicates.
+    ForwardEquiv(PBack),
     /// Removes all `TNode`s from an equivalence that has had a constant
     /// assigned to it, and notifies all referents.
     ConstifyEquiv(PBack),
@@ -93,7 +98,35 @@ impl Optimizer {
                 }
             }
 
-            // TODO check for inputs of the same source
+            // check for inputs of the same source
+            /*let len = tnode.inp.len();
+            for i in (0..len).rev() {
+                let p_inp = tnode.inp[i];
+                let equiv = t_dag.backrefs.get_val(p_inp).unwrap();
+                if let Value::Const(val) = equiv.val {
+                    // we will be removing the input, mark it to be investigated
+                    let _ = self
+                        .optimizations
+                        .insert(Optimization::InvestigateUsed(equiv.p_self_equiv), ());
+                    t_dag.backrefs.remove_key(p_inp).unwrap();
+                    tnode.inp.remove(i);
+
+                    // reduction of the LUT
+                    let next_bw = lut.bw() / 2;
+                    let mut next_lut = ExtAwi::zero(NonZeroUsize::new(next_bw).unwrap());
+                    let w = 1 << i;
+                    let mut from = 0;
+                    let mut to = 0;
+                    while to < next_bw {
+                        next_lut
+                            .field(to, &lut, if val { from + w } else { from }, w)
+                            .unwrap();
+                        from += 2 * w;
+                        to += w;
+                    }
+                    lut = next_lut;
+                }
+            }*/
 
             // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
             let len = tnode.inp.len();
@@ -137,22 +170,21 @@ impl Optimizer {
 
             // input independence automatically reduces all zeros and all ones LUTs, so just
             // need to check if the LUT is one bit for constant generation
-            let res = if lut.bw() == 1 {
+            if lut.bw() == 1 {
                 let equiv = t_dag.backrefs.get_val_mut(tnode.p_self).unwrap();
                 equiv.val = Value::Const(lut.to_bool());
                 let _ = self
                     .optimizations
                     .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv), ());
+                // fix the `lut` to its new state, do this even if we are doing the constant
+                // optimization
+                tnode.lut = Some(lut);
                 true
             } else {
+                tnode.lut = Some(lut);
+                // TODO check for identity `if lut.bw() == 2` it must be identity or invert
                 false
-            };
-
-            // fix the `lut` to its new state, do this even if we are doing the constant
-            // optimization
-            tnode.lut = Some(lut);
-
-            res
+            }
         } else if tnode.inp.len() == 1 {
             // wire propogation
             let input_equiv = t_dag.backrefs.get_val_mut(tnode.inp[0]).unwrap();
@@ -281,6 +313,9 @@ fn optimize(opt: &mut Optimizer, t_dag: &mut TDag, p_optimization: POpt) {
             }
             // remove the equivalence
             t_dag.backrefs.remove(p_equiv).unwrap();
+        }
+        Optimization::ForwardEquiv(p_back) => {
+            todo!()
         }
         Optimization::ConstifyEquiv(p_back) => {
             if !t_dag.backrefs.contains(p_back) {
