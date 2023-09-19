@@ -61,10 +61,9 @@ impl Optimizer {
     /// Returns if a `Const` result was assigned.
     pub fn const_eval_tnode(&mut self, t_dag: &mut TDag, p_tnode: PTNode) -> bool {
         let tnode = t_dag.tnodes.get_mut(p_tnode).unwrap();
-        if let Some(lut) = &tnode.lut {
-            let mut lut = lut.clone();
-            // acquire LUT input, cut down the lut until it is indexed by only `None` bits,
-            // then see if it is all zeros or all ones
+        if let Some(original_lut) = &tnode.lut {
+            let mut lut = original_lut.clone();
+            // acquire LUT inputs, for every constant input reduce the LUT
             let len = tnode.inp.len();
             for i in (0..len).rev() {
                 let p_inp = tnode.inp[i];
@@ -93,6 +92,50 @@ impl Optimizer {
                     lut = next_lut;
                 }
             }
+
+            // TODO check for inputs of the same source
+
+            // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
+            let len = tnode.inp.len();
+            for i in (0..len).rev() {
+                let next_bw = lut.bw() / 2;
+                if let Some(nzbw) = NonZeroUsize::new(next_bw) {
+                    let mut tmp0 = ExtAwi::zero(nzbw);
+                    let mut tmp1 = ExtAwi::zero(nzbw);
+                    let w = 1 << i;
+                    // LUT if the `i`th bit were 0
+                    let mut from = 0;
+                    let mut to = 0;
+                    while to < next_bw {
+                        tmp0.field(to, &lut, from, w).unwrap();
+                        from += 2 * w;
+                        to += w;
+                    }
+                    // LUT if the `i`th bit were 1
+                    from = w;
+                    to = 0;
+                    while to < next_bw {
+                        tmp1.field(to, &lut, from, w).unwrap();
+                        from += 2 * w;
+                        to += w;
+                    }
+                    if tmp0 == tmp1 {
+                        // independent of the `i`th bit
+                        lut = tmp0;
+                        let p_inp = tnode.inp.remove(i);
+                        let equiv = t_dag.backrefs.get_val(p_inp).unwrap();
+                        let _ = self
+                            .optimizations
+                            .insert(Optimization::InvestigateUsed(equiv.p_self_equiv), ());
+                        t_dag.backrefs.remove_key(p_inp).unwrap();
+                    }
+                } else {
+                    // LUT is 1 bit
+                    break
+                }
+            }
+
+            // finally check for constant LUT
             let res = if lut.is_zero() {
                 let equiv = t_dag.backrefs.get_val_mut(tnode.p_self).unwrap();
                 equiv.val = Value::Const(false);
@@ -110,7 +153,11 @@ impl Optimizer {
             } else {
                 false
             };
+
+            // fix the `lut` to its new state, do this even if we are doing the constant
+            // optimization
             tnode.lut = Some(lut);
+
             res
         } else if tnode.inp.len() == 1 {
             // wire propogation

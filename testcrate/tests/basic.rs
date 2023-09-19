@@ -86,6 +86,7 @@ fn multiplier() {
 #[test]
 fn luts() {
     let mut rng = StarRng::new(0);
+    let mut inp_bits = 0;
     for input_w in 1usize..=8 {
         let lut_w = 1 << input_w;
         for _ in 0..100 {
@@ -125,6 +126,7 @@ fn luts() {
                 // assert that there is at most one TNode with constant inputs optimized away
                 let mut tnodes = t_dag.tnodes.vals();
                 if let Some(tnode) = tnodes.next() {
+                    inp_bits += tnode.inp.len();
                     assert!(tnode.inp.len() <= opaque_set.count_ones());
                     assert!(tnodes.next().is_none());
                 }
@@ -144,5 +146,9 @@ fn luts() {
                 assert_eq!(opt_res, res);
             }
         }
+    }
+    {
+        use awi::assert_eq;
+        assert_eq!(inp_bits, 1581);
     }
 }
