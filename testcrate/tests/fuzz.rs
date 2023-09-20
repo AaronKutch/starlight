@@ -195,6 +195,7 @@ fn fuzz_lower_and_eval() {
         }
         let res = m.verify_equivalence(|_| {}, &epoch);
         res.unwrap();
+        // TODO verify stable optimization
         let res = m.verify_equivalence(|t_dag| t_dag.optimize_basic(), &epoch);
         res.unwrap();
         drop(epoch);

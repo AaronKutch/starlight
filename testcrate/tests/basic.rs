@@ -258,6 +258,6 @@ fn luts() {
     }
     {
         use awi::assert_eq;
-        assert_eq!(inp_bits, 1473);
+        assert_eq!(inp_bits, 1386);
     }
 }

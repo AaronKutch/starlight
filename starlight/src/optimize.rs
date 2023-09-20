@@ -1,11 +1,15 @@
 use std::num::NonZeroUsize;
 
 use awint::{
-    awint_dag::{smallvec::SmallVec, triple_arena::Advancer},
-    ExtAwi,
+    awint_dag::{
+        smallvec::SmallVec,
+        triple_arena::{Advancer, Ptr},
+    },
+    ExtAwi, InlAwi,
 };
 
 use crate::{
+    small_map::SmallMap,
     triple_arena::{ptr_struct, OrdArena},
     PBack, PTNode, Referent, TDag, Value,
 };
@@ -71,8 +75,9 @@ impl Optimizer {
         if let Some(original_lut) = &tnode.lut {
             let mut lut = original_lut.clone();
             // acquire LUT inputs, for every constant input reduce the LUT
-            let len = tnode.inp.len();
+            let len = u8::try_from(tnode.inp.len()).unwrap();
             for i in (0..len).rev() {
+                let i = usize::from(i);
                 let p_inp = tnode.inp[i];
                 let equiv = t_dag.backrefs.get_val(p_inp).unwrap();
                 if let Value::Const(val) = equiv.val {
@@ -101,34 +106,38 @@ impl Optimizer {
             }
 
             // check for duplicate inputs of the same source
-            /*let len = tnode.inp.len();
-            for i in (0..len).rev() {
-                let p_inp = tnode.inp[i];
-                let equiv = t_dag.backrefs.get_val(p_inp).unwrap();
-                if let Value::Const(val) = equiv.val {
-                    // we will be removing the input, mark it to be investigated
-                    let _ = self
-                        .optimizations
-                        .insert(Optimization::InvestigateUsed(equiv.p_self_equiv), ());
-                    t_dag.backrefs.remove_key(p_inp).unwrap();
-                    tnode.inp.remove(i);
-
-                    // reduction of the LUT
-                    let next_bw = lut.bw() / 2;
-                    let mut next_lut = ExtAwi::zero(NonZeroUsize::new(next_bw).unwrap());
-                    let w = 1 << i;
-                    let mut from = 0;
-                    let mut to = 0;
-                    while to < next_bw {
-                        next_lut
-                            .field(to, &lut, if val { from + w } else { from }, w)
-                            .unwrap();
-                        from += 2 * w;
-                        to += w;
+            'outer: loop {
+                // we have to reset every time because the removals can mess up any range of
+                // indexes
+                let mut set = SmallMap::new();
+                for i in 0..tnode.inp.len() {
+                    let p_inp = tnode.inp[i];
+                    let equiv = t_dag.backrefs.get_val(p_inp).unwrap();
+                    match set.insert(equiv.p_self_equiv.inx(), i) {
+                        Ok(()) => (),
+                        Err(j) => {
+                            let next_bw = lut.bw() / 2;
+                            let mut next_lut = ExtAwi::zero(NonZeroUsize::new(next_bw).unwrap());
+                            let mut to = 0;
+                            for k in 0..lut.bw() {
+                                let inx = InlAwi::from_usize(k);
+                                if inx.get(i).unwrap() == inx.get(j).unwrap() {
+                                    next_lut.set(to, lut.get(k).unwrap()).unwrap();
+                                    to += 1;
+                                }
+                            }
+                            let _ = self
+                                .optimizations
+                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv), ());
+                            t_dag.backrefs.remove_key(tnode.inp[j]).unwrap();
+                            tnode.inp.remove(j);
+                            lut = next_lut;
+                            continue 'outer
+                        }
                     }
-                    lut = next_lut;
                 }
-            }*/
+                break
+            }
 
             // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
             let len = tnode.inp.len();

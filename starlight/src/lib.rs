@@ -15,6 +15,7 @@ pub use tnode::*;
 mod optimize;
 pub use optimize::*;
 pub use rng::StarRng;
+pub(crate) mod small_map;
 
 // TODO need something like an `AutoAwi` type that seamlessly interfaces with
 // internally or externally running DAGs / regular Awi functions / operational
