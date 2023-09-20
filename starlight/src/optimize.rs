@@ -214,6 +214,9 @@ impl Optimizer {
                     .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv), ());
                 true
             } else {
+                let _ = self
+                    .optimizations
+                    .insert(Optimization::ForwardEquiv(tnode.p_self), ());
                 false
             }
         } else {
