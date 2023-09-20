@@ -2,16 +2,14 @@ use std::path::PathBuf;
 
 use starlight::{
     awi,
-    awint_dag::{Lineage, OpDag, StateEpoch},
+    awint_dag::{EvalError, Lineage, OpDag, StateEpoch},
     dag::*,
     StarRng, TDag,
 };
 
 // keep imports imported
-fn _unused() {
-    TDag::new()
-        .render_to_svg_file(PathBuf::from("./t_dag.svg".to_owned()))
-        .unwrap();
+fn _dbg(t_dag: &mut TDag) -> awi::Result<(), EvalError> {
+    t_dag.render_to_svg_file(PathBuf::from("./t_dag.svg".to_owned()))
 }
 
 #[test]
