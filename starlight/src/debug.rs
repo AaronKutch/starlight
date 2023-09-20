@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use awint::{awint_dag::EvalError, awint_macro_internals::triple_arena::Arena};
+use awint::{
+    awint_dag::{EvalError, PNote},
+    awint_macro_internals::triple_arena::Arena,
+};
 
 use crate::{
     triple_arena::{Advancer, ChainArena},
@@ -12,6 +15,7 @@ use crate::{
 pub enum DebugTDag {
     TNode(TNode),
     Equiv(Equiv, Vec<PBack>),
+    Note(PBack, PNote, u64),
     Remove,
 }
 
@@ -48,6 +52,11 @@ impl DebugNodeTrait<PBack> for DebugTDag {
                         format!("rc:{}", equiv.equiv_alg_rc),
                     ]
                 },
+                sinks: vec![],
+            },
+            DebugTDag::Note(p_back, p_note, inx) => DebugNode {
+                sources: vec![(*p_back, String::new())],
+                center: { vec![format!("{p_note} [{inx}]")] },
                 sinks: vec![],
             },
             DebugTDag::Remove => panic!("should have been removed"),
@@ -98,6 +107,17 @@ impl TDag {
                             }
                         }
                         DebugTDag::TNode(tnode)
+                    }
+                    Referent::Note(p_note) => {
+                        let note = self.notes.get(*p_note).unwrap();
+                        let mut inx = u64::MAX;
+                        for (i, bit) in note.bits.iter().enumerate() {
+                            if *bit == p_self {
+                                inx = u64::try_from(i).unwrap();
+                            }
+                        }
+                        let equiv = self.backrefs.get_val(p_self).unwrap();
+                        DebugTDag::Note(equiv.p_self_equiv, *p_note, inx)
                     }
                     _ => DebugTDag::Remove,
                 }

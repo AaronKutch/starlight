@@ -22,10 +22,12 @@ pub struct CostU8(pub u8);
 pub enum Optimization {
     /// Removes an entire equivalence class because it is unused
     RemoveEquiv(PBack),
-    /// If an equivalence is an identity function, any dependents should use its
-    /// inputs instead. This is high priority because the principle source of a
-    /// value needs to be known for various optimizations to work such as LUT
-    /// input duplicates.
+    /// This needs to point to the `Referent::ThisTNode` of the identity
+    /// `TNode`. If an equivalence is an identity function, any referents should
+    /// use its inputs instead. This is high priority because the principle
+    /// source of a value needs to be known for various optimizations
+    /// involving deduplication to work (such as early LUT simplification), and
+    /// also because it eliminates useless identities early.
     ForwardEquiv(PBack),
     /// Removes all `TNode`s from an equivalence that has had a constant
     /// assigned to it, and notifies all referents.
@@ -98,7 +100,7 @@ impl Optimizer {
                 }
             }
 
-            // check for inputs of the same source
+            // check for duplicate inputs of the same source
             /*let len = tnode.inp.len();
             for i in (0..len).rev() {
                 let p_inp = tnode.inp[i];
@@ -180,9 +182,16 @@ impl Optimizer {
                 // optimization
                 tnode.lut = Some(lut);
                 true
+            } else if (lut.bw() == 2) && lut.get(1).unwrap() {
+                // the only `lut.bw() == 2` cases that survive independence removal is identity
+                // and inversion. If it is identity, register this for forwarding
+                tnode.lut = None;
+                let _ = self
+                    .optimizations
+                    .insert(Optimization::ForwardEquiv(tnode.p_self), ());
+                false
             } else {
                 tnode.lut = Some(lut);
-                // TODO check for identity `if lut.bw() == 2` it must be identity or invert
                 false
             }
         } else if tnode.inp.len() == 1 {
@@ -254,7 +263,7 @@ impl Optimizer {
         }
     }
 
-    /// Does not perform hte final step
+    /// Does not perform the final step
     /// `t_dag.backrefs.remove(tnode.p_self).unwrap()` which is important for
     /// `Advancer`s.
     pub fn remove_tnode_not_p_self(&mut self, t_dag: &mut TDag, p_tnode: PTNode) {
@@ -307,15 +316,83 @@ fn optimize(opt: &mut Optimizer, t_dag: &mut TDag, p_optimization: POpt) {
                         opt.remove_tnode_not_p_self(t_dag, *p_tnode);
                     }
                     // TODO check self reference case
-                    Referent::LoopDriver(_) => (),
+                    Referent::LoopDriver(_) => todo!(),
                     _ => unreachable!(),
                 }
             }
             // remove the equivalence
             t_dag.backrefs.remove(p_equiv).unwrap();
         }
-        Optimization::ForwardEquiv(p_back) => {
-            todo!()
+        Optimization::ForwardEquiv(p_ident) => {
+            let p_source = if let Some(referent) = t_dag.backrefs.get_key(p_ident) {
+                if let Referent::ThisTNode(p_tnode) = referent {
+                    let tnode = &t_dag.tnodes[p_tnode];
+                    assert_eq!(tnode.inp.len(), 1);
+                    // do not use directly, use the `p_self_equiv` since this backref will be
+                    // removed when `p_ident` is process in the loop
+                    let p_back = tnode.inp[0];
+                    t_dag.backrefs.get_val(p_back).unwrap().p_self_equiv
+                } else {
+                    unreachable!()
+                }
+            } else {
+                return
+            };
+            let mut adv = t_dag.backrefs.advancer_surject(p_ident);
+            while let Some(p_back) = adv.advance(&t_dag.backrefs) {
+                let referent = *t_dag.backrefs.get_key(p_back).unwrap();
+                match referent {
+                    Referent::ThisEquiv => (),
+                    Referent::ThisTNode(p_tnode) => {
+                        opt.remove_tnode_not_p_self(t_dag, p_tnode);
+                    }
+                    Referent::Input(p_input) => {
+                        let tnode = t_dag.tnodes.get_mut(p_input).unwrap();
+                        let mut found = false;
+                        for inp in &mut tnode.inp {
+                            if *inp == p_back {
+                                let p_back_new = t_dag
+                                    .backrefs
+                                    .insert_key(p_source, Referent::Input(p_input))
+                                    .unwrap();
+                                *inp = p_back_new;
+                                found = true;
+                                break
+                            }
+                        }
+                        assert!(found);
+                    }
+                    Referent::LoopDriver(p_driver) => {
+                        let tnode = t_dag.tnodes.get_mut(p_driver).unwrap();
+                        assert_eq!(tnode.loop_driver, Some(p_back));
+                        let p_back_new = t_dag
+                            .backrefs
+                            .insert_key(p_source, Referent::LoopDriver(p_driver))
+                            .unwrap();
+                        tnode.loop_driver = Some(p_back_new);
+                    }
+                    Referent::Note(p_note) => {
+                        // here we see a major advantage of the backref system
+                        let note = t_dag.notes.get_mut(p_note).unwrap();
+                        let mut found = false;
+                        for bit in &mut note.bits {
+                            if *bit == p_back {
+                                let p_back_new = t_dag
+                                    .backrefs
+                                    .insert_key(p_source, Referent::Note(p_note))
+                                    .unwrap();
+                                *bit = p_back_new;
+                                found = true;
+                                break
+                            }
+                        }
+                        assert!(found);
+                    }
+                }
+            }
+            // remove the equivalence, since everything should be forwarded and nothing
+            // depends on the identity equiv.
+            t_dag.backrefs.remove(p_ident).unwrap();
         }
         Optimization::ConstifyEquiv(p_back) => {
             if !t_dag.backrefs.contains(p_back) {

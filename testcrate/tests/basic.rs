@@ -7,6 +7,98 @@ use starlight::{
     StarRng, TDag,
 };
 
+// keep imports imported
+fn _unused() {
+    TDag::new()
+        .render_to_svg_file(PathBuf::from("./t_dag.svg".to_owned()))
+        .unwrap();
+}
+
+#[test]
+fn invert_twice() {
+    let epoch0 = StateEpoch::new();
+    let x = extawi!(opaque: ..1);
+    let mut y = x.clone();
+    y.not_();
+    let y_copy = y.clone();
+    y.lut_(&inlawi!(10), &y_copy).unwrap();
+    y.not_();
+
+    // TODO also have a single function for taking `Lineage` capable structs
+    // straight to `TDag`s
+
+    let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
+    res.unwrap();
+
+    let p_x = op_dag.note_pstate(x.state()).unwrap();
+    let p_y = op_dag.note_pstate(y.state()).unwrap();
+
+    op_dag.lower_all().unwrap();
+
+    let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
+    res.unwrap();
+
+    t_dag.verify_integrity().unwrap();
+
+    t_dag.optimize_basic();
+
+    t_dag.verify_integrity().unwrap();
+
+    {
+        use awi::{assert_eq, *};
+
+        t_dag.set_noted(p_x, &inlawi!(1)).unwrap();
+        t_dag.eval_all().unwrap();
+        assert_eq!(t_dag.get_noted_as_extawi(p_y).unwrap(), extawi!(1));
+        t_dag.set_noted(p_x, &inlawi!(0)).unwrap();
+        t_dag.eval_all().unwrap();
+        assert_eq!(t_dag.get_noted_as_extawi(p_y).unwrap(), extawi!(0));
+    }
+}
+
+#[test]
+fn invert_in_loop() {
+    let epoch0 = StateEpoch::new();
+    let looper = Loop::zero(bw(1));
+    let mut x = extawi!(looper);
+    let x_copy = x.clone();
+    x.lut_(&inlawi!(10), &x_copy).unwrap();
+    x.not_();
+    let x_copy = x.clone();
+    x.lut_(&inlawi!(10), &x_copy).unwrap();
+    looper.drive(&x).unwrap();
+
+    let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
+    res.unwrap();
+
+    let p_x = op_dag.note_pstate(x.state()).unwrap();
+
+    op_dag.lower_all().unwrap();
+    op_dag.delete_unused_nodes();
+
+    let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
+    res.unwrap();
+
+    t_dag.verify_integrity().unwrap();
+
+    t_dag.optimize_basic();
+
+    t_dag.verify_integrity().unwrap();
+
+    {
+        use awi::{assert_eq, *};
+
+        t_dag.eval_all().unwrap();
+        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), extawi!(1));
+        t_dag.drive_loops();
+        t_dag.eval_all().unwrap();
+        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), extawi!(0));
+        t_dag.drive_loops();
+        t_dag.eval_all().unwrap();
+        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), extawi!(1));
+    }
+}
+
 // tests an incrementing counter
 #[test]
 fn incrementer() {
@@ -16,9 +108,6 @@ fn incrementer() {
     let mut tmp = ExtAwi::from(looper.as_ref());
     tmp.inc_(true);
     looper.drive(&tmp).unwrap();
-
-    // TODO also have a single function for taking `Lineage` capable structs
-    // straight to `TDag`s
 
     let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
     res.unwrap();
@@ -33,8 +122,8 @@ fn incrementer() {
     t_dag.verify_integrity().unwrap();
 
     t_dag.eval_all().unwrap();
-    // TODO
-    //t_dag.basic_simplify();
+
+    t_dag.optimize_basic();
 
     for i in 0..16 {
         std::assert_eq!(i, t_dag.get_noted_as_extawi(p_val).unwrap().to_usize());
@@ -68,8 +157,8 @@ fn multiplier() {
     t_dag.verify_integrity().unwrap();
 
     t_dag.eval_all().unwrap();
-    // TODO
-    //t_dag.basic_simplify();
+
+    t_dag.optimize_basic();
 
     {
         use awi::*;
@@ -171,6 +260,6 @@ fn luts() {
     }
     {
         use awi::assert_eq;
-        assert_eq!(inp_bits, 1561);
+        assert_eq!(inp_bits, 1473);
     }
 }

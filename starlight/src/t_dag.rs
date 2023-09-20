@@ -564,19 +564,34 @@ impl TDag {
         Some(self.backrefs.get_val(p_back)?.val)
     }
 
-    pub fn get_noted_as_extawi(&self, p_note: PNote) -> Option<ExtAwi> {
-        let note = self.notes.get(p_note)?;
-        let mut x = ExtAwi::zero(NonZeroUsize::new(note.bits.len())?);
-        for (i, p_bit) in note.bits.iter().enumerate() {
-            let equiv = self.backrefs.get_val(*p_bit)?;
-            let val = match equiv.val {
-                Value::Unknown => return None,
-                Value::Const(val) => val,
-                Value::Dynam(val, _) => val,
-            };
-            x.set(i, val).unwrap();
+    pub fn get_noted_as_extawi(&self, p_note: PNote) -> Result<ExtAwi, EvalError> {
+        if let Some(note) = self.notes.get(p_note) {
+            // avoid partially setting by prechecking validity of all bits
+            for p_bit in &note.bits {
+                if let Some(equiv) = self.backrefs.get_val(*p_bit) {
+                    match equiv.val {
+                        Value::Unknown => return Err(EvalError::Unevaluatable),
+                        Value::Const(_) => (),
+                        Value::Dynam(..) => (),
+                    }
+                } else {
+                    return Err(EvalError::OtherStr("broken note"))
+                }
+            }
+            let mut x = ExtAwi::zero(NonZeroUsize::new(note.bits.len()).unwrap());
+            for (i, p_bit) in note.bits.iter().enumerate() {
+                let equiv = self.backrefs.get_val(*p_bit).unwrap();
+                let val = match equiv.val {
+                    Value::Unknown => unreachable!(),
+                    Value::Const(val) => val,
+                    Value::Dynam(val, _) => val,
+                };
+                x.set(i, val).unwrap();
+            }
+            Ok(x)
+        } else {
+            Err(EvalError::InvalidPtr)
         }
-        Some(x)
     }
 
     #[track_caller]
