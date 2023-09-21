@@ -24,6 +24,7 @@ pub struct CostU8(pub u8);
 /// unused nodes happens before wasting time on the harder optimizations.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Optimization {
+    //Preinvestigate
     /// Removes an entire equivalence class because it is unused
     RemoveEquiv(PBack),
     /// This needs to point to the `Referent::ThisTNode` of the identity
@@ -49,8 +50,12 @@ pub enum Optimization {
     /// The optimization state that equivalences are set to after the
     /// preinvestigation finds nothing
     InvestigateEquiv0(PBack),
-    // A Lookup table equivalence that does not increase Lookup Table size
-    //CompressLut(PTNode)
+    //InvertInput
+    // (?) not sure if fusion + ordinary `const_eval_tnode` handles all cases cleanly,
+    // might only do fission for routing
+    //Fission
+    // A fusion involving the number of inputs that will result
+    //Fusion(u8, PBack)
 }
 
 /// This struct implements a queue for simple simplifications of `TDag`s
@@ -178,6 +183,8 @@ impl Optimizer {
                     break
                 }
             }
+
+            // sort inputs so that `TNode`s can be compared later
 
             // input independence automatically reduces all zeros and all ones LUTs, so just
             // need to check if the LUT is one bit for constant generation
@@ -489,6 +496,15 @@ fn optimize(opt: &mut Optimizer, t_dag: &mut TDag, p_optimization: POpt) {
                 );
             }
         }
-        Optimization::InvestigateEquiv0(_) => (),
+        Optimization::InvestigateEquiv0(p_back) => {
+            if !t_dag.backrefs.contains(p_back) {
+                return
+            };
+            // TODO compare TNodes
+            // TODO compress inverters by inverting inx table
+            // TODO fusion of structures like
+            // H(F(a, b), G(a, b)) definitely or any case like H(F(a, b), a)
+            // with common inputs
+        }
     }
 }
