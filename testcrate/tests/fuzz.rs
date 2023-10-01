@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use starlight::{
     awint::{
         awi,
-        awint_dag::{EvalError, Op, OpDag, StateEpoch},
+        awint_dag::{basic_state_epoch::StateEpoch, EvalError, Op, OpDag},
         dag,
     },
     awint_dag::smallvec::smallvec,

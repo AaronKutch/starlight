@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use starlight::{
     awi,
-    awint_dag::{EvalError, Lineage, OpDag, StateEpoch},
+    awint_dag::{basic_state_epoch::StateEpoch, EvalError, Lineage, OpDag},
     dag::*,
     StarRng, TDag,
 };
@@ -28,8 +28,8 @@ fn invert_twice() {
     let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
     res.unwrap();
 
-    let p_x = op_dag.note_pstate(x.state()).unwrap();
-    let p_y = op_dag.note_pstate(y.state()).unwrap();
+    let p_x = op_dag.note_pstate(&epoch0, x.state()).unwrap();
+    let p_y = op_dag.note_pstate(&epoch0, y.state()).unwrap();
 
     op_dag.lower_all().unwrap();
 
@@ -69,7 +69,7 @@ fn invert_in_loop() {
     let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
     res.unwrap();
 
-    let p_x = op_dag.note_pstate(x.state()).unwrap();
+    let p_x = op_dag.note_pstate(&epoch0, x.state()).unwrap();
 
     op_dag.lower_all().unwrap();
     op_dag.delete_unused_nodes();
@@ -110,7 +110,7 @@ fn incrementer() {
     let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
     res.unwrap();
 
-    let p_val = op_dag.note_pstate(val.state()).unwrap();
+    let p_val = op_dag.note_pstate(&epoch0, val.state()).unwrap();
 
     op_dag.lower_all().unwrap();
 
@@ -143,9 +143,9 @@ fn multiplier() {
     let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
     res.unwrap();
 
-    let output = op_dag.note_pstate(output.state()).unwrap();
-    let input_a = op_dag.note_pstate(input_a.state()).unwrap();
-    let input_b = op_dag.note_pstate(input_b.state()).unwrap();
+    let output = op_dag.note_pstate(&epoch0, output.state()).unwrap();
+    let input_a = op_dag.note_pstate(&epoch0, input_a.state()).unwrap();
+    let input_b = op_dag.note_pstate(&epoch0, input_b.state()).unwrap();
 
     op_dag.lower_all().unwrap();
 
@@ -214,8 +214,8 @@ fn luts() {
             let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
             res.unwrap();
 
-            let p_x = op_dag.note_pstate(x.state()).unwrap();
-            let p_input = op_dag.note_pstate(input_state).unwrap();
+            let p_x = op_dag.note_pstate(&epoch0, x.state()).unwrap();
+            let p_input = op_dag.note_pstate(&epoch0, input_state).unwrap();
 
             op_dag.lower_all().unwrap();
 
