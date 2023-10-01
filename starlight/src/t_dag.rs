@@ -1,7 +1,7 @@
 use std::num::{NonZeroU64, NonZeroUsize};
 
 use awint::{
-    awint_dag::{EvalError, OpDag, PNote},
+    awint_dag::{smallvec::SmallVec, EvalError, Location, Op, OpDag, PNote, PState},
     awint_macro_internals::triple_arena::Advancer,
     Bits, ExtAwi,
 };
@@ -61,6 +61,8 @@ pub enum Referent {
     ThisEquiv,
     /// Self referent, used by all the `Tnode`s of an equivalence class
     ThisTNode(PTNode),
+    /// Self referent to a particular bit of a `State`
+    ThisStateBit(PState, usize),
     /// Referent is using this for registering an input dependency
     Input(PTNode),
     LoopDriver(PTNode),
@@ -68,14 +70,30 @@ pub enum Referent {
     Note(PNote),
 }
 
-/// A DAG made primarily of lookup tables
+/// Represents the state resulting from a mimicking operation
+#[derive(Debug, Clone)]
+pub struct State {
+    pub p_self_bits: SmallVec<[PBack; 4]>,
+    /// Bitwidth
+    pub nzbw: NonZeroUsize,
+    /// Operation
+    pub op: Op<PState>,
+    /// Location where this state is derived from
+    pub location: Option<Location>,
+    /// Used in algorithms for DFS tracking and to allow multiple DAG
+    /// constructions from same nodes
+    pub visit: NonZeroU64,
+}
+
+/// A DAG
 #[derive(Debug, Clone)]
 pub struct TDag {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
     pub tnodes: Arena<PTNode, TNode>,
+    pub states: Arena<PState, State>,
+    pub notes: Arena<PNote, Note>,
     /// A kind of generation counter tracking the highest `visit` number
     visit_gen: NonZeroU64,
-    pub notes: Arena<PNote, Note>,
     /// temporary used in evaluations
     tnode_front: Vec<PTNode>,
     equiv_front: Vec<PBack>,
@@ -86,6 +104,7 @@ impl TDag {
         Self {
             backrefs: SurjectArena::new(),
             tnodes: Arena::new(),
+            states: Arena::new(),
             visit_gen: NonZeroU64::new(2).unwrap(),
             notes: Arena::new(),
             tnode_front: vec![],
@@ -101,8 +120,6 @@ impl TDag {
         self.visit_gen = NonZeroU64::new(self.visit_gen.get().checked_add(1).unwrap()).unwrap();
         self.visit_gen
     }
-
-    // TODO use "permanence" for more static-like ideas, use "noted" or "stable"?
 
     // but how to handle notes
     /*pub fn from_epoch(epoch: &StateEpoch) -> (Self, Result<(), EvalError>) {
@@ -130,7 +147,7 @@ impl TDag {
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
         // return errors in order of most likely to be root cause
 
-        // initial round to check all self refs
+        // first check that equivalences aren't broken by themselves
         for p_back in self.backrefs.ptrs() {
             let equiv = self.backrefs.get_val(p_back).unwrap();
             if let Some(Referent::ThisEquiv) = self.backrefs.get_key(equiv.p_self_equiv) {
@@ -158,6 +175,7 @@ impl TDag {
                 }
             }
         }
+        // check other kinds of self refs
         for (p_tnode, tnode) in &self.tnodes {
             if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get_key(tnode.p_self) {
                 if p_tnode != *p_self {
@@ -170,7 +188,23 @@ impl TDag {
                     "{tnode:?}.p_self is invalid"
                 )))
             }
-            // roundtrip in other direction done later
+        }
+        for (p_state, state) in &self.states {
+            for (inx, p_self_bit) in state.p_self_bits.iter().enumerate() {
+                if let Some(Referent::ThisStateBit(p_self, inx_self)) =
+                    self.backrefs.get_key(*p_self_bit)
+                {
+                    if (p_state != *p_self) || (inx != *inx_self) {
+                        return Err(EvalError::OtherString(format!(
+                            "{state:?}.p_self_bits roundtrip fail"
+                        )))
+                    }
+                } else {
+                    return Err(EvalError::OtherString(format!(
+                        "{state:?}.p_self_bits is invalid"
+                    )))
+                }
+            }
         }
         // check other referent validities
         for referent in self.backrefs.keys() {
@@ -178,6 +212,7 @@ impl TDag {
                 // already checked
                 Referent::ThisEquiv => false,
                 Referent::ThisTNode(_) => false,
+                Referent::ThisStateBit(..) => false,
                 Referent::Input(p_input) => !self.tnodes.contains(*p_input),
                 Referent::LoopDriver(p_driver) => !self.tnodes.contains(*p_driver),
                 Referent::Note(p_note) => !self.notes.contains(*p_note),
@@ -258,6 +293,11 @@ impl TDag {
                     let tnode = self.tnodes.get(*p_tnode).unwrap();
                     p_back != tnode.p_self
                 }
+                Referent::ThisStateBit(p_state, inx) => {
+                    let state = self.states.get(*p_state).unwrap();
+                    let p_bit = state.p_self_bits.get(*inx).unwrap();
+                    *p_bit != p_back
+                }
                 Referent::Input(p_input) => {
                     let tnode1 = self.tnodes.get(*p_input).unwrap();
                     let mut found = false;
@@ -317,6 +357,15 @@ impl TDag {
         // TODO verify DAGness
         Ok(())
     }
+
+    /*pub fn make_state(&mut self, nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PBack {
+        self.backrefs.insert_with(|p_self_equiv| {
+            (
+                Referent::State(p_state),
+                Equiv::new(p_self_equiv, V)
+        )
+        })
+    }*/
 
     /// Inserts a `TNode` with `lit` value and returns a `PBack` to it
     pub fn make_literal(&mut self, lit: Option<bool>) -> PBack {
@@ -435,6 +484,8 @@ impl TDag {
                 Referent::ThisTNode(_) => {
                     equiv.equiv_alg_rc += 1;
                 }
+                // we should do this
+                Referent::ThisStateBit(..) => todo!(),
                 Referent::Input(_) => (),
                 Referent::LoopDriver(_) => (),
                 Referent::Note(_) => (),
@@ -527,6 +578,7 @@ impl TDag {
                     match self.backrefs.get_key(p_back).unwrap() {
                         Referent::ThisEquiv => (),
                         Referent::ThisTNode(_) => (),
+                        Referent::ThisStateBit(..) => (),
                         Referent::Input(p_dep) => {
                             let dep = self.tnodes.get_mut(*p_dep).unwrap();
                             if dep.visit < this_visit {

@@ -1,7 +1,7 @@
 #[cfg(feature = "debug")]
 mod debug;
+mod epoch;
 mod lower;
-//mod simplify;
 mod rng;
 mod t_dag;
 mod temporal;
@@ -13,6 +13,7 @@ pub use t_dag::*;
 pub use temporal::*;
 pub use tnode::*;
 mod optimize;
+pub use epoch::*;
 pub use optimize::*;
 pub use rng::StarRng;
 pub(crate) mod small_map;

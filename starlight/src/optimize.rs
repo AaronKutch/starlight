@@ -251,6 +251,9 @@ impl Optimizer {
                         is_const = true;
                     }
                 }
+                Referent::ThisStateBit(..) => {
+                    todo!();
+                }
                 Referent::Input(_) => non_self_rc += 1,
                 Referent::LoopDriver(p_driver) => {
                     // the way `LoopDriver` networks with no real dependencies will work, is
@@ -365,6 +368,9 @@ fn optimize(opt: &mut Optimizer, t_dag: &mut TDag, p_optimization: POpt) {
                     Referent::ThisTNode(p_tnode) => {
                         opt.remove_tnode_not_p_self(t_dag, p_tnode);
                     }
+                    Referent::ThisStateBit(..) => {
+                        todo!()
+                    }
                     Referent::Input(p_input) => {
                         let tnode = t_dag.tnodes.get_mut(p_input).unwrap();
                         let mut found = false;
@@ -428,6 +434,7 @@ fn optimize(opt: &mut Optimizer, t_dag: &mut TDag, p_optimization: POpt) {
                         opt.remove_tnode_not_p_self(t_dag, *p_tnode);
                         remove.push(p_back);
                     }
+                    Referent::ThisStateBit(..) => todo!(),
                     Referent::Input(p_inp) => {
                         let _ = opt
                             .optimizations
@@ -462,6 +469,7 @@ fn optimize(opt: &mut Optimizer, t_dag: &mut TDag, p_optimization: POpt) {
                 match referent {
                     Referent::ThisEquiv => (),
                     Referent::ThisTNode(_) => (),
+                    Referent::ThisStateBit(..) => (),
                     Referent::Input(_) => {
                         found_use = true;
                         break
