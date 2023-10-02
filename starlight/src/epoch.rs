@@ -1,25 +1,19 @@
 /// An epoch management struct used for tests and examples.
-use std::{
-    cell::RefCell,
-    mem,
-    num::{NonZeroU64, NonZeroUsize},
-    thread::panicking,
-};
+use std::{cell::RefCell, mem, num::NonZeroUsize, thread::panicking};
 
 use awint::{
     awint_dag::{
         epoch::{EpochCallback, EpochKey},
-        triple_arena::Arena,
-        Location, Op, PNote, PState,
+        Lineage, Location, Op, PState,
     },
-    dag,
+    bw, dag,
 };
 
-use crate::{PBack, TDag};
+use crate::TDag;
 
 #[derive(Debug, Clone)]
 pub struct Assertions {
-    pub bits: Vec<PNote>,
+    pub bits: Vec<PState>,
 }
 
 impl Assertions {
@@ -38,8 +32,8 @@ impl Default for Assertions {
 struct EpochData {
     key: EpochKey,
     assertions: Assertions,
-    /// Backref to a `Referent::State`
-    states: Arena<PState, PBack>,
+    /// All states associated with this epoch
+    states: Vec<PState>,
 }
 
 struct TopEpochData {
@@ -74,18 +68,30 @@ pub fn _callback() -> EpochCallback {
     fn new_pstate(nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PState {
         EPOCH_DATA_TOP.with(|top| {
             let mut top = top.borrow_mut();
-            let backref = todo!(); //top.tdag.make_state(nzbw, op, location);
-            top.data.states.insert(backref)
+            let p_state = top.tdag.make_state(nzbw, op, location);
+            top.data.states.push(p_state);
+            p_state
         })
     }
     fn register_assertion_bit(bit: dag::bool, location: Location) {
-        todo!()
+        // need a new bit to attach location data to
+        let new_bit = new_pstate(bw(1), Op::Copy([bit.state()]), Some(location));
+        EPOCH_DATA_TOP.with(|top| {
+            let mut top = top.borrow_mut();
+            top.data.assertions.bits.push(new_bit);
+        })
     }
     fn get_nzbw(p_state: PState) -> NonZeroUsize {
-        todo!()
+        EPOCH_DATA_TOP.with(|top| {
+            let top = top.borrow();
+            top.tdag.states.get(p_state).unwrap().nzbw
+        })
     }
     fn get_op(p_state: PState) -> Op<PState> {
-        todo!()
+        EPOCH_DATA_TOP.with(|top| {
+            let top = top.borrow();
+            top.tdag.states.get(p_state).unwrap().op.clone()
+        })
     }
     EpochCallback {
         new_pstate,
@@ -106,15 +112,14 @@ impl Drop for Epoch {
         if !panicking() {
             // unregister callback
             self.key.pop_off_epoch_stack();
-            todo!();
-            /*EPOCH_DATA_TOP.with(|top| {
+            EPOCH_DATA_TOP.with(|top| {
                 let mut top = top.borrow_mut();
                 // remove all the states associated with this epoch
-                let mut last_state = top.data.prev_in_epoch;
-                while let Some(p_state) = last_state {
-                    let state = top.arena.remove(p_state).unwrap();
-                    last_state = state.prev_in_epoch;
+                for _p_state in top.data.states.iter() {
+                    // TODO
+                    //top.tdag.states.remove(*p_state).unwrap();
                 }
+                top.tdag = TDag::new();
                 // move the top of the stack to the new top
                 let new_top = EPOCH_DATA_STACK.with(|stack| {
                     let mut stack = stack.borrow_mut();
@@ -125,13 +130,9 @@ impl Drop for Epoch {
                 } else {
                     top.active = false;
                     top.data = EpochData::default();
-                    // if there is considerable capacity, clear it (else we do not want to incur
-                    // allocations for rapid state epoch creation)
-                    if top.arena.capacity() > 64 {
-                        top.arena.clear_and_shrink();
-                    }
+                    // TODO capacity clearing?
                 }
-            });*/
+            });
         }
     }
 }

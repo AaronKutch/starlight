@@ -73,9 +73,9 @@ pub enum Referent {
 /// Represents the state resulting from a mimicking operation
 #[derive(Debug, Clone)]
 pub struct State {
-    pub p_self_bits: SmallVec<[PBack; 4]>,
-    /// Bitwidth
     pub nzbw: NonZeroUsize,
+    /// This either has zero length or has a length equal to `nzbw`
+    pub p_self_bits: SmallVec<[PBack; 4]>,
     /// Operation
     pub op: Op<PState>,
     /// Location where this state is derived from
@@ -358,14 +358,20 @@ impl TDag {
         Ok(())
     }
 
-    /*pub fn make_state(&mut self, nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PBack {
-        self.backrefs.insert_with(|p_self_equiv| {
-            (
-                Referent::State(p_state),
-                Equiv::new(p_self_equiv, V)
-        )
+    pub fn make_state(
+        &mut self,
+        nzbw: NonZeroUsize,
+        op: Op<PState>,
+        location: Option<Location>,
+    ) -> PState {
+        self.states.insert(State {
+            nzbw,
+            p_self_bits: SmallVec::new(),
+            op,
+            location,
+            visit: NonZeroU64::new(2).unwrap(),
         })
-    }*/
+    }
 
     /// Inserts a `TNode` with `lit` value and returns a `PBack` to it
     pub fn make_literal(&mut self, lit: Option<bool>) -> PBack {
