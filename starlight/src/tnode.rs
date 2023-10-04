@@ -15,7 +15,6 @@ pub struct TNode {
     /// Inputs
     pub inp: SmallVec<[PBack; 4]>,
     /// Lookup Table that outputs one bit
-    // TODO make a SmallAwi
     pub lut: Option<Awi>,
     // If the value cannot be temporally changed with respect to what the
     // simplification algorithms can assume.

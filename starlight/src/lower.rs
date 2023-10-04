@@ -12,6 +12,8 @@ use awint::{
 
 use crate::{Note, PBack, TDag, Value};
 
+// TODO remove all old `OpDag` stuff
+
 impl TDag {
     pub(crate) fn add_op_dag(&mut self, op_dag: &mut OpDag) -> Result<(), EvalError> {
         // TODO private currently because we need to think about how conflicting
