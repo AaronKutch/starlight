@@ -3,7 +3,7 @@ use starlight::{dag::*, Epoch};
 #[test]
 #[should_panic]
 fn state_epoch_unregistered0() {
-    let _x = ExtAwi::zero(bw(1));
+    let _x = Awi::zero(bw(1));
 }
 
 #[test]

@@ -7,7 +7,7 @@ use awint::{
         Op::*,
     },
     awint_macro_internals::triple_arena::Advancer,
-    ExtAwi,
+    Awi,
 };
 
 use crate::{Note, PBack, TDag, Value};
@@ -122,7 +122,7 @@ impl TDag {
                                     table.clone()
                                 } else {
                                     let mut awi =
-                                        ExtAwi::zero(NonZeroUsize::new(num_entries).unwrap());
+                                        Awi::zero(NonZeroUsize::new(num_entries).unwrap());
                                     for i in 0..num_entries {
                                         awi.set(i, table.get((i * out_bw) + i_bit).unwrap())
                                             .unwrap();

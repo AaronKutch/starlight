@@ -21,7 +21,7 @@ ptr_struct!(P0);
 
 #[derive(Debug)]
 struct Mem {
-    a: Arena<P0, dag::ExtAwi>,
+    a: Arena<P0, dag::Awi>,
     // the outer Vec has 5 vecs for all supported bitwidths plus one dummy 0 bitwidth vec, the
     // inner vecs are unsorted and used for random querying
     v: Vec<Vec<P0>>,
@@ -54,9 +54,9 @@ impl Mem {
         if try_query && (!self.v[w].is_empty()) {
             self.v[w][(self.rng.next_u32() as usize) % self.v[w].len()]
         } else {
-            let mut lit = awi::ExtAwi::zero(NonZeroUsize::new(w).unwrap());
+            let mut lit = awi::Awi::zero(NonZeroUsize::new(w).unwrap());
             lit.rand_(&mut self.rng).unwrap();
-            let p = self.a.insert(dag::ExtAwi::from(lit.as_ref()));
+            let p = self.a.insert(dag::Awi::from(lit.as_ref()));
             self.v[w].push(p);
             p
         }
@@ -67,7 +67,7 @@ impl Mem {
         (w, self.next(w))
     }
 
-    pub fn get_op(&self, inx: P0) -> dag::ExtAwi {
+    pub fn get_op(&self, inx: P0) -> dag::Awi {
         self.a[inx].clone()
     }
 

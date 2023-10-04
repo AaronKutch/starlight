@@ -2,7 +2,7 @@ use std::{borrow::Borrow, num::NonZeroUsize, ops::Deref};
 
 use awint::{
     awint_dag::{Lineage, PState},
-    dag::{self, Bits, ExtAwi, InlAwi},
+    dag::{self, Awi, Bits, InlAwi},
 };
 
 /// Returned from `Loop::drive` and other structures like `Net::drive` that use
@@ -12,7 +12,7 @@ use awint::{
 #[derive(Debug, Clone)] // TODO make Copy
 pub struct LoopHandle {
     // just use this for now to have the non-sendability
-    awi: ExtAwi,
+    awi: Awi,
 }
 
 impl Lineage for LoopHandle {
@@ -31,7 +31,7 @@ impl Lineage for LoopHandle {
 #[derive(Debug)] // do not implement `Clone`, but maybe implement a `duplicate` function that
                  // explicitly duplicates drivers and loopbacks?
 pub struct Loop {
-    awi: ExtAwi,
+    awi: Awi,
 }
 
 impl Loop {
@@ -40,7 +40,7 @@ impl Loop {
         // TODO add flag on opaque for initial value, and a way to notify if the
         // `LoopHandle` is not included in the graph
         Self {
-            awi: ExtAwi::opaque(w),
+            awi: Awi::opaque(w),
         }
     }
 
@@ -112,8 +112,8 @@ impl AsRef<Bits> for Loop {
 #[derive(Debug)]
 pub struct Net {
     driver: Loop,
-    initial: ExtAwi,
-    ports: Vec<ExtAwi>,
+    initial: Awi,
+    ports: Vec<Awi>,
 }
 
 impl Net {
@@ -121,7 +121,7 @@ impl Net {
     pub fn zero(w: NonZeroUsize) -> Self {
         Self {
             driver: Loop::zero(w),
-            initial: ExtAwi::zero(w),
+            initial: Awi::zero(w),
             ports: vec![],
         }
     }
@@ -181,8 +181,8 @@ impl Net {
         if self.bw() != rhs.bw() {
             None
         } else {
-            self.ports.push(ExtAwi::from(rhs.get()));
-            rhs.ports.push(ExtAwi::from(self.get()));
+            self.ports.push(Awi::from(rhs.get()));
+            rhs.ports.push(Awi::from(self.get()));
             Some(())
         }
     }
@@ -206,9 +206,9 @@ impl Net {
         inx.mux_(&last, gt).unwrap();
 
         // TODO need an optimized onehot selector from `awint_dag`
-        let mut selector = ExtAwi::uone(NonZeroUsize::new(self.len()).unwrap());
+        let mut selector = Awi::uone(NonZeroUsize::new(self.len()).unwrap());
         selector.shl_(inx.to_usize()).unwrap();
-        let mut tmp = ExtAwi::zero(self.nzbw());
+        let mut tmp = Awi::zero(self.nzbw());
         for i in 0..self.len() {
             tmp.mux_(self.get_mut(i).unwrap(), selector.get(i).unwrap())
                 .unwrap();

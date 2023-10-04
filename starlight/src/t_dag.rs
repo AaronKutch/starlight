@@ -3,7 +3,7 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use awint::{
     awint_dag::{smallvec::SmallVec, EvalError, Location, Op, OpDag, PNote, PState},
     awint_macro_internals::triple_arena::Advancer,
-    Bits, ExtAwi,
+    Awi, Bits,
 };
 
 use crate::{
@@ -408,7 +408,7 @@ impl TDag {
                 .insert_key(p_equiv, Referent::ThisTNode(p_tnode))
                 .unwrap();
             let mut tnode = TNode::new(p_self);
-            tnode.lut = Some(ExtAwi::from(table));
+            tnode.lut = Some(Awi::from(table));
             for p_inx in p_inxs {
                 let p_back = self
                     .backrefs
@@ -622,7 +622,7 @@ impl TDag {
         Some(self.backrefs.get_val(p_back)?.val)
     }
 
-    pub fn get_noted_as_extawi(&self, p_note: PNote) -> Result<ExtAwi, EvalError> {
+    pub fn get_noted_as_extawi(&self, p_note: PNote) -> Result<Awi, EvalError> {
         if let Some(note) = self.notes.get(p_note) {
             // avoid partially setting by prechecking validity of all bits
             for p_bit in &note.bits {
@@ -636,7 +636,7 @@ impl TDag {
                     return Err(EvalError::OtherStr("broken note"))
                 }
             }
-            let mut x = ExtAwi::zero(NonZeroUsize::new(note.bits.len()).unwrap());
+            let mut x = Awi::zero(NonZeroUsize::new(note.bits.len()).unwrap());
             for (i, p_bit) in note.bits.iter().enumerate() {
                 let equiv = self.backrefs.get_val(*p_bit).unwrap();
                 let val = match equiv.val {

@@ -15,7 +15,7 @@ fn _dbg(t_dag: &mut TDag) -> awi::Result<(), EvalError> {
 #[test]
 fn invert_twice() {
     let epoch0 = StateEpoch::new();
-    let x = extawi!(opaque: ..1);
+    let x = awi!(opaque: ..1);
     let mut y = x.clone();
     y.not_();
     let y_copy = y.clone();
@@ -47,10 +47,10 @@ fn invert_twice() {
 
         t_dag.set_noted(p_x, &inlawi!(1)).unwrap();
         t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_y).unwrap(), extawi!(1));
+        assert_eq!(t_dag.get_noted_as_extawi(p_y).unwrap(), awi!(1));
         t_dag.set_noted(p_x, &inlawi!(0)).unwrap();
         t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_y).unwrap(), extawi!(0));
+        assert_eq!(t_dag.get_noted_as_extawi(p_y).unwrap(), awi!(0));
     }
 }
 
@@ -58,7 +58,7 @@ fn invert_twice() {
 fn invert_in_loop() {
     let epoch0 = StateEpoch::new();
     let looper = Loop::zero(bw(1));
-    let mut x = extawi!(looper);
+    let mut x = awi!(looper);
     let x_copy = x.clone();
     x.lut_(&inlawi!(10), &x_copy).unwrap();
     x.not_();
@@ -87,13 +87,13 @@ fn invert_in_loop() {
         use awi::{assert_eq, *};
 
         t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), extawi!(1));
+        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), awi!(1));
         t_dag.drive_loops();
         t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), extawi!(0));
+        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), awi!(0));
         t_dag.drive_loops();
         t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), extawi!(1));
+        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), awi!(1));
     }
 }
 
@@ -102,8 +102,8 @@ fn invert_in_loop() {
 fn incrementer() {
     let epoch0 = StateEpoch::new();
     let looper = Loop::zero(bw(4));
-    let val = ExtAwi::from(looper.as_ref());
-    let mut tmp = ExtAwi::from(looper.as_ref());
+    let val = Awi::from(looper.as_ref());
+    let mut tmp = Awi::from(looper.as_ref());
     tmp.inc_(true);
     looper.drive(&tmp).unwrap();
 
@@ -163,11 +163,11 @@ fn multiplier() {
         t_dag.set_noted(input_a, inlawi!(123u16).as_ref());
         t_dag.set_noted(input_b, inlawi!(77u16).as_ref());
         t_dag.eval_all().unwrap();
-        std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), extawi!(9471u32));
+        std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), awi!(9471u32));
 
         t_dag.set_noted(input_a, inlawi!(10u16).as_ref());
         t_dag.eval_all().unwrap();
-        std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), extawi!(770u32));
+        std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), awi!(770u32));
     }
 }
 
@@ -180,12 +180,12 @@ fn luts() {
         let lut_w = 1 << input_w;
         for _ in 0..100 {
             let epoch0 = StateEpoch::new();
-            let mut test_input = awi::ExtAwi::zero(bw(input_w));
+            let mut test_input = awi::Awi::zero(bw(input_w));
             rng.next_bits(&mut test_input);
             let original_input = test_input.clone();
-            let mut input = ExtAwi::opaque(bw(input_w));
+            let mut input = Awi::opaque(bw(input_w));
             let input_state = input.state();
-            let mut opaque_set = awi::ExtAwi::umax(bw(input_w));
+            let mut opaque_set = awi::Awi::umax(bw(input_w));
             for i in 0..input_w {
                 // randomly set some bits to a constant and leave some as opaque
                 if rng.next_bool() {
@@ -206,10 +206,10 @@ fn luts() {
                     }
                 }
             }
-            let mut lut = awi::ExtAwi::zero(bw(lut_w));
+            let mut lut = awi::Awi::zero(bw(lut_w));
             rng.next_bits(&mut lut);
-            let mut x = ExtAwi::zero(bw(1));
-            x.lut_(&ExtAwi::from(&lut), &input).unwrap();
+            let mut x = Awi::zero(bw(1));
+            x.lut_(&Awi::from(&lut), &input).unwrap();
 
             let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
             res.unwrap();

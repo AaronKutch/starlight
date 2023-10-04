@@ -20,7 +20,7 @@ fn rand_choice(
         }
         if remaining < 192 {
             // need to fill up without encountering a potential overflow case
-            let mut tmp = ExtAwi::zero(NonZeroUsize::new(remaining).unwrap());
+            let mut tmp = Awi::zero(NonZeroUsize::new(remaining).unwrap());
             rng.next_bits(&mut tmp);
             cc!(tmp, ..; bits).unwrap();
             break
@@ -52,7 +52,7 @@ fn rand_choice(
             }
             6 => {
                 let w = NonZeroUsize::new((metarng.next_u32() % 192) as usize + 1).unwrap();
-                let mut tmp = ExtAwi::zero(w);
+                let mut tmp = Awi::zero(w);
                 rng.next_bits(&mut tmp);
                 cc!(tmp; bits[used..(used+w.get())]).unwrap();
                 used += w.get();
@@ -69,8 +69,8 @@ fn star_rng() {
     let mut metarng = Xoshiro128StarStar::seed_from_u64(1);
     let mut rng0 = StarRng::new(0);
     let mut rng1 = StarRng::new(0);
-    let mut bits0 = ExtAwi::zero(bw(N));
-    let mut bits1 = ExtAwi::zero(bw(N));
+    let mut bits0 = Awi::zero(bw(N));
+    let mut bits1 = Awi::zero(bw(N));
     let mut actions = 0;
     rand_choice(&mut metarng, &mut rng0, &mut bits0, &mut actions);
     assert_eq!(actions, 1307);

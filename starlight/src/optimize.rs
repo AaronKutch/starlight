@@ -5,7 +5,7 @@ use awint::{
         smallvec::SmallVec,
         triple_arena::{Advancer, Ptr},
     },
-    ExtAwi, InlAwi,
+    Awi, InlAwi,
 };
 
 use crate::{
@@ -95,7 +95,7 @@ impl Optimizer {
 
                     // reduction of the LUT
                     let next_bw = lut.bw() / 2;
-                    let mut next_lut = ExtAwi::zero(NonZeroUsize::new(next_bw).unwrap());
+                    let mut next_lut = Awi::zero(NonZeroUsize::new(next_bw).unwrap());
                     let w = 1 << i;
                     let mut from = 0;
                     let mut to = 0;
@@ -122,7 +122,7 @@ impl Optimizer {
                         Ok(()) => (),
                         Err(j) => {
                             let next_bw = lut.bw() / 2;
-                            let mut next_lut = ExtAwi::zero(NonZeroUsize::new(next_bw).unwrap());
+                            let mut next_lut = Awi::zero(NonZeroUsize::new(next_bw).unwrap());
                             let mut to = 0;
                             for k in 0..lut.bw() {
                                 let inx = InlAwi::from_usize(k);
@@ -149,8 +149,8 @@ impl Optimizer {
             for i in (0..len).rev() {
                 let next_bw = lut.bw() / 2;
                 if let Some(nzbw) = NonZeroUsize::new(next_bw) {
-                    let mut tmp0 = ExtAwi::zero(nzbw);
-                    let mut tmp1 = ExtAwi::zero(nzbw);
+                    let mut tmp0 = Awi::zero(nzbw);
+                    let mut tmp1 = Awi::zero(nzbw);
                     let w = 1 << i;
                     // LUT if the `i`th bit were 0
                     let mut from = 0;
