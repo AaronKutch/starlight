@@ -123,13 +123,13 @@ impl TDag {
                                 let single_bit_table = if out_bw == 1 {
                                     table.clone()
                                 } else {
-                                    let mut awi =
+                                    let mut val =
                                         Awi::zero(NonZeroUsize::new(num_entries).unwrap());
                                     for i in 0..num_entries {
-                                        awi.set(i, table.get((i * out_bw) + i_bit).unwrap())
+                                        val.set(i, table.get((i * out_bw) + i_bit).unwrap())
                                             .unwrap();
                                     }
-                                    awi
+                                    val
                                 };
                                 v.push(self.make_lut(inxs, &single_bit_table).unwrap());
                             }
