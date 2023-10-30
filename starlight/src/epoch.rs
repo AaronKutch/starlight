@@ -9,7 +9,7 @@ use awint::{
     bw, dag,
 };
 
-use crate::TDag;
+use crate::{Optimizer, TDag};
 
 #[derive(Debug, Clone)]
 pub struct Assertions {
@@ -38,6 +38,7 @@ struct EpochData {
 
 struct TopEpochData {
     tdag: TDag,
+    opt: Optimizer,
     /// The top level `EpochData`
     data: EpochData,
     /// If the top level is active
@@ -48,6 +49,7 @@ impl TopEpochData {
     pub fn new() -> Self {
         Self {
             tdag: TDag::new(),
+            opt: Optimizer::new(),
             data: EpochData::default(),
             active: false,
         }
@@ -62,6 +64,22 @@ thread_local!(
     /// Stores data for epochs lower than the current one
     static EPOCH_DATA_STACK: RefCell<Vec<EpochData>> = RefCell::new(vec![]);
 );
+
+/// Gets the thread-local `TDag`. Note: do not get recursively.
+pub fn get_tdag<T, F: Fn(&TDag) -> T>(f: F) -> T {
+    EPOCH_DATA_TOP.with(|top| {
+        let top = top.borrow();
+        f(&top.tdag)
+    })
+}
+
+/// Gets the thread-local `TDag`. Note: do not get recursively.
+pub fn get_tdag_mut<T, F: Fn(&mut TDag) -> T>(f: F) -> T {
+    EPOCH_DATA_TOP.with(|top| {
+        let mut top = top.borrow_mut();
+        f(&mut top.tdag)
+    })
+}
 
 #[doc(hidden)]
 pub fn _callback() -> EpochCallback {
@@ -193,5 +211,9 @@ impl Epoch {
             });
         }
         res
+    }
+
+    pub fn clone_tdag() -> TDag {
+        EPOCH_DATA_TOP.with(|top| top.borrow().tdag.clone())
     }
 }

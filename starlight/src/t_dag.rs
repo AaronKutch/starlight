@@ -1,7 +1,10 @@
 use std::num::{NonZeroU64, NonZeroUsize};
 
 use awint::{
-    awint_dag::{smallvec::SmallVec, EvalError, Location, Op, OpDag, PNote, PState},
+    awint_dag::{
+        smallvec::{smallvec, SmallVec},
+        EvalError, Location, Op, OpDag, PNote, PState,
+    },
     awint_macro_internals::triple_arena::Advancer,
     Awi, Bits,
 };
@@ -30,6 +33,35 @@ impl Value {
         } else {
             // TODO how to handle `Opaque`s?
             Value::Unknown
+        }
+    }
+
+    pub fn known_value(self) -> Option<bool> {
+        match self {
+            Value::Unknown => None,
+            Value::Const(b) => Some(b),
+            Value::Dynam(b, _) => Some(b),
+        }
+    }
+
+    pub fn is_const(self) -> bool {
+        matches!(self, Value::Const(_))
+    }
+
+    pub fn is_known_with_visit_ge(self, visit: NonZeroU64) -> bool {
+        match self {
+            Value::Unknown => false,
+            Value::Const(_) => true,
+            Value::Dynam(_, this_visit) => this_visit >= visit,
+        }
+    }
+
+    /// Converts constants to dynamics, and sets any generations to `visit_gen`
+    pub fn const_to_dynam(self, visit_gen: NonZeroU64) -> Self {
+        match self {
+            Value::Unknown => Value::Unknown,
+            Value::Const(b) => Value::Dynam(b, visit_gen),
+            Value::Dynam(b, _) => Value::Dynam(b, visit_gen),
         }
     }
 }
@@ -90,6 +122,7 @@ pub struct State {
 pub struct TDag {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
     pub tnodes: Arena<PTNode, TNode>,
+    // In order to preserve sanity, states are fairly weak in their existence.
     pub states: Arena<PState, State>,
     pub notes: Arena<PNote, Note>,
     /// A kind of generation counter tracking the highest `visit` number
@@ -120,16 +153,6 @@ impl TDag {
         self.visit_gen = NonZeroU64::new(self.visit_gen.get().checked_add(1).unwrap()).unwrap();
         self.visit_gen
     }
-
-    // but how to handle notes
-    /*pub fn from_epoch(epoch: &StateEpoch) -> (Self, Result<(), EvalError>) {
-        let (mut op_dag, res) = OpDag::from_epoch(epoch);
-        if res.is_err() {
-            return (Self::new(), res);
-        }
-        op_dag.lower_all()?;
-        Self::from_op_dag(&mut op_dag)
-    }*/
 
     /// Constructs a directed acyclic graph of lookup tables from an
     /// [awint::awint_dag::OpDag]. `op_dag` is taken by mutable reference only
@@ -371,6 +394,40 @@ impl TDag {
             location,
             visit: NonZeroU64::new(2).unwrap(),
         })
+    }
+
+    /// If `p_state_bits.is_empty`, this will create new equivalences and
+    /// `Referent::ThisStateBits`s needed for every self bit. Sets the values to
+    /// a constant if the `Op` is a `Literal`, otherwise sets to unknown.
+    pub fn initialize_state_bits_if_needed(&mut self, p_state: PState) -> Option<()> {
+        let state = self.states.get(p_state)?;
+        if !state.p_self_bits.is_empty() {
+            return Some(())
+        }
+        let mut bits = smallvec![];
+        for i in 0..state.nzbw.get() {
+            let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
+                (
+                    Referent::ThisEquiv,
+                    Equiv::new(
+                        p_self_equiv,
+                        if let Op::Literal(ref awi) = state.op {
+                            Value::Const(awi.get(i).unwrap())
+                        } else {
+                            Value::Unknown
+                        },
+                    ),
+                )
+            });
+            bits.push(
+                self.backrefs
+                    .insert_key(p_equiv, Referent::ThisStateBit(p_state, i))
+                    .unwrap(),
+            );
+        }
+        let state = self.states.get_mut(p_state).unwrap();
+        state.p_self_bits = bits;
+        Some(())
     }
 
     /// Inserts a `TNode` with `lit` value and returns a `PBack` to it
@@ -665,8 +722,8 @@ impl TDag {
 
     pub fn optimize_basic(&mut self) {
         // all 0 gas optimizations
-        let mut opt = Optimizer::new(0);
-        opt.optimize(self);
+        let mut opt = Optimizer::new();
+        opt.optimize_all(self);
     }
 }
 

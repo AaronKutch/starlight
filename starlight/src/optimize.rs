@@ -4,6 +4,7 @@ use awint::{
     awint_dag::{
         smallvec::SmallVec,
         triple_arena::{Advancer, Ptr},
+        PState,
     },
     Awi, InlAwi,
 };
@@ -24,7 +25,7 @@ pub struct CostU8(pub u8);
 /// unused nodes happens before wasting time on the harder optimizations.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Optimization {
-    //Preinvestigate
+    Preinvestigate(PBack),
     /// Removes an entire equivalence class because it is unused
     RemoveEquiv(PBack),
     /// This needs to point to the `Referent::ThisTNode` of the identity
@@ -47,6 +48,8 @@ pub enum Optimization {
     InvestigateUsed(PBack),
     /// If an input was constified
     InvestigateConst(PTNode),
+    /// Lower mimicking state
+    LowerState(PState),
     /// The optimization state that equivalences are set to after the
     /// preinvestigation finds nothing
     InvestigateEquiv0(PBack),
@@ -65,10 +68,9 @@ pub struct Optimizer {
 }
 
 impl Optimizer {
-    pub fn new(gas: u64) -> Self {
-        // TODO get simplifications for all nodes.
+    pub fn new() -> Self {
         Self {
-            gas,
+            gas: 0,
             optimizations: OrdArena::new(),
         }
     }
@@ -251,9 +253,7 @@ impl Optimizer {
                         is_const = true;
                     }
                 }
-                Referent::ThisStateBit(..) => {
-                    todo!();
-                }
+                Referent::ThisStateBit(..) => (),
                 Referent::Input(_) => non_self_rc += 1,
                 Referent::LoopDriver(p_driver) => {
                     // the way `LoopDriver` networks with no real dependencies will work, is
@@ -306,7 +306,7 @@ impl Optimizer {
         }
     }
 
-    pub fn optimize(&mut self, t_dag: &mut TDag) {
+    pub fn optimize_all(&mut self, t_dag: &mut TDag) {
         // need to preinvestigate everything before starting a priority loop
         let mut adv = t_dag.backrefs.advancer();
         while let Some(p_back) = adv.advance(&t_dag.backrefs) {
@@ -323,6 +323,9 @@ impl Optimizer {
 fn optimize(opt: &mut Optimizer, t_dag: &mut TDag, p_optimization: POpt) {
     let optimization = opt.optimizations.remove(p_optimization).unwrap().0;
     match optimization {
+        Optimization::Preinvestigate(p_equiv) => {
+            opt.preinvestigate_equiv(t_dag, p_equiv);
+        }
         Optimization::RemoveEquiv(p_back) => {
             let p_equiv = if let Some(equiv) = t_dag.backrefs.get_val(p_back) {
                 equiv.p_self_equiv
@@ -503,6 +506,11 @@ fn optimize(opt: &mut Optimizer, t_dag: &mut TDag, p_optimization: POpt) {
                     (),
                 );
             }
+        }
+        Optimization::LowerState(p_state) => {
+            if !t_dag.states.contains(p_state) {
+                return
+            };
         }
         Optimization::InvestigateEquiv0(p_back) => {
             if !t_dag.backrefs.contains(p_back) {

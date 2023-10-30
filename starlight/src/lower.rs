@@ -5,6 +5,7 @@ use awint::{
         lowering::{OpDag, PNode},
         EvalError,
         Op::*,
+        PState,
     },
     awint_macro_internals::triple_arena::Advancer,
     Awi,
@@ -15,6 +16,10 @@ use crate::{Note, PBack, TDag, Value};
 // TODO remove all old `OpDag` stuff
 
 impl TDag {
+    pub fn lower_state(&mut self, p_state: PState) -> Result<(), EvalError> {
+        Ok(())
+    }
+
     pub(crate) fn add_op_dag(&mut self, op_dag: &mut OpDag) -> Result<(), EvalError> {
         // TODO private currently because we need to think about how conflicting
         // `PNote`s work, maybe they do need to be external. Perhaps go straight from
