@@ -66,7 +66,7 @@ thread_local!(
 );
 
 /// Gets the thread-local `TDag`. Note: do not get recursively.
-pub fn get_tdag<T, F: Fn(&TDag) -> T>(f: F) -> T {
+pub fn get_tdag<T, F: FnMut(&TDag) -> T>(mut f: F) -> T {
     EPOCH_DATA_TOP.with(|top| {
         let top = top.borrow();
         f(&top.tdag)
@@ -74,7 +74,7 @@ pub fn get_tdag<T, F: Fn(&TDag) -> T>(f: F) -> T {
 }
 
 /// Gets the thread-local `TDag`. Note: do not get recursively.
-pub fn get_tdag_mut<T, F: Fn(&mut TDag) -> T>(f: F) -> T {
+pub fn get_tdag_mut<T, F: FnMut(&mut TDag) -> T>(mut f: F) -> T {
     EPOCH_DATA_TOP.with(|top| {
         let mut top = top.borrow_mut();
         f(&mut top.tdag)

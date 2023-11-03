@@ -9,7 +9,7 @@ use awint::{
     awint_dag::{
         dag,
         smallvec::{smallvec, SmallVec},
-        Lineage, PState, EvalError,
+        EvalError, Lineage, PState,
     },
     awint_internals::forward_debug_fmt,
 };

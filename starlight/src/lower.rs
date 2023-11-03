@@ -2,13 +2,13 @@ use std::{collections::HashMap, num::NonZeroUsize};
 
 use awint::{
     awint_dag::{
-        lowering::{OpDag, PNode},
+        lowering::{lower_state, LowerManagement, OpDag, PNode},
         EvalError,
-        Op::*,
+        Op::{self, *},
         PState,
     },
     awint_macro_internals::triple_arena::Advancer,
-    Awi,
+    Awi, Bits,
 };
 
 use crate::{Note, PBack, TDag, Value};
@@ -16,7 +16,125 @@ use crate::{Note, PBack, TDag, Value};
 // TODO remove all old `OpDag` stuff
 
 impl TDag {
+    /// Used for forbidden meta psuedo-DSL techniques in which a single state is
+    /// replaced by more basic states.
+    pub fn graft(&mut self, p_state: PState, operands: &[PState]) -> Result<(), EvalError> {
+        #[cfg(debug_assertions)]
+        {
+            if (self.states[p_state].op.operands_len() + 1) != operands.len() {
+                return Err(EvalError::WrongNumberOfOperands)
+            }
+            for (i, op) in self.states[p_state].op.operands().iter().enumerate() {
+                let current_nzbw = operands[i + 1].get_nzbw();
+                let current_is_opaque = operands[i + 1].get_op().is_opaque();
+                if self.states[op].nzbw != current_nzbw {
+                    return Err(EvalError::OtherString(format!(
+                        "operand {}: a bitwidth of {:?} is trying to be grafted to a bitwidth of \
+                         {:?}",
+                        i, current_nzbw, self.states[op].nzbw
+                    )))
+                }
+                if !current_is_opaque {
+                    return Err(EvalError::ExpectedOpaque)
+                }
+            }
+            if self.states[p_state].nzbw != operands[0].get_nzbw() {
+                return Err(EvalError::WrongBitwidth)
+            }
+        }
+
+        // TODO what do we do when we make multi-output things
+        // graft input
+        for i in 1..operands.len() {
+            let grafted = operands[i];
+            let graftee = self.states.get(p_state).unwrap().op.operands()[i - 1];
+            if let Some(grafted) = self.states.get_mut(grafted) {
+                // change the grafted `Opaque` into a `Copy` that routes to the graftee instead
+                // of needing to change all the operands of potentially many nodes
+                grafted.op = Copy([graftee]);
+            } else {
+                // dec graftee rc
+            }
+        }
+
+        // graft output
+        let grafted = operands[0];
+        self.states.get_mut(p_state).unwrap().op = Copy([grafted]);
+        // dec grafted rc?
+
+        Ok(())
+    }
+
     pub fn lower_state(&mut self, p_state: PState) -> Result<(), EvalError> {
+        // TODO optimization to remove unused nodes early
+        //let epoch = StateEpoch::new();
+        struct Tmp<'a> {
+            ptr: PState,
+            tdag: &'a mut TDag,
+        }
+        impl<'a> LowerManagement<PState> for Tmp<'a> {
+            fn graft(&mut self, operands: &[PState]) {
+                self.tdag.graft(self.ptr, operands).unwrap()
+            }
+
+            fn get_nzbw(&self, p: PState) -> NonZeroUsize {
+                self.tdag.states.get(p).unwrap().nzbw
+            }
+
+            fn get_op(&self, p: PState) -> &Op<PState> {
+                &self.tdag.states.get(p).unwrap().op
+            }
+
+            fn get_op_mut(&mut self, p: PState) -> &mut Op<PState> {
+                &mut self.tdag.states.get_mut(p).unwrap().op
+            }
+
+            fn lit(&self, p: PState) -> &Bits {
+                if let Op::Literal(ref lit) = self.tdag.states.get(p).unwrap().op {
+                    lit
+                } else {
+                    panic!()
+                }
+            }
+
+            fn usize(&self, p: PState) -> usize {
+                if let Op::Literal(ref lit) = self.tdag.states.get(p).unwrap().op {
+                    if lit.bw() != 64 {
+                        panic!()
+                    }
+                    lit.to_usize()
+                } else {
+                    panic!()
+                }
+            }
+
+            fn bool(&self, p: PState) -> bool {
+                if let Op::Literal(ref lit) = self.tdag.states.get(p).unwrap().op {
+                    if lit.bw() != 1 {
+                        panic!()
+                    }
+                    lit.to_bool()
+                } else {
+                    panic!()
+                }
+            }
+
+            fn dec_rc(&mut self, _p: PState) {
+                //
+            }
+        }
+        let state = self.states.get(p_state).unwrap();
+        let start_op = state.op.clone();
+        let out_w = state.nzbw;
+        lower_state(p_state, start_op, out_w, Tmp {
+            ptr: p_state,
+            tdag: self,
+        })?;
+        Ok(())
+    }
+
+    pub fn lower_state_to_tnodes(&mut self, p_state: PState) -> Result<(), EvalError> {
+        //
         Ok(())
     }
 
