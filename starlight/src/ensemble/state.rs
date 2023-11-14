@@ -1,9 +1,13 @@
-use std::{collections::HashMap, num::NonZeroUsize};
+use std::{
+    collections::HashMap,
+    num::{NonZeroU64, NonZeroUsize},
+};
 
 use awint::{
     awint_dag::{
         lowering::{lower_state, LowerManagement, OpDag, PNode},
-        EvalError,
+        smallvec::SmallVec,
+        EvalError, Location,
         Op::{self, *},
         PState,
     },
@@ -11,11 +15,24 @@ use awint::{
     Awi, Bits,
 };
 
-use crate::{Note, PBack, TDag, Value};
+use crate::ensemble::{Ensemble, Note, PBack, Value};
 
-// TODO remove all old `OpDag` stuff
+/// Represents the state resulting from a mimicking operation
+#[derive(Debug, Clone)]
+pub struct State {
+    pub nzbw: NonZeroUsize,
+    /// This either has zero length or has a length equal to `nzbw`
+    pub p_self_bits: SmallVec<[PBack; 4]>,
+    /// Operation
+    pub op: Op<PState>,
+    /// Location where this state is derived from
+    pub location: Option<Location>,
+    /// Used in algorithms for DFS tracking and to allow multiple DAG
+    /// constructions from same nodes
+    pub visit: NonZeroU64,
+}
 
-impl TDag {
+impl Ensemble {
     /// Used for forbidden meta psuedo-DSL techniques in which a single state is
     /// replaced by more basic states.
     pub fn graft(&mut self, p_state: PState, operands: &[PState]) -> Result<(), EvalError> {
@@ -70,7 +87,7 @@ impl TDag {
         //let epoch = StateEpoch::new();
         struct Tmp<'a> {
             ptr: PState,
-            tdag: &'a mut TDag,
+            tdag: &'a mut Ensemble,
         }
         impl<'a> LowerManagement<PState> for Tmp<'a> {
             fn graft(&mut self, operands: &[PState]) {

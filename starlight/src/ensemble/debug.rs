@@ -6,9 +6,9 @@ use awint::{
 };
 
 use crate::{
+    ensemble::{Ensemble, Equiv, PBack, Referent, TNode},
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
-    Equiv, PBack, Referent, TDag, TNode,
 };
 
 #[derive(Debug, Clone)]

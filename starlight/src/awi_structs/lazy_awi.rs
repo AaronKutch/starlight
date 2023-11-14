@@ -6,14 +6,11 @@ use std::{
 };
 
 use awint::{
-    awint_dag::{
-        dag,
-        EvalError, Lineage, PState,
-    },
+    awint_dag::{dag, EvalError, Lineage, PState},
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{awi, epoch::get_tdag_mut, Value};
+use crate::{awi, ensemble::Value, epoch::get_tdag_mut};
 
 pub struct LazyAwi {
     state: dag::Awi,
@@ -134,7 +131,7 @@ impl LazyAwi {
                 if let Some(val) = val.known_value() {
                     res.set(i, val).unwrap();
                 } else {
-                    return Err(EvalError::OtherStr("could not eval bit to known value"));
+                    return Err(EvalError::OtherStr("could not eval bit to known value"))
                 }
             }
             Ok(res)

@@ -9,10 +9,11 @@ use awint::{
     Awi, InlAwi,
 };
 
+use super::{Ensemble, PTNode};
 use crate::{
-    small_map::SmallMap,
+    ensemble::PBack,
     triple_arena::{ptr_struct, OrdArena},
-    PBack, PTNode, Referent, TDag, Value,
+    SmallMap,
 };
 
 ptr_struct!(POpt);
@@ -74,10 +75,12 @@ impl Optimizer {
             optimizations: OrdArena::new(),
         }
     }
+}
 
+impl Ensemble {
     /// Removes all `Const` inputs and assigns `Const` result if possible.
     /// Returns if a `Const` result was assigned.
-    pub fn const_eval_tnode(&mut self, t_dag: &mut TDag, p_tnode: PTNode) -> bool {
+    pub fn const_eval_tnode(&mut self, p_tnode: PTNode) -> bool {
         let tnode = t_dag.tnodes.get_mut(p_tnode).unwrap();
         if let Some(original_lut) = &tnode.lut {
             let mut lut = original_lut.clone();

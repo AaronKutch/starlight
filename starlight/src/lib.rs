@@ -1,25 +1,11 @@
-#[cfg(feature = "debug")]
-mod debug;
-pub mod epoch;
-mod eval;
-mod lazy_awi;
-mod lower;
-mod rng;
-mod t_dag;
-mod temporal;
-mod tnode;
+mod awi_structs;
+pub mod ensemble;
+mod misc;
+pub use awi_structs::{epoch, Assertions, Epoch, LazyAwi, Loop, LoopHandle, Net};
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
 pub use awint::{self, awint_dag, awint_dag::triple_arena};
-pub use t_dag::*;
-pub use temporal::*;
-pub use tnode::*;
-mod optimize;
-pub use epoch::Epoch;
-pub use lazy_awi::*;
-pub use optimize::*;
-pub use rng::StarRng;
-pub(crate) mod small_map;
+pub use misc::{SmallMap, StarRng};
 
 // TODO need something like an `AutoAwi` type that seamlessly interfaces with
 // internally or externally running DAGs / regular Awi functions / operational

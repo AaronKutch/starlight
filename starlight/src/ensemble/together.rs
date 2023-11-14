@@ -9,62 +9,13 @@ use awint::{
     Awi, Bits,
 };
 
+use super::{value::Evaluator, PValueChange};
 use crate::{
-    triple_arena::{Arena, SurjectArena},
-    Optimizer, PBack, PTNode, TNode,
+    ensemble::{Note, Optimizer, PTNode, State, TNode, Value},
+    triple_arena::{ptr_struct, Arena, SurjectArena},
 };
 
-#[derive(Debug, Clone)]
-pub struct Note {
-    pub bits: Vec<PBack>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Value {
-    Unknown,
-    Const(bool),
-    Dynam(bool, NonZeroU64),
-}
-
-impl Value {
-    pub fn from_dag_lit(lit: Option<bool>) -> Self {
-        if let Some(lit) = lit {
-            Value::Const(lit)
-        } else {
-            // TODO how to handle `Opaque`s?
-            Value::Unknown
-        }
-    }
-
-    pub fn known_value(self) -> Option<bool> {
-        match self {
-            Value::Unknown => None,
-            Value::Const(b) => Some(b),
-            Value::Dynam(b, _) => Some(b),
-        }
-    }
-
-    pub fn is_const(self) -> bool {
-        matches!(self, Value::Const(_))
-    }
-
-    pub fn is_known_with_visit_ge(self, visit: NonZeroU64) -> bool {
-        match self {
-            Value::Unknown => false,
-            Value::Const(_) => true,
-            Value::Dynam(_, this_visit) => this_visit >= visit,
-        }
-    }
-
-    /// Converts constants to dynamics, and sets any generations to `visit_gen`
-    pub fn const_to_dynam(self, visit_gen: NonZeroU64) -> Self {
-        match self {
-            Value::Unknown => Value::Unknown,
-            Value::Const(b) => Value::Dynam(b, visit_gen),
-            Value::Dynam(b, _) => Value::Dynam(b, visit_gen),
-        }
-    }
-}
+ptr_struct!(PBack);
 
 #[derive(Debug, Clone)]
 pub struct Equiv {
@@ -73,9 +24,10 @@ pub struct Equiv {
     pub p_self_equiv: PBack,
     /// Output of the equivalence surject
     pub val: Value,
+    /// This is set inbetween changing a dynamic value and evaluation
+    pub val_change: Option<PValueChange>,
     /// Used in algorithms
     pub equiv_alg_rc: usize,
-    pub visit: NonZeroU64,
 }
 
 impl Equiv {
@@ -84,7 +36,7 @@ impl Equiv {
             p_self_equiv,
             val,
             equiv_alg_rc: 0,
-            visit:  NonZeroU64::new(1).unwrap(),
+            val_change: None,
         }
     }
 }
@@ -104,25 +56,10 @@ pub enum Referent {
     Note(PNote),
 }
 
-/// Represents the state resulting from a mimicking operation
 #[derive(Debug, Clone)]
-pub struct State {
-    pub nzbw: NonZeroUsize,
-    /// This either has zero length or has a length equal to `nzbw`
-    pub p_self_bits: SmallVec<[PBack; 4]>,
-    /// Operation
-    pub op: Op<PState>,
-    /// Location where this state is derived from
-    pub location: Option<Location>,
-    /// Used in algorithms for DFS tracking and to allow multiple DAG
-    /// constructions from same nodes
-    pub visit: NonZeroU64,
-}
-
-/// A DAG
-#[derive(Debug, Clone)]
-pub struct TDag {
+pub struct Ensemble {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
+    pub evaluator: Evaluator,
     pub tnodes: Arena<PTNode, TNode>,
     // In order to preserve sanity, states are fairly weak in their existence.
     pub states: Arena<PState, State>,
@@ -134,10 +71,11 @@ pub struct TDag {
     equiv_front: Vec<PBack>,
 }
 
-impl TDag {
+impl Ensemble {
     pub fn new() -> Self {
         Self {
             backrefs: SurjectArena::new(),
+            evaluator: Evaluator::new(),
             tnodes: Arena::new(),
             states: Arena::new(),
             visit_gen: NonZeroU64::new(2).unwrap(),
@@ -729,7 +667,7 @@ impl TDag {
     }
 }
 
-impl Default for TDag {
+impl Default for Ensemble {
     fn default() -> Self {
         Self::new()
     }

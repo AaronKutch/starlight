@@ -9,7 +9,7 @@ use awint::{
     bw, dag,
 };
 
-use crate::{Optimizer, TDag};
+use crate::ensemble::Ensemble;
 
 #[derive(Debug, Clone)]
 pub struct Assertions {
@@ -37,8 +37,7 @@ struct EpochData {
 }
 
 pub struct TopEpochData {
-    pub tdag: TDag,
-    pub opt: Optimizer,
+    pub ensemble: Ensemble,
     /// The top level `EpochData`
     data: EpochData,
     /// If the top level is active
@@ -48,8 +47,7 @@ pub struct TopEpochData {
 impl TopEpochData {
     pub fn new() -> Self {
         Self {
-            tdag: TDag::new(),
-            opt: Optimizer::new(),
+            ensemble: Ensemble::new(),
             data: EpochData::default(),
             active: false,
         }
@@ -65,26 +63,19 @@ thread_local!(
     static EPOCH_DATA_STACK: RefCell<Vec<EpochData>> = RefCell::new(vec![]);
 );
 
-/// Gets the thread-local `TDag`. Note: do not get recursively.
-pub fn get_tdag<T, F: FnMut(&TDag) -> T>(mut f: F) -> T {
+/// Gets the thread-local `Ensemble`. Note: do not get recursively.
+pub fn get_ensemble<T, F: FnMut(&Ensemble) -> T>(mut f: F) -> T {
     EPOCH_DATA_TOP.with(|top| {
         let top = top.borrow();
-        f(&top.tdag)
+        f(&top.ensemble)
     })
 }
 
-/// Gets the thread-local `TDag`. Note: do not get recursively.
-pub fn get_tdag_mut<T, F: FnMut(&mut TDag) -> T>(mut f: F) -> T {
+/// Gets the thread-local `Ensemble`. Note: do not get recursively.
+pub fn get_tdag_mut<T, F: FnMut(&mut Ensemble) -> T>(mut f: F) -> T {
     EPOCH_DATA_TOP.with(|top| {
         let mut top = top.borrow_mut();
-        f(&mut top.tdag)
-    })
-}
-
-pub fn get_epoch_data_mut<T, F: FnMut(&mut TopEpochData) -> T>(mut f: F) -> T {
-    EPOCH_DATA_TOP.with(|top| {
-        let mut top = top.borrow_mut();
-        f(&mut top)
+        f(&mut top.ensemble)
     })
 }
 
@@ -144,7 +135,7 @@ impl Drop for Epoch {
                     // TODO
                     //top.tdag.states.remove(*p_state).unwrap();
                 }
-                top.tdag = TDag::new();
+                top.ensemble = Ensemble::new();
                 // move the top of the stack to the new top
                 let new_top = EPOCH_DATA_STACK.with(|stack| {
                     let mut stack = stack.borrow_mut();
@@ -220,7 +211,7 @@ impl Epoch {
         res
     }
 
-    pub fn clone_tdag() -> TDag {
-        EPOCH_DATA_TOP.with(|top| top.borrow().tdag.clone())
+    pub fn clone_ensemble() -> Ensemble {
+        EPOCH_DATA_TOP.with(|top| top.borrow().ensemble.clone())
     }
 }

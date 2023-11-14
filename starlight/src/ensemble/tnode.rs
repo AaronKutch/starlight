@@ -3,10 +3,11 @@ use std::num::NonZeroU64;
 use awint::{awint_dag::smallvec, Awi};
 use smallvec::SmallVec;
 
+use super::PBack;
 use crate::triple_arena::ptr_struct;
 
 // We use this because our algorithms depend on generation counters
-ptr_struct!(PTNode; PBack);
+ptr_struct!(PTNode);
 
 /// A "table" node meant to evoke some kind of one-way table in a DAG.
 #[derive(Debug, Clone)]
