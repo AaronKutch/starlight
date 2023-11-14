@@ -36,9 +36,9 @@ struct EpochData {
     states: Vec<PState>,
 }
 
-struct TopEpochData {
-    tdag: TDag,
-    opt: Optimizer,
+pub struct TopEpochData {
+    pub tdag: TDag,
+    pub opt: Optimizer,
     /// The top level `EpochData`
     data: EpochData,
     /// If the top level is active
@@ -78,6 +78,13 @@ pub fn get_tdag_mut<T, F: FnMut(&mut TDag) -> T>(mut f: F) -> T {
     EPOCH_DATA_TOP.with(|top| {
         let mut top = top.borrow_mut();
         f(&mut top.tdag)
+    })
+}
+
+pub fn get_epoch_data_mut<T, F: FnMut(&mut TopEpochData) -> T>(mut f: F) -> T {
+    EPOCH_DATA_TOP.with(|top| {
+        let mut top = top.borrow_mut();
+        f(&mut top)
     })
 }
 

@@ -75,6 +75,7 @@ pub struct Equiv {
     pub val: Value,
     /// Used in algorithms
     pub equiv_alg_rc: usize,
+    pub visit: NonZeroU64,
 }
 
 impl Equiv {
@@ -83,6 +84,7 @@ impl Equiv {
             p_self_equiv,
             val,
             equiv_alg_rc: 0,
+            visit:  NonZeroU64::new(1).unwrap(),
         }
     }
 }

@@ -8,13 +8,12 @@ use std::{
 use awint::{
     awint_dag::{
         dag,
-        smallvec::{smallvec, SmallVec},
         EvalError, Lineage, PState,
     },
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{awi, epoch::get_tdag_mut, PBack, Value};
+use crate::{awi, epoch::get_tdag_mut, Value};
 
 pub struct LazyAwi {
     state: dag::Awi,
@@ -123,16 +122,19 @@ impl LazyAwi {
     }
 
     pub fn eval(&mut self) -> Result<awi::Awi, EvalError> {
+        let nzbw = self.nzbw();
         // DFS from leaf to roots
         get_tdag_mut(|tdag| {
             let p_self = self.state();
             tdag.initialize_state_bits_if_needed(p_self).unwrap();
-            let mut res = awi::Awi::zero(self.nzbw());
+            let mut res = awi::Awi::zero(nzbw);
             for i in 0..res.bw() {
                 let bit = tdag.states.get(p_self).unwrap().p_self_bits[i];
                 let val = tdag.internal_eval_bit(bit)?;
                 if let Some(val) = val.known_value() {
-                    //
+                    res.set(i, val).unwrap();
+                } else {
+                    return Err(EvalError::OtherStr("could not eval bit to known value"));
                 }
             }
             Ok(res)
