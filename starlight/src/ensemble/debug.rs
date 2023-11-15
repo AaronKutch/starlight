@@ -35,7 +35,7 @@ impl DebugNodeTrait<PBack> for DebugTDag {
                         v.push(format!("{:?} ", lut));
                     }
                     v.push(format!("alg_rc:{}", tnode.alg_rc));
-                    v.push(format!("visit:{}", tnode.visit));
+                    v.push(format!("eval_visit:{}", tnode.eval_visit));
                     if let Some(driver) = tnode.loop_driver {
                         v.push(format!("driver: {:?}", driver));
                     }
@@ -64,7 +64,7 @@ impl DebugNodeTrait<PBack> for DebugTDag {
     }
 }
 
-impl TDag {
+impl Ensemble {
     pub fn backrefs_to_chain_arena(&self) -> ChainArena<PBack, Referent> {
         let mut chain_arena = ChainArena::new();
         self.backrefs

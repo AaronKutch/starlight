@@ -9,7 +9,7 @@ use awint::{
     Awi, InlAwi,
 };
 
-use super::{Ensemble, PTNode};
+use super::{Ensemble, PTNode, Referent, Value};
 use crate::{
     ensemble::PBack,
     triple_arena::{ptr_struct, OrdArena},
@@ -63,6 +63,7 @@ pub enum Optimization {
 }
 
 /// This struct implements a queue for simple simplifications of `TDag`s
+#[derive(Debug, Clone)]
 pub struct Optimizer {
     pub gas: u64,
     pub optimizations: OrdArena<POpt, Optimization, ()>,
@@ -75,13 +76,17 @@ impl Optimizer {
             optimizations: OrdArena::new(),
         }
     }
+
+    pub fn insert(&mut self, optimization: Optimization) {
+        let _ = self.optimizations.insert(optimization, ());
+    }
 }
 
 impl Ensemble {
     /// Removes all `Const` inputs and assigns `Const` result if possible.
     /// Returns if a `Const` result was assigned.
     pub fn const_eval_tnode(&mut self, p_tnode: PTNode) -> bool {
-        let tnode = t_dag.tnodes.get_mut(p_tnode).unwrap();
+        let tnode = self.tnodes.get_mut(p_tnode).unwrap();
         if let Some(original_lut) = &tnode.lut {
             let mut lut = original_lut.clone();
             // acquire LUT inputs, for every constant input reduce the LUT
@@ -89,13 +94,12 @@ impl Ensemble {
             for i in (0..len).rev() {
                 let i = usize::from(i);
                 let p_inp = tnode.inp[i];
-                let equiv = t_dag.backrefs.get_val(p_inp).unwrap();
+                let equiv = self.backrefs.get_val(p_inp).unwrap();
                 if let Value::Const(val) = equiv.val {
                     // we will be removing the input, mark it to be investigated
-                    let _ = self
-                        .optimizations
-                        .insert(Optimization::InvestigateUsed(equiv.p_self_equiv), ());
-                    t_dag.backrefs.remove_key(p_inp).unwrap();
+                    self.optimizer
+                        .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                    self.backrefs.remove_key(p_inp).unwrap();
                     tnode.inp.remove(i);
 
                     // reduction of the LUT
@@ -122,7 +126,7 @@ impl Ensemble {
                 let mut set = SmallMap::new();
                 for i in 0..tnode.inp.len() {
                     let p_inp = tnode.inp[i];
-                    let equiv = t_dag.backrefs.get_val(p_inp).unwrap();
+                    let equiv = self.backrefs.get_val(p_inp).unwrap();
                     match set.insert(equiv.p_self_equiv.inx(), i) {
                         Ok(()) => (),
                         Err(j) => {
@@ -136,10 +140,9 @@ impl Ensemble {
                                     to += 1;
                                 }
                             }
-                            let _ = self
-                                .optimizations
-                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv), ());
-                            t_dag.backrefs.remove_key(tnode.inp[j]).unwrap();
+                            self.optimizer
+                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                            self.backrefs.remove_key(tnode.inp[j]).unwrap();
                             tnode.inp.remove(j);
                             lut = next_lut;
                             continue 'outer
@@ -177,11 +180,10 @@ impl Ensemble {
                         // independent of the `i`th bit
                         lut = tmp0;
                         let p_inp = tnode.inp.remove(i);
-                        let equiv = t_dag.backrefs.get_val(p_inp).unwrap();
-                        let _ = self
-                            .optimizations
-                            .insert(Optimization::InvestigateUsed(equiv.p_self_equiv), ());
-                        t_dag.backrefs.remove_key(p_inp).unwrap();
+                        let equiv = self.backrefs.get_val(p_inp).unwrap();
+                        self.optimizer
+                            .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                        self.backrefs.remove_key(p_inp).unwrap();
                     }
                 } else {
                     // LUT is 1 bit
@@ -194,11 +196,10 @@ impl Ensemble {
             // input independence automatically reduces all zeros and all ones LUTs, so just
             // need to check if the LUT is one bit for constant generation
             if lut.bw() == 1 {
-                let equiv = t_dag.backrefs.get_val_mut(tnode.p_self).unwrap();
+                let equiv = self.backrefs.get_val_mut(tnode.p_self).unwrap();
                 equiv.val = Value::Const(lut.to_bool());
-                let _ = self
-                    .optimizations
-                    .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv), ());
+                self.optimizer
+                    .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv));
                 // fix the `lut` to its new state, do this even if we are doing the constant
                 // optimization
                 tnode.lut = Some(lut);
@@ -207,9 +208,8 @@ impl Ensemble {
                 // the only `lut.bw() == 2` cases that survive independence removal is identity
                 // and inversion. If it is identity, register this for forwarding
                 tnode.lut = None;
-                let _ = self
-                    .optimizations
-                    .insert(Optimization::ForwardEquiv(tnode.p_self), ());
+                self.optimizer
+                    .insert(Optimization::ForwardEquiv(tnode.p_self));
                 false
             } else {
                 tnode.lut = Some(lut);
@@ -217,18 +217,16 @@ impl Ensemble {
             }
         } else if tnode.inp.len() == 1 {
             // wire propogation
-            let input_equiv = t_dag.backrefs.get_val_mut(tnode.inp[0]).unwrap();
+            let input_equiv = self.backrefs.get_val_mut(tnode.inp[0]).unwrap();
             if let Value::Const(val) = input_equiv.val {
-                let equiv = t_dag.backrefs.get_val_mut(tnode.p_self).unwrap();
+                let equiv = self.backrefs.get_val_mut(tnode.p_self).unwrap();
                 equiv.val = Value::Const(val);
-                let _ = self
-                    .optimizations
-                    .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv), ());
+                self.optimizer
+                    .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv));
                 true
             } else {
-                let _ = self
-                    .optimizations
-                    .insert(Optimization::ForwardEquiv(tnode.p_self), ());
+                self.optimizer
+                    .insert(Optimization::ForwardEquiv(tnode.p_self));
                 false
             }
         } else {
@@ -241,18 +239,18 @@ impl Ensemble {
     /// always be applied before any further optimizations are applied, so that
     /// `RemoveUnused` and `ConstPropogate` can be handled before any other
     /// optimization
-    pub fn preinvestigate_equiv(&mut self, t_dag: &mut TDag, p_equiv: PBack) {
+    pub fn preinvestigate_equiv(&mut self, p_equiv: PBack) {
         let mut non_self_rc = 0usize;
-        let equiv = t_dag.backrefs.get_val(p_equiv).unwrap();
+        let equiv = self.backrefs.get_val(p_equiv).unwrap();
         let mut is_const = matches!(equiv.val, Value::Const(_));
-        let mut adv = t_dag.backrefs.advancer_surject(p_equiv);
-        while let Some(p_back) = adv.advance(&t_dag.backrefs) {
-            let referent = *t_dag.backrefs.get_key(p_back).unwrap();
+        let mut adv = self.backrefs.advancer_surject(p_equiv);
+        while let Some(p_back) = adv.advance(&self.backrefs) {
+            let referent = *self.backrefs.get_key(p_back).unwrap();
             match referent {
                 Referent::ThisEquiv => (),
                 Referent::ThisTNode(p_tnode) => {
                     // avoid checking more if it was already determined to be constant
-                    if !is_const && self.const_eval_tnode(t_dag, p_tnode) {
+                    if !is_const && self.const_eval_tnode(p_tnode) {
                         is_const = true;
                     }
                 }
@@ -262,8 +260,8 @@ impl Ensemble {
                     // the way `LoopDriver` networks with no real dependencies will work, is
                     // that const propogation and other simplifications will eventually result
                     // in a single node equivalence that drives itself, which we can remove
-                    let p_back_driver = t_dag.tnodes.get(p_driver).unwrap().p_self;
-                    if !t_dag.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
+                    let p_back_driver = self.tnodes.get(p_driver).unwrap().p_self;
+                    if !self.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
                         non_self_rc += 1;
                     }
 
@@ -274,256 +272,249 @@ impl Ensemble {
             }
         }
         if non_self_rc == 0 {
-            let _ = self
-                .optimizations
-                .insert(Optimization::RemoveEquiv(p_equiv), ());
+            self.optimizer.insert(Optimization::RemoveEquiv(p_equiv));
         } else if is_const {
-            let _ = self
-                .optimizations
-                .insert(Optimization::ConstifyEquiv(p_equiv), ());
+            self.optimizer.insert(Optimization::ConstifyEquiv(p_equiv));
         } else {
-            let _ = self
-                .optimizations
-                .insert(Optimization::InvestigateEquiv0(p_equiv), ());
+            self.optimizer
+                .insert(Optimization::InvestigateEquiv0(p_equiv));
         }
     }
 
     /// Does not perform the final step
     /// `t_dag.backrefs.remove(tnode.p_self).unwrap()` which is important for
     /// `Advancer`s.
-    pub fn remove_tnode_not_p_self(&mut self, t_dag: &mut TDag, p_tnode: PTNode) {
-        let tnode = t_dag.tnodes.remove(p_tnode).unwrap();
+    pub fn remove_tnode_not_p_self(&mut self, p_tnode: PTNode) {
+        let tnode = self.tnodes.remove(p_tnode).unwrap();
         if let Some(p_driver) = tnode.loop_driver {
-            let p_equiv = t_dag.backrefs.get_val(p_driver).unwrap().p_self_equiv;
-            let _ = self
-                .optimizations
-                .insert(Optimization::InvestigateUsed(p_equiv), ());
-            t_dag.backrefs.remove_key(p_driver).unwrap();
+            let p_equiv = self.backrefs.get_val(p_driver).unwrap().p_self_equiv;
+            self.optimizer
+                .insert(Optimization::InvestigateUsed(p_equiv));
+            self.backrefs.remove_key(p_driver).unwrap();
         }
         for inp in tnode.inp {
-            let p_equiv = t_dag.backrefs.get_val(inp).unwrap().p_self_equiv;
-            let _ = self
-                .optimizations
-                .insert(Optimization::InvestigateUsed(p_equiv), ());
-            t_dag.backrefs.remove_key(inp).unwrap();
+            let p_equiv = self.backrefs.get_val(inp).unwrap().p_self_equiv;
+            self.optimizer
+                .insert(Optimization::InvestigateUsed(p_equiv));
+            self.backrefs.remove_key(inp).unwrap();
         }
     }
 
-    pub fn optimize_all(&mut self, t_dag: &mut TDag) {
+    pub fn optimize_all(&mut self) {
         // need to preinvestigate everything before starting a priority loop
-        let mut adv = t_dag.backrefs.advancer();
-        while let Some(p_back) = adv.advance(&t_dag.backrefs) {
-            if let Referent::ThisEquiv = t_dag.backrefs.get_key(p_back).unwrap() {
-                self.preinvestigate_equiv(t_dag, p_back);
+        let mut adv = self.backrefs.advancer();
+        while let Some(p_back) = adv.advance(&self.backrefs) {
+            if let Referent::ThisEquiv = self.backrefs.get_key(p_back).unwrap() {
+                self.preinvestigate_equiv(p_back);
             }
         }
-        while let Some(p_optimization) = self.optimizations.min() {
-            optimize(self, t_dag, p_optimization)
+        while let Some(p_optimization) = self.optimizer.optimizations.min() {
+            self.optimize(p_optimization);
         }
     }
-}
 
-fn optimize(opt: &mut Optimizer, t_dag: &mut TDag, p_optimization: POpt) {
-    let optimization = opt.optimizations.remove(p_optimization).unwrap().0;
-    match optimization {
-        Optimization::Preinvestigate(p_equiv) => {
-            opt.preinvestigate_equiv(t_dag, p_equiv);
-        }
-        Optimization::RemoveEquiv(p_back) => {
-            let p_equiv = if let Some(equiv) = t_dag.backrefs.get_val(p_back) {
-                equiv.p_self_equiv
-            } else {
-                return
-            };
-            // remove all associated TNodes first
-            let mut adv = t_dag.backrefs.advancer_surject(p_back);
-            while let Some(p_back) = adv.advance(&t_dag.backrefs) {
-                match t_dag.backrefs.get_key(p_back).unwrap() {
-                    Referent::ThisEquiv => (),
-                    Referent::ThisTNode(p_tnode) => {
-                        opt.remove_tnode_not_p_self(t_dag, *p_tnode);
-                    }
-                    // TODO check self reference case
-                    Referent::LoopDriver(_) => todo!(),
-                    _ => unreachable!(),
-                }
+    fn optimize(&mut self, p_optimization: POpt) {
+        let optimization = self
+            .optimizer
+            .optimizations
+            .remove(p_optimization)
+            .unwrap()
+            .0;
+        match optimization {
+            Optimization::Preinvestigate(p_equiv) => {
+                self.preinvestigate_equiv(p_equiv);
             }
-            // remove the equivalence
-            t_dag.backrefs.remove(p_equiv).unwrap();
-        }
-        Optimization::ForwardEquiv(p_ident) => {
-            let p_source = if let Some(referent) = t_dag.backrefs.get_key(p_ident) {
-                if let Referent::ThisTNode(p_tnode) = referent {
-                    let tnode = &t_dag.tnodes[p_tnode];
-                    assert_eq!(tnode.inp.len(), 1);
-                    // do not use directly, use the `p_self_equiv` since this backref will be
-                    // removed when `p_ident` is process in the loop
-                    let p_back = tnode.inp[0];
-                    t_dag.backrefs.get_val(p_back).unwrap().p_self_equiv
+            Optimization::RemoveEquiv(p_back) => {
+                let p_equiv = if let Some(equiv) = self.backrefs.get_val(p_back) {
+                    equiv.p_self_equiv
                 } else {
-                    unreachable!()
+                    return
+                };
+                // remove all associated TNodes first
+                let mut adv = self.backrefs.advancer_surject(p_back);
+                while let Some(p_back) = adv.advance(&self.backrefs) {
+                    match self.backrefs.get_key(p_back).unwrap() {
+                        Referent::ThisEquiv => (),
+                        Referent::ThisTNode(p_tnode) => {
+                            self.remove_tnode_not_p_self(*p_tnode);
+                        }
+                        // TODO check self reference case
+                        Referent::LoopDriver(_) => todo!(),
+                        _ => unreachable!(),
+                    }
                 }
-            } else {
-                return
-            };
-            let mut adv = t_dag.backrefs.advancer_surject(p_ident);
-            while let Some(p_back) = adv.advance(&t_dag.backrefs) {
-                let referent = *t_dag.backrefs.get_key(p_back).unwrap();
-                match referent {
-                    Referent::ThisEquiv => (),
-                    Referent::ThisTNode(p_tnode) => {
-                        opt.remove_tnode_not_p_self(t_dag, p_tnode);
+                // remove the equivalence
+                self.backrefs.remove(p_equiv).unwrap();
+            }
+            Optimization::ForwardEquiv(p_ident) => {
+                let p_source = if let Some(referent) = self.backrefs.get_key(p_ident) {
+                    if let Referent::ThisTNode(p_tnode) = referent {
+                        let tnode = &self.tnodes[p_tnode];
+                        assert_eq!(tnode.inp.len(), 1);
+                        // do not use directly, use the `p_self_equiv` since this backref will be
+                        // removed when `p_ident` is process in the loop
+                        let p_back = tnode.inp[0];
+                        self.backrefs.get_val(p_back).unwrap().p_self_equiv
+                    } else {
+                        unreachable!()
                     }
-                    Referent::ThisStateBit(..) => {
-                        todo!()
+                } else {
+                    return
+                };
+                let mut adv = self.backrefs.advancer_surject(p_ident);
+                while let Some(p_back) = adv.advance(&self.backrefs) {
+                    let referent = *self.backrefs.get_key(p_back).unwrap();
+                    match referent {
+                        Referent::ThisEquiv => (),
+                        Referent::ThisTNode(p_tnode) => {
+                            self.remove_tnode_not_p_self(p_tnode);
+                        }
+                        Referent::ThisStateBit(..) => {
+                            todo!()
+                        }
+                        Referent::Input(p_input) => {
+                            let tnode = self.tnodes.get_mut(p_input).unwrap();
+                            let mut found = false;
+                            for inp in &mut tnode.inp {
+                                if *inp == p_back {
+                                    let p_back_new = self
+                                        .backrefs
+                                        .insert_key(p_source, Referent::Input(p_input))
+                                        .unwrap();
+                                    *inp = p_back_new;
+                                    found = true;
+                                    break
+                                }
+                            }
+                            assert!(found);
+                        }
+                        Referent::LoopDriver(p_driver) => {
+                            let tnode = self.tnodes.get_mut(p_driver).unwrap();
+                            assert_eq!(tnode.loop_driver, Some(p_back));
+                            let p_back_new = self
+                                .backrefs
+                                .insert_key(p_source, Referent::LoopDriver(p_driver))
+                                .unwrap();
+                            tnode.loop_driver = Some(p_back_new);
+                        }
+                        Referent::Note(p_note) => {
+                            // here we see a major advantage of the backref system
+                            let note = self.notes.get_mut(p_note).unwrap();
+                            let mut found = false;
+                            for bit in &mut note.bits {
+                                if *bit == p_back {
+                                    let p_back_new = self
+                                        .backrefs
+                                        .insert_key(p_source, Referent::Note(p_note))
+                                        .unwrap();
+                                    *bit = p_back_new;
+                                    found = true;
+                                    break
+                                }
+                            }
+                            assert!(found);
+                        }
                     }
-                    Referent::Input(p_input) => {
-                        let tnode = t_dag.tnodes.get_mut(p_input).unwrap();
-                        let mut found = false;
-                        for inp in &mut tnode.inp {
-                            if *inp == p_back {
-                                let p_back_new = t_dag
-                                    .backrefs
-                                    .insert_key(p_source, Referent::Input(p_input))
-                                    .unwrap();
-                                *inp = p_back_new;
-                                found = true;
+                }
+                // remove the equivalence, since everything should be forwarded and nothing
+                // depends on the identity equiv.
+                self.backrefs.remove(p_ident).unwrap();
+            }
+            Optimization::ConstifyEquiv(p_back) => {
+                if !self.backrefs.contains(p_back) {
+                    return
+                };
+                // for removing `ThisTNode` safely
+                let mut remove = SmallVec::<[PBack; 16]>::new();
+                // remove all associated TNodes
+                let mut adv = self.backrefs.advancer_surject(p_back);
+                while let Some(p_back) = adv.advance(&self.backrefs) {
+                    match self.backrefs.get_key(p_back).unwrap() {
+                        Referent::ThisEquiv => (),
+                        Referent::ThisTNode(p_tnode) => {
+                            self.remove_tnode_not_p_self(*p_tnode);
+                            remove.push(p_back);
+                        }
+                        Referent::ThisStateBit(..) => todo!(),
+                        Referent::Input(p_inp) => {
+                            self.optimizer
+                                .insert(Optimization::InvestigateConst(*p_inp));
+                        }
+                        Referent::LoopDriver(p_driver) => {
+                            self.optimizer
+                                .insert(Optimization::InvestigateConst(*p_driver));
+                        }
+                        Referent::Note(_) => (),
+                    }
+                }
+                for p_back in remove {
+                    self.backrefs.remove_key(p_back).unwrap();
+                }
+            }
+            Optimization::RemoveTNode(p_back) => {
+                if !self.backrefs.contains(p_back) {
+                    return
+                }
+                todo!()
+            }
+            Optimization::InvestigateUsed(p_back) => {
+                if !self.backrefs.contains(p_back) {
+                    return
+                };
+                let mut found_use = false;
+                let mut adv = self.backrefs.advancer_surject(p_back);
+                while let Some(p_back) = adv.advance(&self.backrefs) {
+                    let referent = *self.backrefs.get_key(p_back).unwrap();
+                    match referent {
+                        Referent::ThisEquiv => (),
+                        Referent::ThisTNode(_) => (),
+                        Referent::ThisStateBit(..) => (),
+                        Referent::Input(_) => {
+                            found_use = true;
+                            break
+                        }
+                        Referent::LoopDriver(p_driver) => {
+                            let p_back_driver = self.tnodes.get(p_driver).unwrap().p_self;
+                            if !self.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
+                                found_use = true;
                                 break
                             }
                         }
-                        assert!(found);
-                    }
-                    Referent::LoopDriver(p_driver) => {
-                        let tnode = t_dag.tnodes.get_mut(p_driver).unwrap();
-                        assert_eq!(tnode.loop_driver, Some(p_back));
-                        let p_back_new = t_dag
-                            .backrefs
-                            .insert_key(p_source, Referent::LoopDriver(p_driver))
-                            .unwrap();
-                        tnode.loop_driver = Some(p_back_new);
-                    }
-                    Referent::Note(p_note) => {
-                        // here we see a major advantage of the backref system
-                        let note = t_dag.notes.get_mut(p_note).unwrap();
-                        let mut found = false;
-                        for bit in &mut note.bits {
-                            if *bit == p_back {
-                                let p_back_new = t_dag
-                                    .backrefs
-                                    .insert_key(p_source, Referent::Note(p_note))
-                                    .unwrap();
-                                *bit = p_back_new;
-                                found = true;
-                                break
-                            }
-                        }
-                        assert!(found);
-                    }
-                }
-            }
-            // remove the equivalence, since everything should be forwarded and nothing
-            // depends on the identity equiv.
-            t_dag.backrefs.remove(p_ident).unwrap();
-        }
-        Optimization::ConstifyEquiv(p_back) => {
-            if !t_dag.backrefs.contains(p_back) {
-                return
-            };
-            // for removing `ThisTNode` safely
-            let mut remove = SmallVec::<[PBack; 16]>::new();
-            // remove all associated TNodes
-            let mut adv = t_dag.backrefs.advancer_surject(p_back);
-            while let Some(p_back) = adv.advance(&t_dag.backrefs) {
-                match t_dag.backrefs.get_key(p_back).unwrap() {
-                    Referent::ThisEquiv => (),
-                    Referent::ThisTNode(p_tnode) => {
-                        opt.remove_tnode_not_p_self(t_dag, *p_tnode);
-                        remove.push(p_back);
-                    }
-                    Referent::ThisStateBit(..) => todo!(),
-                    Referent::Input(p_inp) => {
-                        let _ = opt
-                            .optimizations
-                            .insert(Optimization::InvestigateConst(*p_inp), ());
-                    }
-                    Referent::LoopDriver(p_driver) => {
-                        let _ = opt
-                            .optimizations
-                            .insert(Optimization::InvestigateConst(*p_driver), ());
-                    }
-                    Referent::Note(_) => (),
-                }
-            }
-            for p_back in remove {
-                t_dag.backrefs.remove_key(p_back).unwrap();
-            }
-        }
-        Optimization::RemoveTNode(p_back) => {
-            if !t_dag.backrefs.contains(p_back) {
-                return
-            }
-            todo!()
-        }
-        Optimization::InvestigateUsed(p_back) => {
-            if !t_dag.backrefs.contains(p_back) {
-                return
-            };
-            let mut found_use = false;
-            let mut adv = t_dag.backrefs.advancer_surject(p_back);
-            while let Some(p_back) = adv.advance(&t_dag.backrefs) {
-                let referent = *t_dag.backrefs.get_key(p_back).unwrap();
-                match referent {
-                    Referent::ThisEquiv => (),
-                    Referent::ThisTNode(_) => (),
-                    Referent::ThisStateBit(..) => (),
-                    Referent::Input(_) => {
-                        found_use = true;
-                        break
-                    }
-                    Referent::LoopDriver(p_driver) => {
-                        let p_back_driver = t_dag.tnodes.get(p_driver).unwrap().p_self;
-                        if !t_dag.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
+                        Referent::Note(_) => {
                             found_use = true;
                             break
                         }
                     }
-                    Referent::Note(_) => {
-                        found_use = true;
-                        break
-                    }
+                }
+                if !found_use {
+                    self.optimizer.insert(Optimization::RemoveEquiv(p_back));
                 }
             }
-            if !found_use {
-                let _ = opt
-                    .optimizations
-                    .insert(Optimization::RemoveEquiv(p_back), ());
+            Optimization::InvestigateConst(p_tnode) => {
+                if !self.tnodes.contains(p_tnode) {
+                    return
+                };
+                if self.const_eval_tnode(p_tnode) {
+                    self.optimizer.insert(Optimization::ConstifyEquiv(
+                        self.tnodes.get(p_tnode).unwrap().p_self,
+                    ));
+                }
             }
-        }
-        Optimization::InvestigateConst(p_tnode) => {
-            if !t_dag.tnodes.contains(p_tnode) {
-                return
-            };
-            if opt.const_eval_tnode(t_dag, p_tnode) {
-                let _ = opt.optimizations.insert(
-                    Optimization::ConstifyEquiv(t_dag.tnodes.get(p_tnode).unwrap().p_self),
-                    (),
-                );
+            Optimization::LowerState(p_state) => {
+                if !self.states.contains(p_state) {
+                    return
+                };
             }
-        }
-        Optimization::LowerState(p_state) => {
-            if !t_dag.states.contains(p_state) {
-                return
-            };
-        }
-        Optimization::InvestigateEquiv0(p_back) => {
-            if !t_dag.backrefs.contains(p_back) {
-                return
-            };
-            // TODO compare TNodes
-            // TODO compress inverters by inverting inx table
-            // TODO fusion of structures like
-            // H(F(a, b), G(a, b)) definitely or any case like H(F(a, b), a)
-            // with common inputs
+            Optimization::InvestigateEquiv0(p_back) => {
+                if !self.backrefs.contains(p_back) {
+                    return
+                };
+                // TODO compare TNodes
+                // TODO compress inverters by inverting inx table
+                // TODO fusion of structures like
+                // H(F(a, b), G(a, b)) definitely or any case like H(F(a, b), a)
+                // with common inputs
+            }
         }
     }
 }

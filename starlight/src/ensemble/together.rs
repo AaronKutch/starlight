@@ -3,15 +3,15 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use awint::{
     awint_dag::{
         smallvec::{smallvec, SmallVec},
-        EvalError, Location, Op, OpDag, PNote, PState,
+        EvalError, Location, Op, PNote, PState,
     },
     awint_macro_internals::triple_arena::Advancer,
     Awi, Bits,
 };
 
-use super::{value::Evaluator, PValueChange};
+use super::{value::Evaluator, Optimizer, PValueChange};
 use crate::{
-    ensemble::{Note, Optimizer, PTNode, State, TNode, Value},
+    ensemble::{Note, PTNode, State, TNode, Value},
     triple_arena::{ptr_struct, Arena, SurjectArena},
 };
 
@@ -28,6 +28,7 @@ pub struct Equiv {
     pub val_change: Option<PValueChange>,
     /// Used in algorithms
     pub equiv_alg_rc: usize,
+    pub eval_visit: NonZeroU64,
 }
 
 impl Equiv {
@@ -37,6 +38,7 @@ impl Equiv {
             val,
             equiv_alg_rc: 0,
             val_change: None,
+            eval_visit: NonZeroU64::new(1).unwrap(),
         }
     }
 }
@@ -59,52 +61,23 @@ pub enum Referent {
 #[derive(Debug, Clone)]
 pub struct Ensemble {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
-    pub evaluator: Evaluator,
-    pub tnodes: Arena<PTNode, TNode>,
-    // In order to preserve sanity, states are fairly weak in their existence.
-    pub states: Arena<PState, State>,
     pub notes: Arena<PNote, Note>,
-    /// A kind of generation counter tracking the highest `visit` number
-    visit_gen: NonZeroU64,
-    /// temporary used in evaluations
-    tnode_front: Vec<PTNode>,
-    equiv_front: Vec<PBack>,
+    pub states: Arena<PState, State>,
+    pub tnodes: Arena<PTNode, TNode>,
+    pub evaluator: Evaluator,
+    pub optimizer: Optimizer,
 }
 
 impl Ensemble {
     pub fn new() -> Self {
         Self {
             backrefs: SurjectArena::new(),
-            evaluator: Evaluator::new(),
-            tnodes: Arena::new(),
-            states: Arena::new(),
-            visit_gen: NonZeroU64::new(2).unwrap(),
             notes: Arena::new(),
-            tnode_front: vec![],
-            equiv_front: vec![],
+            states: Arena::new(),
+            tnodes: Arena::new(),
+            evaluator: Evaluator::new(),
+            optimizer: Optimizer::new(),
         }
-    }
-
-    pub fn visit_gen(&self) -> NonZeroU64 {
-        self.visit_gen
-    }
-
-    pub fn next_visit_gen(&mut self) -> NonZeroU64 {
-        self.visit_gen = NonZeroU64::new(self.visit_gen.get().checked_add(1).unwrap()).unwrap();
-        self.visit_gen
-    }
-
-    /// Constructs a directed acyclic graph of lookup tables from an
-    /// [awint::awint_dag::OpDag]. `op_dag` is taken by mutable reference only
-    /// for the purposes of visitation updates.
-    ///
-    /// If an error occurs, the DAG (which may be in an unfinished or completely
-    /// broken state) is still returned along with the error enum, so that debug
-    /// tools like `render_to_svg_file` can be used.
-    pub fn from_op_dag(op_dag: &mut OpDag) -> (Self, Result<(), EvalError>) {
-        let mut res = Self::new();
-        let err = res.add_op_dag(op_dag);
-        (res, err)
     }
 
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
@@ -462,146 +435,6 @@ impl Ensemble {
         Some(p_back_new)
     }
 
-    /// Evaluates everything and checks equivalences
-    pub fn eval_all(&mut self) -> Result<(), EvalError> {
-        let this_visit = self.next_visit_gen();
-
-        // set `alg_rc` and get the initial front
-        self.tnode_front.clear();
-        self.equiv_front.clear();
-        for (p, tnode) in &mut self.tnodes {
-            let len = tnode.inp.len();
-            tnode.alg_rc = u64::try_from(len).unwrap();
-            if len == 0 {
-                self.tnode_front.push(p);
-            }
-        }
-        for equiv in self.backrefs.vals_mut() {
-            equiv.equiv_alg_rc = 0;
-        }
-        let mut adv = self.backrefs.advancer();
-        while let Some(p_back) = adv.advance(&self.backrefs) {
-            let (referent, equiv) = self.backrefs.get_mut(p_back).unwrap();
-            match referent {
-                Referent::ThisEquiv => (),
-                Referent::ThisTNode(_) => {
-                    equiv.equiv_alg_rc += 1;
-                }
-                // we should do this
-                Referent::ThisStateBit(..) => todo!(),
-                Referent::Input(_) => (),
-                Referent::LoopDriver(_) => (),
-                Referent::Note(_) => (),
-            }
-        }
-        for equiv in self.backrefs.vals() {
-            if equiv.equiv_alg_rc == 0 {
-                self.equiv_front.push(equiv.p_self_equiv);
-            }
-        }
-
-        loop {
-            // prioritize tnodes before equivalences, better finds the root cause of
-            // equivalence mismatches
-            if let Some(p_tnode) = self.tnode_front.pop() {
-                let tnode = self.tnodes.get_mut(p_tnode).unwrap();
-                let (val, set_val) = if tnode.lut.is_some() {
-                    // acquire LUT input
-                    let mut inx = 0;
-                    let len = tnode.inp.len();
-                    let mut propogate_unknown = false;
-                    for i in 0..len {
-                        let equiv = self.backrefs.get_val(tnode.inp[i]).unwrap();
-                        match equiv.val {
-                            Value::Unknown => {
-                                propogate_unknown = true;
-                                break
-                            }
-                            Value::Const(val) => {
-                                inx |= (val as usize) << i;
-                            }
-                            Value::Dynam(val, _) => {
-                                inx |= (val as usize) << i;
-                            }
-                        }
-                    }
-                    if propogate_unknown {
-                        (Value::Unknown, true)
-                    } else {
-                        // evaluate
-                        let val = tnode.lut.as_ref().unwrap().get(inx).unwrap();
-                        (Value::Dynam(val, this_visit), true)
-                    }
-                } else if tnode.inp.len() == 1 {
-                    // wire propogation
-                    let equiv = self.backrefs.get_val(tnode.inp[0]).unwrap();
-                    (equiv.val, true)
-                } else {
-                    // some other case like a looper, value gets set by something else
-                    (Value::Unknown, false)
-                };
-                let equiv = self.backrefs.get_val_mut(tnode.p_self).unwrap();
-                if set_val {
-                    match equiv.val {
-                        Value::Unknown => {
-                            equiv.val = val;
-                        }
-                        Value::Const(_) => unreachable!(),
-                        Value::Dynam(prev_val, prev_visit) => {
-                            if prev_visit == this_visit {
-                                let mismatch = match val {
-                                    Value::Unknown => true,
-                                    Value::Const(_) => unreachable!(),
-                                    Value::Dynam(new_val, _) => new_val != prev_val,
-                                };
-                                if mismatch {
-                                    // dynamic sets from this visit are disagreeing
-                                    return Err(EvalError::OtherString(format!(
-                                        "disagreement on equivalence value for {}",
-                                        equiv.p_self_equiv
-                                    )))
-                                }
-                            } else {
-                                equiv.val = val;
-                            }
-                        }
-                    }
-                }
-                equiv.equiv_alg_rc = equiv.equiv_alg_rc.checked_sub(1).unwrap();
-                if equiv.equiv_alg_rc == 0 {
-                    self.equiv_front.push(equiv.p_self_equiv);
-                }
-                tnode.visit = this_visit;
-                continue
-            }
-            if let Some(p_equiv) = self.equiv_front.pop() {
-                let mut adv = self.backrefs.advancer_surject(p_equiv);
-                while let Some(p_back) = adv.advance(&self.backrefs) {
-                    // notify dependencies
-                    match self.backrefs.get_key(p_back).unwrap() {
-                        Referent::ThisEquiv => (),
-                        Referent::ThisTNode(_) => (),
-                        Referent::ThisStateBit(..) => (),
-                        Referent::Input(p_dep) => {
-                            let dep = self.tnodes.get_mut(*p_dep).unwrap();
-                            if dep.visit < this_visit {
-                                dep.alg_rc = dep.alg_rc.checked_sub(1).unwrap();
-                                if dep.alg_rc == 0 {
-                                    self.tnode_front.push(*p_dep);
-                                }
-                            }
-                        }
-                        Referent::LoopDriver(_) => (),
-                        Referent::Note(_) => (),
-                    }
-                }
-                continue
-            }
-            break
-        }
-        Ok(())
-    }
-
     pub fn drive_loops(&mut self) {
         let mut adv = self.tnodes.advancer();
         while let Some(p_tnode) = adv.advance(&self.tnodes) {
@@ -639,7 +472,7 @@ impl Ensemble {
                 let val = match equiv.val {
                     Value::Unknown => unreachable!(),
                     Value::Const(val) => val,
-                    Value::Dynam(val, _) => val,
+                    Value::Dynam(val) => val,
                 };
                 x.set(i, val).unwrap();
             }
@@ -655,15 +488,9 @@ impl Ensemble {
         assert_eq!(note.bits.len(), val.bw());
         for (i, bit) in note.bits.iter().enumerate() {
             let equiv = self.backrefs.get_val_mut(*bit)?;
-            equiv.val = Value::Dynam(val.get(i).unwrap(), self.visit_gen);
+            equiv.val = Value::Dynam(val.get(i).unwrap());
         }
         Some(())
-    }
-
-    pub fn optimize_basic(&mut self) {
-        // all 0 gas optimizations
-        let mut opt = Optimizer::new();
-        opt.optimize_all(self);
     }
 }
 

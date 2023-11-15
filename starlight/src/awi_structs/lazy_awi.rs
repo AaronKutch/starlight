@@ -106,12 +106,11 @@ impl LazyAwi {
             }
             // initialize if needed
             tdag.initialize_state_bits_if_needed(p_lhs).unwrap();
-            let visit_gen = tdag.visit_gen();
             if let Some(lhs) = tdag.states.get_mut(p_lhs) {
                 for i in 0..rhs.bw() {
                     let p_bit = lhs.p_self_bits[i];
                     let bit = tdag.backrefs.get_val_mut(p_bit).unwrap();
-                    bit.val = Value::Dynam(rhs.get(i).unwrap(), visit_gen);
+                    bit.val = Value::Dynam(rhs.get(i).unwrap());
                 }
             }
             Some(())
@@ -127,7 +126,7 @@ impl LazyAwi {
             let mut res = awi::Awi::zero(nzbw);
             for i in 0..res.bw() {
                 let bit = tdag.states.get(p_self).unwrap().p_self_bits[i];
-                let val = tdag.internal_eval_bit(bit)?;
+                let val = tdag.request_value(bit)?;
                 if let Some(val) = val.known_value() {
                     res.set(i, val).unwrap();
                 } else {

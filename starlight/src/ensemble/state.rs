@@ -1,21 +1,17 @@
-use std::{
-    collections::HashMap,
-    num::{NonZeroU64, NonZeroUsize},
-};
+use std::num::{NonZeroU64, NonZeroUsize};
 
 use awint::{
     awint_dag::{
-        lowering::{lower_state, LowerManagement, OpDag, PNode},
+        lowering::{lower_state, LowerManagement},
         smallvec::SmallVec,
         EvalError, Location,
         Op::{self, *},
         PState,
     },
-    awint_macro_internals::triple_arena::Advancer,
-    Awi, Bits,
+    Bits,
 };
 
-use crate::ensemble::{Ensemble, Note, PBack, Value};
+use crate::ensemble::{Ensemble, PBack};
 
 /// Represents the state resulting from a mimicking operation
 #[derive(Debug, Clone)]
@@ -150,6 +146,7 @@ impl Ensemble {
         Ok(())
     }
 
+    /*
     pub fn lower_state_to_tnodes(&mut self, p_state: PState) -> Result<(), EvalError> {
         //
         Ok(())
@@ -342,5 +339,5 @@ impl Ensemble {
             self.notes[p_note] = Note { bits: note };
         }
         Ok(())
-    }
+    }*/
 }

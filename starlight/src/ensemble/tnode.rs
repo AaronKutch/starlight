@@ -25,7 +25,7 @@ pub struct TNode {
     /// Used in algorithms
     pub alg_rc: u64,
     /// visit number
-    pub visit: NonZeroU64,
+    pub eval_visit: NonZeroU64,
 }
 
 impl TNode {
@@ -36,7 +36,7 @@ impl TNode {
             lut: None,
             loop_driver: None,
             alg_rc: 0,
-            visit: NonZeroU64::new(2).unwrap(),
+            eval_visit: NonZeroU64::new(2).unwrap(),
         }
     }
 }

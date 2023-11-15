@@ -84,7 +84,7 @@ pub fn _callback() -> EpochCallback {
     fn new_pstate(nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PState {
         EPOCH_DATA_TOP.with(|top| {
             let mut top = top.borrow_mut();
-            let p_state = top.tdag.make_state(nzbw, op, location);
+            let p_state = top.ensemble.make_state(nzbw, op, location);
             top.data.states.push(p_state);
             p_state
         })
@@ -100,13 +100,13 @@ pub fn _callback() -> EpochCallback {
     fn get_nzbw(p_state: PState) -> NonZeroUsize {
         EPOCH_DATA_TOP.with(|top| {
             let top = top.borrow();
-            top.tdag.states.get(p_state).unwrap().nzbw
+            top.ensemble.states.get(p_state).unwrap().nzbw
         })
     }
     fn get_op(p_state: PState) -> Op<PState> {
         EPOCH_DATA_TOP.with(|top| {
             let top = top.borrow();
-            top.tdag.states.get(p_state).unwrap().op.clone()
+            top.ensemble.states.get(p_state).unwrap().op.clone()
         })
     }
     EpochCallback {
