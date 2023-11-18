@@ -1,8 +1,8 @@
 use std::num::NonZeroU64;
 
 use awint::awint_dag::{
-    triple_arena::{ptr_struct, SurjectArena},
-    EvalError,
+    triple_arena::{ptr_struct, OrdArena},
+    EvalError, PState,
 };
 
 use crate::ensemble::{Ensemble, PBack};
@@ -62,14 +62,32 @@ If `b` changes but `a` stays, the output will not change, so what we can do is e
 first. If `a` doesn't change the front stops as it should. If `a` does change then when the front
 reaches back `b` must then be explored.
 
+We will call the number of inputs that could lead to an early termination number_a
+TODO find better name
+
 */
 
-ptr_struct!(PChangeFront; PRequestFront);
+ptr_struct!(PRequestFront; PEval);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EvalPhase {
     Change,
     Request,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RequestTNode {
+    depth: i64,
+    number_a: u8,
+    p_back_tnode: PBack,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Eval {
+    Investigate(PBack),
+    Change(i64, PBack),
+    RequestTNode(RequestTNode),
+    LowerState(PState),
 }
 
 #[derive(Debug, Clone)]
@@ -80,8 +98,7 @@ pub struct Evaluator {
     phase: EvalPhase,
     change_visit_gen: NonZeroU64,
     request_visit_gen: NonZeroU64,
-    change_front: SurjectArena<PChangeFront, PBack, ()>,
-    request_front: SurjectArena<PRequestFront, PBack, ()>,
+    evaluations: OrdArena<PEval, Eval, ()>,
 }
 
 impl Evaluator {
@@ -92,8 +109,7 @@ impl Evaluator {
             phase: EvalPhase::Change,
             change_visit_gen: NonZeroU64::new(2).unwrap(),
             request_visit_gen: NonZeroU64::new(2).unwrap(),
-            change_front: SurjectArena::new(),
-            request_front: SurjectArena::new(),
+            evaluations: OrdArena::new(),
         }
     }
 
@@ -116,15 +132,19 @@ impl Evaluator {
             NonZeroU64::new(self.request_visit_gen.get().checked_add(1).unwrap()).unwrap();
         self.request_visit_gen
     }
+
+    pub fn insert(&mut self, eval_step: Eval) {
+        let _ = self.evaluations.insert(eval_step, ());
+    }
 }
 
 impl Ensemble {
     pub fn change_value(&mut self, p_back: PBack, value: Value) -> Option<()> {
-        if self.evaluator.phase != EvalPhase::Change {
-            self.evaluator.phase = EvalPhase::Change;
-            self.evaluator.next_change_visit_gen();
-        }
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
+            if self.evaluator.phase != EvalPhase::Change {
+                self.evaluator.phase = EvalPhase::Change;
+                self.evaluator.next_change_visit_gen();
+            }
             if equiv.val.is_const() {
                 // not allowed
                 panic!();
@@ -152,21 +172,23 @@ impl Ensemble {
     // stepping loops should request their drivers, evaluating everything requests
     // everything
     pub fn request_value(&mut self, p_back: PBack) -> Result<Value, EvalError> {
-        if !self.backrefs.contains(p_back) {
-            return Err(EvalError::InvalidPtr)
+        if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
+            // switch to request phase
+            if self.evaluator.phase != EvalPhase::Request {
+                self.evaluator.phase = EvalPhase::Request;
+                self.evaluator.next_request_visit_gen();
+            }
+            let visit = self.evaluator.request_visit_gen();
+            if equiv.request_visit != visit {
+                equiv.request_visit = visit;
+                self.evaluator.request_list.push(p_back);
+                self.handle_requests();
+            }
+            Ok(self.backrefs.get_val(p_back).unwrap().val)
+        } else {
+            Err(EvalError::InvalidPtr)
         }
-        // switch to request phase
-        if self.evaluator.phase != EvalPhase::Request {
-            self.evaluator.phase = EvalPhase::Request;
-            self.evaluator.request_front.clear();
-            self.evaluator.next_request_visit_gen();
-        }
-        self.evaluator.request_list.push(p_back);
-        self.handle_requests();
-        Ok(self.backrefs.get_val(p_back).unwrap().val)
     }
-
-    // TODO have a harder request that initiates optimizations if the fronts run out
 
     fn handle_requests(&mut self) {
         // TODO currently, the only way of avoiding N^2 worst case scenarios where
@@ -189,8 +211,17 @@ impl Ensemble {
             let equiv = self.backrefs.get_val_mut(p_back).unwrap();
             if equiv.request_visit != request_visit {
                 equiv.request_visit = request_visit;
+                self.evaluator.insert(Eval::Investigate(equiv.p_self_equiv));
             }
-            self.evaluator.request_front.insert(equiv.p_self_equiv, ());
+            // else it is already handled
         }
+
+        while let Some(p_eval) = self.evaluator.evaluations.min() {
+            self.evaluate(p_eval);
+        }
+    }
+
+    fn evaluate(&mut self, p_eval: PEval) {
+        //
     }
 }
