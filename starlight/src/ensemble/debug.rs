@@ -49,7 +49,6 @@ impl DebugNodeTrait<PBack> for DebugTDag {
                     vec![
                         format!("{:?}", equiv.p_self_equiv),
                         format!("{:?}", equiv.val),
-                        format!("rc:{}", equiv.equiv_alg_rc),
                     ]
                 },
                 sinks: vec![],

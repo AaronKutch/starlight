@@ -12,4 +12,4 @@ pub use optimize::Optimizer;
 pub use state::State;
 pub use tnode::{PTNode, TNode};
 pub use together::{Ensemble, Equiv, PBack, Referent};
-pub use value::{PValueChange, Value};
+pub use value::Value;

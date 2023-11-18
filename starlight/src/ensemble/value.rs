@@ -1,11 +1,10 @@
-use std::{collections::BinaryHeap, num::NonZeroU64};
+use std::num::NonZeroU64;
 
 use awint::awint_dag::{
-    triple_arena::{ptr_struct, Arena, SurjectArena},
+    triple_arena::{ptr_struct, SurjectArena},
     EvalError,
 };
 
-use super::PTNode;
 use crate::ensemble::{Ensemble, PBack};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -45,18 +44,27 @@ impl Value {
     }
 }
 
-ptr_struct!(PValueChange; PValueRequest; PChangeFront; PRequestFront);
+/*
+Consider a request front where we want to know if the output of a LUT is unable to change and thus
+that part of the front can be eliminated
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ValueChange {
-    pub p_back: PBack,
-    pub new_value: Value,
-}
+a b
+0 0
+_____
+0 0 | 0
+0 1 | 0
+1 0 | 1
+1 1 | 0
+    ___
+      0
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ValueRequest {
-    pub p_back: PBack,
-}
+If `b` changes but `a` stays, the output will not change, so what we can do is explore just `a`
+first. If `a` doesn't change the front stops as it should. If `a` does change then when the front
+reaches back `b` must then be explored.
+
+*/
+
+ptr_struct!(PChangeFront; PRequestFront);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EvalPhase {
@@ -64,116 +72,83 @@ pub enum EvalPhase {
     Request,
 }
 
-/*#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct EvalFront {
-    front_id: NonZeroU64,
-}
-
-impl EvalFront {
-    /// `front_id` needs to be unique per front
-    pub fn new(front_id: NonZeroU64) -> Self {
-        Self { front_id }
-    }
-
-    pub fn front_id(&self) -> NonZeroU64 {
-        self.front_id
-    }
-}*/
-
-/// In order from highest to lowest priority
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EvalAction {
-    FindRoots(PBack),
-    EvalChange(PTNode),
-}
-
 #[derive(Debug, Clone)]
 pub struct Evaluator {
-    changes: Arena<PValueChange, ValueChange>,
     // the lists are used to avoid the O(N) penalty of advancing through an arena
-    change_list: Vec<PValueChange>,
-    requests: Arena<PValueRequest, ValueRequest>,
-    request_list: Vec<PValueRequest>,
+    change_list: Vec<PBack>,
+    request_list: Vec<PBack>,
     phase: EvalPhase,
-    visit_gen: NonZeroU64,
+    change_visit_gen: NonZeroU64,
+    request_visit_gen: NonZeroU64,
     change_front: SurjectArena<PChangeFront, PBack, ()>,
     request_front: SurjectArena<PRequestFront, PBack, ()>,
-    eval_priority: BinaryHeap<EvalAction>,
 }
 
 impl Evaluator {
     pub fn new() -> Self {
         Self {
-            changes: Arena::new(),
             change_list: vec![],
-            requests: Arena::new(),
             request_list: vec![],
             phase: EvalPhase::Change,
-            visit_gen: NonZeroU64::new(2).unwrap(),
+            change_visit_gen: NonZeroU64::new(2).unwrap(),
+            request_visit_gen: NonZeroU64::new(2).unwrap(),
             change_front: SurjectArena::new(),
             request_front: SurjectArena::new(),
-            eval_priority: BinaryHeap::new(),
         }
     }
 
-    pub fn visit_gen(&self) -> NonZeroU64 {
-        self.visit_gen
+    pub fn change_visit_gen(&self) -> NonZeroU64 {
+        self.change_visit_gen
     }
 
-    pub fn next_visit_gen(&mut self) -> NonZeroU64 {
-        self.visit_gen = NonZeroU64::new(self.visit_gen.get().checked_add(1).unwrap()).unwrap();
-        self.visit_gen
+    pub fn next_change_visit_gen(&mut self) -> NonZeroU64 {
+        self.change_visit_gen =
+            NonZeroU64::new(self.change_visit_gen.get().checked_add(1).unwrap()).unwrap();
+        self.change_visit_gen
+    }
+
+    pub fn request_visit_gen(&self) -> NonZeroU64 {
+        self.request_visit_gen
+    }
+
+    pub fn next_request_visit_gen(&mut self) -> NonZeroU64 {
+        self.request_visit_gen =
+            NonZeroU64::new(self.request_visit_gen.get().checked_add(1).unwrap()).unwrap();
+        self.request_visit_gen
     }
 }
 
 impl Ensemble {
-    /// Does nothing besides check for containment if the value does not
-    /// actually change, or if the value was constant
     pub fn change_value(&mut self, p_back: PBack, value: Value) -> Option<()> {
         if self.evaluator.phase != EvalPhase::Change {
             self.evaluator.phase = EvalPhase::Change;
+            self.evaluator.next_change_visit_gen();
         }
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
             if equiv.val.is_const() {
                 // not allowed
                 panic!();
             }
-            if equiv.val == value {
-                if let Some(prev_val_change) = equiv.val_change {
-                    // this needs to be kept because of the list, this prevents the list from being
-                    // able to grow indefinitely with duplicates
-                    self.evaluator
-                        .changes
-                        .get_mut(prev_val_change)
-                        .unwrap()
-                        .new_value = value;
-                }
-                return Some(())
-            }
-            if let Some(prev_val_change) = equiv.val_change {
+            if let Some(ref mut prev_val_change) = equiv.val_change {
                 // there was another change to this bit in this evaluation phase we need to
                 // overwrite so we don't have bugs where the previous runs later
-                self.evaluator
-                    .changes
-                    .get_mut(prev_val_change)
-                    .unwrap()
-                    .new_value = value;
-            } else {
-                let p_val_change = self.evaluator.changes.insert(ValueChange {
-                    p_back: equiv.p_self_equiv,
-                    new_value: value,
-                });
-                equiv.val_change = Some(p_val_change);
-                self.evaluator.change_list.push(p_val_change);
+                *prev_val_change = value;
+            }
+            if equiv.val == value {
+                // this needs to be kept because of the list, this prevents the list from being
+                // able to grow indefinitely with duplicates
+                return Some(())
+            }
+            if equiv.val_change.is_none() {
+                equiv.val_change = Some(value);
+                self.evaluator.change_list.push(equiv.p_self_equiv);
             }
             Some(())
         } else {
             None
         }
     }
-}
 
-impl Ensemble {
     // stepping loops should request their drivers, evaluating everything requests
     // everything
     pub fn request_value(&mut self, p_back: PBack) -> Result<Value, EvalError> {
@@ -183,14 +158,11 @@ impl Ensemble {
         // switch to request phase
         if self.evaluator.phase != EvalPhase::Request {
             self.evaluator.phase = EvalPhase::Request;
-            self.evaluator.change_front.clear();
             self.evaluator.request_front.clear();
-            self.evaluator.eval_priority.clear();
-            self.evaluator.next_visit_gen();
+            self.evaluator.next_request_visit_gen();
         }
-        let p_val_request = self.evaluator.requests.insert(ValueRequest { p_back });
+        self.evaluator.request_list.push(p_back);
         self.handle_requests();
-        self.evaluator.request_list.push(p_val_request);
         Ok(self.backrefs.get_val(p_back).unwrap().val)
     }
 
@@ -212,18 +184,13 @@ impl Ensemble {
         // TODO in an intermediate step we could identify choke points and step the
         // changes to them to identify early if a cascade stops
 
-        let visit = self.evaluator.visit_gen();
-        while let Some(p_val_change) = self.evaluator.change_list.pop() {
-            if let Some(change) = self.evaluator.changes.remove(p_val_change) {
-                let equiv = self.backrefs.get_val_mut(change.p_back).unwrap();
-                if equiv.eval_visit == visit {
-                    // indicates that some kind of exploring didn't handle the change
-                    unreachable!();
-                }
-                equiv.eval_visit = visit;
-                self.evaluator.change_front.insert(equiv.p_self_equiv, ());
+        let request_visit = self.evaluator.request_visit_gen();
+        while let Some(p_back) = self.evaluator.request_list.pop() {
+            let equiv = self.backrefs.get_val_mut(p_back).unwrap();
+            if equiv.request_visit != request_visit {
+                equiv.request_visit = request_visit;
             }
-            // else a backtrack to root probably already handled the change
+            self.evaluator.request_front.insert(equiv.p_self_equiv, ());
         }
     }
 }

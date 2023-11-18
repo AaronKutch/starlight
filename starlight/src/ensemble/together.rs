@@ -9,7 +9,7 @@ use awint::{
     Awi, Bits,
 };
 
-use super::{value::Evaluator, Optimizer, PValueChange};
+use super::{value::Evaluator, Optimizer};
 use crate::{
     ensemble::{Note, PTNode, State, TNode, Value},
     triple_arena::{ptr_struct, Arena, SurjectArena},
@@ -25,10 +25,9 @@ pub struct Equiv {
     /// Output of the equivalence surject
     pub val: Value,
     /// This is set inbetween changing a dynamic value and evaluation
-    pub val_change: Option<PValueChange>,
-    /// Used in algorithms
-    pub equiv_alg_rc: usize,
-    pub eval_visit: NonZeroU64,
+    pub val_change: Option<Value>,
+    pub change_visit: NonZeroU64,
+    pub request_visit: NonZeroU64,
 }
 
 impl Equiv {
@@ -36,9 +35,9 @@ impl Equiv {
         Self {
             p_self_equiv,
             val,
-            equiv_alg_rc: 0,
             val_change: None,
-            eval_visit: NonZeroU64::new(1).unwrap(),
+            change_visit: NonZeroU64::new(1).unwrap(),
+            request_visit: NonZeroU64::new(1).unwrap(),
         }
     }
 }
