@@ -34,8 +34,6 @@ impl DebugNodeTrait<PBack> for DebugTDag {
                     if let Some(ref lut) = tnode.lut {
                         v.push(format!("{:?} ", lut));
                     }
-                    v.push(format!("alg_rc:{}", tnode.alg_rc));
-                    v.push(format!("eval_visit:{}", tnode.eval_visit));
                     if let Some(driver) = tnode.loop_driver {
                         v.push(format!("driver: {:?}", driver));
                     }

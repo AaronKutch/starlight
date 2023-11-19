@@ -1,4 +1,4 @@
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use awint::{awint_dag::smallvec, Awi, Bits};
 use smallvec::SmallVec;
@@ -22,10 +22,6 @@ pub struct TNode {
     //pub is_permanent: bool,
     /// If the value is temporally driven by a `Loop`
     pub loop_driver: Option<PBack>,
-    /// Used in algorithms
-    pub alg_rc: u64,
-    /// visit number
-    pub eval_visit: NonZeroU64,
 }
 
 impl TNode {
@@ -35,8 +31,6 @@ impl TNode {
             inp: SmallVec::new(),
             lut: None,
             loop_driver: None,
-            alg_rc: 0,
-            eval_visit: NonZeroU64::new(2).unwrap(),
         }
     }
 
