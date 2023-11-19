@@ -9,7 +9,7 @@ use awint::{
     Awi, InlAwi,
 };
 
-use super::{Ensemble, PTNode, Referent, Value};
+use super::{Ensemble, PTNode, Referent, TNode, Value};
 use crate::{
     ensemble::PBack,
     triple_arena::{ptr_struct, OrdArena},
@@ -90,9 +90,8 @@ impl Ensemble {
         if let Some(original_lut) = &tnode.lut {
             let mut lut = original_lut.clone();
             // acquire LUT inputs, for every constant input reduce the LUT
-            let len = u8::try_from(tnode.inp.len()).unwrap();
+            let len = usize::from(u8::try_from(tnode.inp.len()).unwrap());
             for i in (0..len).rev() {
-                let i = usize::from(i);
                 let p_inp = tnode.inp[i];
                 let equiv = self.backrefs.get_val(p_inp).unwrap();
                 if let Value::Const(val) = equiv.val {
@@ -102,20 +101,7 @@ impl Ensemble {
                     self.backrefs.remove_key(p_inp).unwrap();
                     tnode.inp.remove(i);
 
-                    // reduction of the LUT
-                    let next_bw = lut.bw() / 2;
-                    let mut next_lut = Awi::zero(NonZeroUsize::new(next_bw).unwrap());
-                    let w = 1 << i;
-                    let mut from = 0;
-                    let mut to = 0;
-                    while to < next_bw {
-                        next_lut
-                            .field(to, &lut, if val { from + w } else { from }, w)
-                            .unwrap();
-                        from += 2 * w;
-                        to += w;
-                    }
-                    lut = next_lut;
+                    lut = TNode::reduce_lut(&lut, i, val);
                 }
             }
 
@@ -155,43 +141,21 @@ impl Ensemble {
             // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
             let len = tnode.inp.len();
             for i in (0..len).rev() {
-                let next_bw = lut.bw() / 2;
-                if let Some(nzbw) = NonZeroUsize::new(next_bw) {
-                    let mut tmp0 = Awi::zero(nzbw);
-                    let mut tmp1 = Awi::zero(nzbw);
-                    let w = 1 << i;
-                    // LUT if the `i`th bit were 0
-                    let mut from = 0;
-                    let mut to = 0;
-                    while to < next_bw {
-                        tmp0.field(to, &lut, from, w).unwrap();
-                        from += 2 * w;
-                        to += w;
-                    }
-                    // LUT if the `i`th bit were 1
-                    from = w;
-                    to = 0;
-                    while to < next_bw {
-                        tmp1.field(to, &lut, from, w).unwrap();
-                        from += 2 * w;
-                        to += w;
-                    }
-                    if tmp0 == tmp1 {
+                if lut.bw() > 1 {
+                    if let Some(reduced) = TNode::reduce_independent_lut(&lut, i) {
                         // independent of the `i`th bit
-                        lut = tmp0;
+                        lut = reduced;
                         let p_inp = tnode.inp.remove(i);
                         let equiv = self.backrefs.get_val(p_inp).unwrap();
                         self.optimizer
                             .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
                         self.backrefs.remove_key(p_inp).unwrap();
                     }
-                } else {
-                    // LUT is 1 bit
-                    break
                 }
             }
 
             // sort inputs so that `TNode`s can be compared later
+            // TODO?
 
             // input independence automatically reduces all zeros and all ones LUTs, so just
             // need to check if the LUT is one bit for constant generation

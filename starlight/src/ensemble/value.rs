@@ -1,10 +1,14 @@
-use std::num::NonZeroU64;
+use std::num::{NonZeroU64, NonZeroUsize};
 
-use awint::awint_dag::{
-    triple_arena::{ptr_struct, OrdArena},
-    EvalError, PState,
+use awint::{
+    awint_dag::{
+        triple_arena::{ptr_struct, Advancer, OrdArena},
+        EvalError, PState,
+    },
+    Awi,
 };
 
+use super::{Referent, TNode};
 use crate::ensemble::{Ensemble, PBack};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -83,11 +87,21 @@ pub struct RequestTNode {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Change {
+    depth: i64,
+    p_equiv: PBack,
+    value: Value,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Eval {
-    Investigate(PBack),
-    Change(i64, PBack),
+    /// Inserted upon reaching a node that hasn't had request_visit updated yet
+    Investigate0(i64, PBack),
+    Change(Change),
     RequestTNode(RequestTNode),
     LowerState(PState),
+    /// When we have run out of normal things this will activate lowering
+    Investigate1(PBack),
 }
 
 #[derive(Debug, Clone)]
@@ -211,7 +225,8 @@ impl Ensemble {
             let equiv = self.backrefs.get_val_mut(p_back).unwrap();
             if equiv.request_visit != request_visit {
                 equiv.request_visit = request_visit;
-                self.evaluator.insert(Eval::Investigate(equiv.p_self_equiv));
+                self.evaluator
+                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
             }
             // else it is already handled
         }
@@ -222,6 +237,107 @@ impl Ensemble {
     }
 
     fn evaluate(&mut self, p_eval: PEval) {
-        //
+        let evaluation = self.evaluator.evaluations.remove(p_eval).unwrap().0;
+        match evaluation {
+            Eval::Investigate0(depth, p_equiv) => self.eval_investigate0(p_equiv, depth),
+            Eval::Change(_) => todo!(),
+            Eval::RequestTNode(_) => todo!(),
+            Eval::LowerState(_) => todo!(),
+            Eval::Investigate1(_) => todo!(),
+        }
+    }
+
+    fn eval_investigate0(&mut self, p_equiv: PBack, depth: i64) {
+        // eval but is only inserted if nothing like the TNode evaluation is able to
+        // prove early value setting let mut insert_if_initial_fails = vec![];
+        let equiv = self.backrefs.get_val(p_equiv).unwrap();
+        if matches!(equiv.val, Value::Const(_))
+            || (equiv.change_visit == self.evaluator.change_visit_gen())
+        {
+            // no need to do anything
+            return
+        }
+        let mut adv = self.backrefs.advancer_surject(p_equiv);
+        while let Some(p_back) = adv.advance(&self.backrefs) {
+            let referent = *self.backrefs.get_key(p_back).unwrap();
+            match referent {
+                Referent::ThisEquiv => (),
+                Referent::ThisTNode(p_tnode) => {
+                    // read current inputs
+                    let tnode = self.tnodes.get(p_tnode).unwrap();
+                    if let Some(original_lut) = &tnode.lut {
+                        let len = u8::try_from(tnode.inp.len()).unwrap();
+                        let len = usize::from(len);
+                        // the nominal value of the inputs
+                        let mut inp = Awi::zero(NonZeroUsize::new(len).unwrap());
+                        // corresponding bits are set if the input is either a const value or is
+                        // already evaluated
+                        let mut fixed = inp.clone();
+                        // corresponding bits ar set if the input is `Value::Unknown`
+                        let mut unknown = inp.clone();
+                        for i in 0..len {
+                            let p_inp = tnode.inp[i];
+                            let equiv = self.backrefs.get_val(p_inp).unwrap();
+                            if let Value::Const(val) = equiv.val {
+                                fixed.set(i, true).unwrap();
+                                inp.set(i, val).unwrap();
+                            } else if equiv.change_visit == self.evaluator.change_visit_gen() {
+                                fixed.set(i, true).unwrap();
+                                if let Some(val) = equiv.val.known_value() {
+                                    inp.set(i, val).unwrap()
+                                } else {
+                                    unknown.set(i, true).unwrap();
+                                }
+                            }
+                        }
+                        // reduce the LUT based on fixed bits
+                        let mut lut = original_lut.clone();
+                        for i in (0..len).rev() {
+                            if fixed.get(i).unwrap() && !unknown.get(i).unwrap() {
+                                lut = TNode::reduce_lut(&lut, i, inp.get(i).unwrap());
+                            }
+                        }
+                        // if the LUT is all ones or all zeros, we can know that any unfixed changes
+                        // will be unable to affect the output
+                        if lut.is_zero() {
+                            self.evaluator.insert(Eval::Change(Change {
+                                depth,
+                                p_equiv,
+                                value: Value::Dynam(false),
+                            }));
+                            return;
+                        } else if lut.is_umax() {
+                            self.evaluator.insert(Eval::Change(Change {
+                                depth,
+                                p_equiv,
+                                value: Value::Dynam(true),
+                            }));
+                            return;
+                        }
+                        // if fixed and unknown bits can influence the value,
+                        // then the value of this equivalence can also be fixed
+                        // to unknown
+                        for i in 0..len {
+                            if fixed.get(i).unwrap() && unknown.get(i).unwrap() {
+                                if TNode::reduce_independent_lut(&lut, i).is_none() {
+                                    self.evaluator.insert(Eval::Change(Change {
+                                        depth,
+                                        p_equiv,
+                                        value: Value::Unknown,
+                                    }));
+                                    return;
+                                }
+                            }
+                        }
+
+                        // number_a optimization TODO
+                    }
+                }
+                Referent::ThisStateBit(..) => (),
+                Referent::Input(_) => (),
+                Referent::LoopDriver(_) => {}
+                Referent::Note(_) => (),
+            }
+        }
     }
 }
