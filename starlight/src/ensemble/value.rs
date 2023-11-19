@@ -241,7 +241,7 @@ impl Ensemble {
         match evaluation {
             Eval::Investigate0(depth, p_equiv) => self.eval_investigate0(p_equiv, depth),
             Eval::Change(_) => todo!(),
-            Eval::RequestTNode(_) => todo!(),
+            Eval::RequestTNode(request) => todo!(),
             Eval::LowerState(_) => todo!(),
             Eval::Investigate1(_) => todo!(),
         }
@@ -249,7 +249,8 @@ impl Ensemble {
 
     fn eval_investigate0(&mut self, p_equiv: PBack, depth: i64) {
         // eval but is only inserted if nothing like the TNode evaluation is able to
-        // prove early value setting let mut insert_if_initial_fails = vec![];
+        // prove early value setting
+        let mut insert_if_no_early_exit = vec![];
         let equiv = self.backrefs.get_val(p_equiv).unwrap();
         if matches!(equiv.val, Value::Const(_))
             || (equiv.change_visit == self.evaluator.change_visit_gen())
@@ -290,30 +291,7 @@ impl Ensemble {
                                 }
                             }
                         }
-                        // reduce the LUT based on fixed bits
                         let mut lut = original_lut.clone();
-                        for i in (0..len).rev() {
-                            if fixed.get(i).unwrap() && !unknown.get(i).unwrap() {
-                                lut = TNode::reduce_lut(&lut, i, inp.get(i).unwrap());
-                            }
-                        }
-                        // if the LUT is all ones or all zeros, we can know that any unfixed changes
-                        // will be unable to affect the output
-                        if lut.is_zero() {
-                            self.evaluator.insert(Eval::Change(Change {
-                                depth,
-                                p_equiv,
-                                value: Value::Dynam(false),
-                            }));
-                            return;
-                        } else if lut.is_umax() {
-                            self.evaluator.insert(Eval::Change(Change {
-                                depth,
-                                p_equiv,
-                                value: Value::Dynam(true),
-                            }));
-                            return;
-                        }
                         // if fixed and unknown bits can influence the value,
                         // then the value of this equivalence can also be fixed
                         // to unknown
@@ -329,8 +307,50 @@ impl Ensemble {
                                 }
                             }
                         }
-
-                        // number_a optimization TODO
+                        // reduce the LUT based on fixed and known bits
+                        for i in (0..len).rev() {
+                            if fixed.get(i).unwrap() && (!unknown.get(i).unwrap()) {
+                                lut = TNode::reduce_lut(&lut, i, inp.get(i).unwrap());
+                            }
+                        }
+                        // if the LUT is all ones or all zeros, we can know that any unfixed or
+                        // unknown changes will be unable to affect the
+                        // output
+                        if lut.is_zero() {
+                            self.evaluator.insert(Eval::Change(Change {
+                                depth,
+                                p_equiv,
+                                value: Value::Dynam(false),
+                            }));
+                            return;
+                        } else if lut.is_umax() {
+                            self.evaluator.insert(Eval::Change(Change {
+                                depth,
+                                p_equiv,
+                                value: Value::Dynam(true),
+                            }));
+                            return;
+                        }
+                        // TODO prioritize bits that could lead to number_a optimization
+                        /*let mut skip = 0;
+                        for i in 0..len {
+                            if fixed.get(i).unwrap() && !unknown.get(i).unwrap() {
+                                skip += 1;
+                            } else if unknown.get(i).unwrap() {
+                                // assume unchanging
+                                lut = TNode::reduce_lut(&lut, i, inp.get(i).unwrap());
+                                //
+                            } else {}
+                        }*/
+                        for i in (0..len).rev() {
+                            if (!fixed.get(i).unwrap()) || unknown.get(i).unwrap() {
+                                insert_if_no_early_exit.push(Eval::RequestTNode(RequestTNode {
+                                    depth: depth - 1,
+                                    number_a: 0,
+                                    p_back_tnode: tnode.inp[i],
+                                }))
+                            }
+                        }
                     }
                 }
                 Referent::ThisStateBit(..) => (),
@@ -338,6 +358,9 @@ impl Ensemble {
                 Referent::LoopDriver(_) => {}
                 Referent::Note(_) => (),
             }
+        }
+        for eval in insert_if_no_early_exit {
+            self.evaluator.insert(eval);
         }
     }
 }
