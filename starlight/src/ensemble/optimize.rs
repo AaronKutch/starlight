@@ -62,7 +62,6 @@ pub enum Optimization {
     //Fusion(u8, PBack)
 }
 
-/// This struct implements a queue for simple simplifications of `TDag`s
 #[derive(Debug, Clone)]
 pub struct Optimizer {
     pub gas: u64,

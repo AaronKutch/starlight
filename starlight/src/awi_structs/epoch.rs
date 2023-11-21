@@ -72,7 +72,7 @@ pub fn get_ensemble<T, F: FnMut(&Ensemble) -> T>(mut f: F) -> T {
 }
 
 /// Gets the thread-local `Ensemble`. Note: do not get recursively.
-pub fn get_tdag_mut<T, F: FnMut(&mut Ensemble) -> T>(mut f: F) -> T {
+pub fn get_ensemble_mut<T, F: FnMut(&mut Ensemble) -> T>(mut f: F) -> T {
     EPOCH_DATA_TOP.with(|top| {
         let mut top = top.borrow_mut();
         f(&mut top.ensemble)

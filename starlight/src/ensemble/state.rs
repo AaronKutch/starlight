@@ -1,4 +1,4 @@
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use awint::{
     awint_dag::{
@@ -23,9 +23,6 @@ pub struct State {
     pub op: Op<PState>,
     /// Location where this state is derived from
     pub location: Option<Location>,
-    /// Used in algorithms for DFS tracking and to allow multiple DAG
-    /// constructions from same nodes
-    pub visit: NonZeroU64,
 }
 
 impl Ensemble {
@@ -83,27 +80,27 @@ impl Ensemble {
         //let epoch = StateEpoch::new();
         struct Tmp<'a> {
             ptr: PState,
-            tdag: &'a mut Ensemble,
+            ensemble: &'a mut Ensemble,
         }
         impl<'a> LowerManagement<PState> for Tmp<'a> {
             fn graft(&mut self, operands: &[PState]) {
-                self.tdag.graft(self.ptr, operands).unwrap()
+                self.ensemble.graft(self.ptr, operands).unwrap()
             }
 
             fn get_nzbw(&self, p: PState) -> NonZeroUsize {
-                self.tdag.states.get(p).unwrap().nzbw
+                self.ensemble.states.get(p).unwrap().nzbw
             }
 
             fn get_op(&self, p: PState) -> &Op<PState> {
-                &self.tdag.states.get(p).unwrap().op
+                &self.ensemble.states.get(p).unwrap().op
             }
 
             fn get_op_mut(&mut self, p: PState) -> &mut Op<PState> {
-                &mut self.tdag.states.get_mut(p).unwrap().op
+                &mut self.ensemble.states.get_mut(p).unwrap().op
             }
 
             fn lit(&self, p: PState) -> &Bits {
-                if let Op::Literal(ref lit) = self.tdag.states.get(p).unwrap().op {
+                if let Op::Literal(ref lit) = self.ensemble.states.get(p).unwrap().op {
                     lit
                 } else {
                     panic!()
@@ -111,7 +108,7 @@ impl Ensemble {
             }
 
             fn usize(&self, p: PState) -> usize {
-                if let Op::Literal(ref lit) = self.tdag.states.get(p).unwrap().op {
+                if let Op::Literal(ref lit) = self.ensemble.states.get(p).unwrap().op {
                     if lit.bw() != 64 {
                         panic!()
                     }
@@ -122,7 +119,7 @@ impl Ensemble {
             }
 
             fn bool(&self, p: PState) -> bool {
-                if let Op::Literal(ref lit) = self.tdag.states.get(p).unwrap().op {
+                if let Op::Literal(ref lit) = self.ensemble.states.get(p).unwrap().op {
                     if lit.bw() != 1 {
                         panic!()
                     }
@@ -141,7 +138,7 @@ impl Ensemble {
         let out_w = state.nzbw;
         lower_state(p_state, start_op, out_w, Tmp {
             ptr: p_state,
-            tdag: self,
+            ensemble: self,
         })?;
         Ok(())
     }

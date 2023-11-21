@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use awint::{
-    awint_dag::{EvalError, PNote},
+    awint_dag::{EvalError, PNote, PState},
     awint_macro_internals::triple_arena::Arena,
 };
 
@@ -12,17 +12,33 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub enum DebugTDag {
+pub struct StateBit {
+    p_state: PState,
+    i: usize,
+}
+
+#[derive(Debug, Clone)]
+pub enum NodeKind {
+    StateBit(StateBit),
     TNode(TNode),
     Equiv(Equiv, Vec<PBack>),
     Note(PBack, PNote, u64),
     Remove,
 }
 
-impl DebugNodeTrait<PBack> for DebugTDag {
+impl DebugNodeTrait<PBack> for NodeKind {
     fn debug_node(p_this: PBack, this: &Self) -> DebugNode<PBack> {
         match this {
-            DebugTDag::TNode(tnode) => DebugNode {
+            NodeKind::StateBit(state_bit) => DebugNode {
+                sources: vec![],
+                center: {
+                    let mut v = vec![format!("{:?}", p_this)];
+                    v.push(format!("{} {}", state_bit.p_state, state_bit.i));
+                    v
+                },
+                sinks: vec![],
+            },
+            NodeKind::TNode(tnode) => DebugNode {
                 sources: tnode
                     .inp
                     .iter()
@@ -41,7 +57,7 @@ impl DebugNodeTrait<PBack> for DebugTDag {
                 },
                 sinks: vec![],
             },
-            DebugTDag::Equiv(equiv, p_tnodes) => DebugNode {
+            NodeKind::Equiv(equiv, p_tnodes) => DebugNode {
                 sources: p_tnodes.iter().map(|p| (*p, String::new())).collect(),
                 center: {
                     vec![
@@ -51,12 +67,12 @@ impl DebugNodeTrait<PBack> for DebugTDag {
                 },
                 sinks: vec![],
             },
-            DebugTDag::Note(p_back, p_note, inx) => DebugNode {
+            NodeKind::Note(p_back, p_note, inx) => DebugNode {
                 sources: vec![(*p_back, String::new())],
                 center: { vec![format!("{p_note} [{inx}]")] },
                 sinks: vec![],
             },
-            DebugTDag::Remove => panic!("should have been removed"),
+            NodeKind::Remove => panic!("should have been removed"),
         }
     }
 }
@@ -69,8 +85,8 @@ impl Ensemble {
         chain_arena
     }
 
-    pub fn to_debug_tdag(&self) -> Arena<PBack, DebugTDag> {
-        let mut arena = Arena::<PBack, DebugTDag>::new();
+    pub fn to_debug(&self) -> Arena<PBack, NodeKind> {
+        let mut arena = Arena::<PBack, NodeKind>::new();
         self.backrefs
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 match referent {
@@ -83,7 +99,10 @@ impl Ensemble {
                                 v.push(p);
                             }
                         }
-                        DebugTDag::Equiv(self.backrefs.get_val(p_self).unwrap().clone(), v)
+                        NodeKind::Equiv(self.backrefs.get_val(p_self).unwrap().clone(), v)
+                    }
+                    Referent::ThisStateBit(p, i) => {
+                        NodeKind::StateBit(StateBit { p_state: *p, i: *i })
                     }
                     Referent::ThisTNode(p_tnode) => {
                         let mut tnode = self.tnodes.get(*p_tnode).unwrap().clone();
@@ -103,7 +122,7 @@ impl Ensemble {
                                 *loop_driver = p_driver;
                             }
                         }
-                        DebugTDag::TNode(tnode)
+                        NodeKind::TNode(tnode)
                     }
                     Referent::Note(p_note) => {
                         let note = self.notes.get(*p_note).unwrap();
@@ -114,14 +133,14 @@ impl Ensemble {
                             }
                         }
                         let equiv = self.backrefs.get_val(p_self).unwrap();
-                        DebugTDag::Note(equiv.p_self_equiv, *p_note, inx)
+                        NodeKind::Note(equiv.p_self_equiv, *p_note, inx)
                     }
-                    _ => DebugTDag::Remove,
+                    _ => NodeKind::Remove,
                 }
             });
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
-            if let DebugTDag::Remove = arena.get(p).unwrap() {
+            if let NodeKind::Remove = arena.get(p).unwrap() {
                 arena.remove(p).unwrap();
             }
         }
@@ -130,7 +149,7 @@ impl Ensemble {
 
     pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
         let res = self.verify_integrity();
-        render_to_svg_file(&self.to_debug_tdag(), false, out_file).unwrap();
+        render_to_svg_file(&self.to_debug(), false, out_file).unwrap();
         res
     }
 }

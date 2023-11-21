@@ -10,7 +10,7 @@ use awint::{
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{awi, ensemble::Value, epoch::get_tdag_mut};
+use crate::{awi, ensemble::Value, epoch::get_ensemble_mut};
 
 pub struct LazyAwi {
     state: dag::Awi,
@@ -99,18 +99,18 @@ impl LazyAwi {
     /// states have been pruned.
     pub fn retro_(&mut self, rhs: &awi::Bits) -> Option<()> {
         let p_lhs = self.state();
-        get_tdag_mut(|tdag| {
-            if let Some(lhs) = tdag.states.get(p_lhs) {
+        get_ensemble_mut(|ensemble| {
+            if let Some(lhs) = ensemble.states.get(p_lhs) {
                 if lhs.nzbw != rhs.nzbw() {
                     return None
                 }
             }
             // initialize if needed
-            tdag.initialize_state_bits_if_needed(p_lhs).unwrap();
-            if let Some(lhs) = tdag.states.get_mut(p_lhs) {
+            ensemble.initialize_state_bits_if_needed(p_lhs).unwrap();
+            if let Some(lhs) = ensemble.states.get_mut(p_lhs) {
                 for i in 0..rhs.bw() {
                     let p_bit = lhs.p_self_bits[i];
-                    let bit = tdag.backrefs.get_val_mut(p_bit).unwrap();
+                    let bit = ensemble.backrefs.get_val_mut(p_bit).unwrap();
                     bit.val = Value::Dynam(rhs.get(i).unwrap());
                 }
             }
@@ -121,13 +121,13 @@ impl LazyAwi {
     pub fn eval(&mut self) -> Result<awi::Awi, EvalError> {
         let nzbw = self.nzbw();
         // DFS from leaf to roots
-        get_tdag_mut(|tdag| {
+        get_ensemble_mut(|ensemble| {
             let p_self = self.state();
-            tdag.initialize_state_bits_if_needed(p_self).unwrap();
+            ensemble.initialize_state_bits_if_needed(p_self).unwrap();
             let mut res = awi::Awi::zero(nzbw);
             for i in 0..res.bw() {
-                let bit = tdag.states.get(p_self).unwrap().p_self_bits[i];
-                let val = tdag.request_value(bit)?;
+                let bit = ensemble.states.get(p_self).unwrap().p_self_bits[i];
+                let val = ensemble.request_value(bit)?;
                 if let Some(val) = val.known_value() {
                     res.set(i, val).unwrap();
                 } else {

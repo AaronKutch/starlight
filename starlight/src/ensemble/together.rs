@@ -304,7 +304,6 @@ impl Ensemble {
             p_self_bits: SmallVec::new(),
             op,
             location,
-            visit: NonZeroU64::new(2).unwrap(),
         })
     }
 

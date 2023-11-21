@@ -1,11 +1,4 @@
-use std::path::PathBuf;
-
-use starlight::{awi, awint_dag::EvalError, dag::*, ensemble::Ensemble, Epoch, LazyAwi};
-
-// keep imports imported
-fn _dbg(ensemble: &mut Ensemble) -> awi::Result<(), EvalError> {
-    ensemble.render_to_svg_file(PathBuf::from("./ensemble.svg".to_owned()))
-}
+use starlight::{awi, dag::*, Epoch, LazyAwi};
 
 #[test]
 fn invert_twice() {

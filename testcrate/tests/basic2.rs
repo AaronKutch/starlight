@@ -1,4 +1,12 @@
-use starlight::{awi, dag::*, Epoch, LazyAwi};
+use std::path::PathBuf;
+
+use starlight::{awi, awint_dag::EvalError, dag::*, Epoch, LazyAwi};
+
+fn _render(epoch: &Epoch) -> awi::Result<(), EvalError> {
+    let mut ensemble = epoch.clone_ensemble();
+    dbg!(&ensemble);
+    ensemble.render_to_svg_file(PathBuf::from("./ensemble.svg".to_owned()))
+}
 
 #[test]
 fn lazy_awi() -> Option<()> {
