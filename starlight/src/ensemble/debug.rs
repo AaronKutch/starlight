@@ -156,8 +156,14 @@ impl Ensemble {
 }
 
 impl Epoch {
-    pub fn to_debug(&self) -> Arena<PBack, NodeKind> {
-        self.clone_ensemble().to_debug()
+    pub fn eprint_debug_summary(&self) {
+        let ensemble = self.clone_ensemble();
+        let chain_arena = ensemble.backrefs_to_chain_arena();
+        let debug = ensemble.to_debug();
+        eprintln!(
+            "ensemble: {:#?}\nchain_arena: {:#?}\ndebug: {:#?}",
+            ensemble, chain_arena, debug
+        );
     }
 
     pub fn render_to_svg_file(&self, out_file: PathBuf) -> Result<(), EvalError> {

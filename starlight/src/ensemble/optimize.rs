@@ -4,7 +4,6 @@ use awint::{
     awint_dag::{
         smallvec::SmallVec,
         triple_arena::{Advancer, Ptr},
-        PState,
     },
     Awi, InlAwi,
 };
@@ -49,8 +48,6 @@ pub enum Optimization {
     InvestigateUsed(PBack),
     /// If an input was constified
     InvestigateConst(PTNode),
-    /// Lower mimicking state
-    LowerState(PState),
     /// The optimization state that equivalences are set to after the
     /// preinvestigation finds nothing
     InvestigateEquiv0(PBack),
@@ -276,7 +273,7 @@ impl Ensemble {
         }
     }
 
-    fn optimize(&mut self, p_optimization: POpt) {
+    pub fn optimize(&mut self, p_optimization: POpt) {
         let optimization = self
             .optimizer
             .optimizations
@@ -462,11 +459,6 @@ impl Ensemble {
                         self.tnodes.get(p_tnode).unwrap().p_self,
                     ));
                 }
-            }
-            Optimization::LowerState(p_state) => {
-                if !self.states.contains(p_state) {
-                    return
-                };
             }
             Optimization::InvestigateEquiv0(p_back) => {
                 if !self.backrefs.contains(p_back) {

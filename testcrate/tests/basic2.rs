@@ -22,10 +22,10 @@ fn lazy_awi() -> Option<()> {
         // have an interfacing opaque
         let mut y = EvalAwi::from(a.as_ref());
 
-        //y._internal_init();
+        y._internal_init();
         //let _ = y.eval();
-        //_render(&epoch0).unwrap();
-        //dbg!(epoch0.to_debug());
+        epoch0.eprint_debug_summary();
+        _render(&epoch0).unwrap();
         // starts epoch optimization and reevaluates
         awi::assert_eq!(y.eval().unwrap(), awi!(1));
 

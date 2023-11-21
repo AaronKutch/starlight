@@ -3,7 +3,7 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use awint::{
     awint_dag::{
         triple_arena::{ptr_struct, Advancer, OrdArena},
-        EvalError, PState,
+        EvalError,
     },
     Awi,
 };
@@ -99,7 +99,6 @@ pub enum Eval {
     ChangeTNode(PTNode),
     Change(Change),
     RequestTNode(RequestTNode),
-    LowerState(PState),
     /// When we have run out of normal things this will activate lowering
     Investigate1(PBack),
 }
@@ -108,7 +107,6 @@ pub enum Eval {
 pub struct Evaluator {
     // the lists are used to avoid the O(N) penalty of advancing through an arena
     change_list: Vec<PBack>,
-    request_list: Vec<PBack>,
     phase: EvalPhase,
     change_visit_gen: NonZeroU64,
     request_visit_gen: NonZeroU64,
@@ -119,7 +117,6 @@ impl Evaluator {
     pub fn new() -> Self {
         Self {
             change_list: vec![],
-            request_list: vec![],
             phase: EvalPhase::Change,
             change_visit_gen: NonZeroU64::new(2).unwrap(),
             request_visit_gen: NonZeroU64::new(2).unwrap(),
@@ -291,7 +288,8 @@ impl Ensemble {
             let visit = self.evaluator.request_visit_gen();
             if equiv.request_visit != visit {
                 equiv.request_visit = visit;
-                self.evaluator.request_list.push(p_back);
+                self.evaluator
+                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
                 self.handle_requests();
             }
             Ok(self.backrefs.get_val(p_back).unwrap().val)
@@ -307,26 +305,6 @@ impl Ensemble {
         // hierarchy system could fix this it appears, which will require a lot more
         // code.
 
-        // The current system improves on previous impls creating a front on all nodes,
-        // by having tracking changes. Independent fronts expand out from root changes,
-        // merging cyclic chains together when they contact, and only growing if there
-        // are nodes with changes. If part wany through, the set of changes becomes
-        // empty, the entire evaluation can stop early.
-
-        // TODO in an intermediate step we could identify choke points and step the
-        // changes to them to identify early if a cascade stops
-
-        let request_visit = self.evaluator.request_visit_gen();
-        while let Some(p_back) = self.evaluator.request_list.pop() {
-            let equiv = self.backrefs.get_val_mut(p_back).unwrap();
-            if equiv.request_visit != request_visit {
-                equiv.request_visit = request_visit;
-                self.evaluator
-                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
-            }
-            // else it is already handled
-        }
-
         while let Some(p_eval) = self.evaluator.evaluations.min() {
             self.evaluate(p_eval);
         }
@@ -334,6 +312,7 @@ impl Ensemble {
 
     fn evaluate(&mut self, p_eval: PEval) {
         let evaluation = self.evaluator.evaluations.remove(p_eval).unwrap().0;
+        dbg!(evaluation);
         match evaluation {
             Eval::Investigate0(depth, p_equiv) => self.eval_investigate0(p_equiv, depth),
             Eval::ChangeTNode(p_tnode) => {
@@ -381,15 +360,11 @@ impl Ensemble {
                     unreachable!()
                 }
             }
-            Eval::LowerState(_) => todo!(),
             Eval::Investigate1(_) => todo!(),
         }
     }
 
     fn eval_investigate0(&mut self, p_equiv: PBack, depth: i64) {
-        // eval but is only inserted if nothing like the TNode evaluation is able to
-        // prove early value setting
-        let mut insert_if_no_early_exit = vec![];
         let equiv = self.backrefs.get_val(p_equiv).unwrap();
         if matches!(equiv.val, Value::Const(_))
             || (equiv.change_visit == self.evaluator.change_visit_gen())
@@ -397,6 +372,11 @@ impl Ensemble {
             // no need to do anything
             return
         }
+        // eval but is only inserted if nothing like the TNode evaluation is able to
+        // prove early value setting
+        let mut insert_if_no_early_exit = vec![];
+        let mut saw_tnode = false;
+        let mut saw_state = None;
         let mut adv = self.backrefs.advancer_surject(p_equiv);
         while let Some(p_back) = adv.advance(&self.backrefs) {
             let referent = *self.backrefs.get_key(p_back).unwrap();
@@ -404,14 +384,26 @@ impl Ensemble {
                 Referent::ThisEquiv => (),
                 Referent::ThisTNode(p_tnode) => {
                     let v = self.try_eval_tnode(p_tnode, depth);
+                    if v.is_empty() {
+                        // early exit because evaluation was successful
+                        return
+                    }
                     for eval in v {
                         insert_if_no_early_exit.push(Eval::RequestTNode(eval));
                     }
+                    saw_tnode = true;
                 }
-                Referent::ThisStateBit(..) => (),
+                Referent::ThisStateBit(p_state, _) => {
+                    saw_state = Some(p_state);
+                }
                 Referent::Input(_) => (),
                 Referent::LoopDriver(_) => {}
                 Referent::Note(_) => (),
+            }
+        }
+        if !saw_tnode {
+            if let Some(p_state) = saw_state {
+                self.dfs_lower(p_state).unwrap();
             }
         }
         for eval in insert_if_no_early_exit {

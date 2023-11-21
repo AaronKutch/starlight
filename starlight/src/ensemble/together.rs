@@ -62,6 +62,7 @@ pub struct Ensemble {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
     pub notes: Arena<PNote, Note>,
     pub states: Arena<PState, State>,
+    pub lower_visit: NonZeroU64,
     pub tnodes: Arena<PTNode, TNode>,
     pub evaluator: Evaluator,
     pub optimizer: Optimizer,
@@ -73,6 +74,7 @@ impl Ensemble {
             backrefs: SurjectArena::new(),
             notes: Arena::new(),
             states: Arena::new(),
+            lower_visit: NonZeroU64::new(2).unwrap(),
             tnodes: Arena::new(),
             evaluator: Evaluator::new(),
             optimizer: Optimizer::new(),
@@ -298,12 +300,16 @@ impl Ensemble {
         nzbw: NonZeroUsize,
         op: Op<PState>,
         location: Option<Location>,
+        keep: bool,
     ) -> PState {
         self.states.insert(State {
             nzbw,
             p_self_bits: SmallVec::new(),
             op,
             location,
+            lower_visit: NonZeroU64::new(1).unwrap(),
+            keep,
+            lowered: false,
         })
     }
 
@@ -320,14 +326,10 @@ impl Ensemble {
             let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
                 (
                     Referent::ThisEquiv,
-                    Equiv::new(
-                        p_self_equiv,
-                        if let Op::Literal(ref awi) = state.op {
-                            Value::Const(awi.get(i).unwrap())
-                        } else {
-                            Value::Unknown
-                        },
-                    ),
+                    Equiv::new(p_self_equiv, match state.op {
+                        Op::Literal(ref awi) => Value::Const(awi.get(i).unwrap()),
+                        _ => Value::Unknown,
+                    }),
                 )
             });
             bits.push(
@@ -431,6 +433,36 @@ impl Ensemble {
             .insert_key(p_equiv, Referent::Note(p_note))
             .unwrap();
         Some(p_back_new)
+    }
+
+    pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Option<()> {
+        let (equiv0, equiv1) = self.backrefs.get2_val_mut(p_equiv0, p_equiv1)?;
+        if (equiv0.val.is_const() && equiv1.val.is_const()) && (equiv0.val != equiv1.val) {
+            panic!("tried to merge two const equivalences with differing values");
+        }
+        // TODO, not sure about these cases
+        if equiv0.change_visit == self.evaluator.change_visit_gen() {
+            if equiv1.change_visit == self.evaluator.change_visit_gen() {
+                if equiv0.val_change != equiv1.val_change {
+                    // prevent what is probably some bug
+                    panic!();
+                }
+            } else {
+                equiv1.val_change = equiv0.val_change;
+                equiv1.change_visit = equiv0.change_visit;
+                equiv1.val = equiv0.val;
+            }
+        } else if equiv1.change_visit == self.evaluator.change_visit_gen() {
+            equiv0.val_change = equiv1.val_change;
+            equiv0.change_visit = equiv1.change_visit;
+            equiv0.val = equiv1.val;
+        }
+        let (removed_equiv, _) = self.backrefs.union(p_equiv0, p_equiv1).unwrap();
+        // remove the extra `ThisEquiv`
+        self.backrefs
+            .remove_key(removed_equiv.p_self_equiv)
+            .unwrap();
+        Some(())
     }
 
     pub fn drive_loops(&mut self) {

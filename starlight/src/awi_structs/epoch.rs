@@ -84,7 +84,7 @@ pub fn _callback() -> EpochCallback {
     fn new_pstate(nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PState {
         EPOCH_DATA_TOP.with(|top| {
             let mut top = top.borrow_mut();
-            let p_state = top.ensemble.make_state(nzbw, op, location);
+            let p_state = top.ensemble.make_state(nzbw, op, location, true);
             top.data.states.push(p_state);
             p_state
         })
