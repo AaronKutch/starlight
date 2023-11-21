@@ -1,7 +1,7 @@
 mod awi_structs;
 pub mod ensemble;
 mod misc;
-pub use awi_structs::{epoch, Assertions, Epoch, LazyAwi, Loop, LoopHandle, Net};
+pub use awi_structs::{epoch, Assertions, Epoch, EvalAwi, LazyAwi, Loop, LoopHandle, Net};
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
 pub use awint::{self, awint_dag, awint_dag::triple_arena};

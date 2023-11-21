@@ -6,93 +6,65 @@ use std::{
 };
 
 use awint::{
-    awint_dag::{dag, EvalError, Lineage, PState},
+    awint_dag::{dag, Lineage, PState},
     awint_internals::forward_debug_fmt,
 };
 
 use crate::{awi, ensemble::Value, epoch::get_ensemble_mut};
 
-pub struct LazyAwi {
-    state: dag::Awi,
-}
+// do not implement `Clone` for this, we would need a separate `LazyCellAwi`
+// type
 
-// TODO how to handle?
-/*impl Clone for LazyAwi {
-    fn clone(&self) -> Self {
-        Self {
-            state: self.state.clone(),
-        }
-    }
-}*/
+pub struct LazyAwi {
+    // this must remain the same opaque and noted in order for `retro_` to work
+    opaque: dag::Awi,
+}
 
 impl Lineage for LazyAwi {
     fn state(&self) -> PState {
-        self.state.state()
+        self.opaque.state()
     }
 }
 
 impl LazyAwi {
     fn internal_as_ref(&self) -> &dag::Bits {
-        &self.state
+        &self.opaque
     }
 
     pub fn nzbw(&self) -> NonZeroUsize {
-        self.state.nzbw()
+        self.opaque.nzbw()
     }
 
     pub fn bw(&self) -> usize {
         self.nzbw().get()
     }
 
-    /// Note that this and the corresponding `From<Bits>` impl insert an opaque
-    /// intermediate.
-    pub fn from_bits(bits: &dag::Bits) -> Self {
-        let mut res = Self::zero(bits.nzbw());
-        res.state.opaque_with_(&[bits], None);
-        res
-    }
+    // TODO it probably does need to be an extra `Awi` in the `Opaque` variant
+    /*pub fn from_bits(bits: &awi::Bits) -> Self {
+        Self { opaque: dag::Awi::opaque(bits.nzbw()), lazy_value: Some(awi::Awi::from_bits(bits)) }
+    }*/
 
     pub fn zero(w: NonZeroUsize) -> Self {
         Self {
-            state: dag::Awi::zero(w),
+            opaque: dag::Awi::opaque(w),
         }
     }
 
-    /*
-    /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
-    /// if this is being called after the corresponding Epoch is dropped and
-    /// states have been pruned.
-    pub fn retro_(&mut self, rhs: &dag::Bits) -> Option<()> {
-        let p_lhs = self.state();
-        let p_rhs = rhs.state();
-        get_tdag_mut(|tdag| {
-            if let Some(lhs) = tdag.states.get(p_lhs) {
-                if let Some(rhs) = tdag.states.get(p_rhs) {
-                    if lhs.nzbw != rhs.nzbw {
-                        return None
-                    }
-                }
-            }
-            // initialize if needed
-            tdag.initialize_state_bits_if_needed(p_lhs).unwrap();
-            tdag.initialize_state_bits_if_needed(p_rhs).unwrap();
-            let visit_gen = tdag.visit_gen();
-            let mut bits: SmallVec<[Value; 4]> = smallvec![];
-            if let Some(rhs) = tdag.states.get(p_rhs) {
-                for bit in &rhs.p_self_bits {
-                    bits.push(tdag.backrefs.get_val(*bit).unwrap().val);
-                }
-            }
-            if let Some(lhs) = tdag.states.get_mut(p_lhs) {
-                for (i, value) in bits.iter().enumerate() {
-                    let p_bit = lhs.p_self_bits[i];
-                    let bit = tdag.backrefs.get_val_mut(p_bit).unwrap();
-                    bit.val = value.const_to_dynam(visit_gen);
-                }
-            }
-            Some(())
-        })
-        */
+    /*pub fn umax(w: NonZeroUsize) -> Self {
+        Self::from_bits(&awi::Awi::umax(w))
+    }
+
+    pub fn imax(w: NonZeroUsize) -> Self {
+        Self::from_bits(&awi::Awi::imax(w))
+    }
+
+    pub fn imin(w: NonZeroUsize) -> Self {
+        Self::from_bits(&awi::Awi::imin(w))
+    }
+
+    pub fn uone(w: NonZeroUsize) -> Self {
+        Self::from_bits(&awi::Awi::uone(w))
+    }*/
 
     /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
     /// if this is being called after the corresponding Epoch is dropped and
@@ -118,23 +90,10 @@ impl LazyAwi {
         })
     }
 
-    pub fn eval(&mut self) -> Result<awi::Awi, EvalError> {
-        let nzbw = self.nzbw();
-        // DFS from leaf to roots
+    pub fn _internal_init(&mut self) {
+        let p_lhs = self.state();
         get_ensemble_mut(|ensemble| {
-            let p_self = self.state();
-            ensemble.initialize_state_bits_if_needed(p_self).unwrap();
-            let mut res = awi::Awi::zero(nzbw);
-            for i in 0..res.bw() {
-                let bit = ensemble.states.get(p_self).unwrap().p_self_bits[i];
-                let val = ensemble.request_value(bit)?;
-                if let Some(val) = val.known_value() {
-                    res.set(i, val).unwrap();
-                } else {
-                    return Err(EvalError::OtherStr("could not eval bit to known value"))
-                }
-            }
-            Ok(res)
+            ensemble.initialize_state_bits_if_needed(p_lhs).unwrap();
         })
     }
 }
@@ -169,35 +128,26 @@ impl AsRef<dag::Bits> for LazyAwi {
 
 impl fmt::Debug for LazyAwi {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Awi({:?})", self.state())
+        write!(f, "LazyAwi({:?})", self.state())
     }
 }
 
 forward_debug_fmt!(LazyAwi);
 
-impl From<&dag::Bits> for LazyAwi {
-    fn from(bits: &dag::Bits) -> LazyAwi {
-        Self::from_bits(bits)
-    }
-}
-
-impl From<&awi::Bits> for LazyAwi {
+/*impl From<&awi::Bits> for LazyAwi {
     fn from(bits: &awi::Bits) -> LazyAwi {
-        let tmp = dag::Awi::from(bits);
-        Self::from_bits(&tmp)
+        Self::from_bits(&bits)
     }
 }
 
 impl From<&awi::Awi> for LazyAwi {
     fn from(bits: &awi::Awi) -> LazyAwi {
-        let tmp = dag::Awi::from(bits);
-        Self::from_bits(&tmp)
+        Self::from_bits(&bits)
     }
 }
 
 impl From<awi::Awi> for LazyAwi {
     fn from(bits: awi::Awi) -> LazyAwi {
-        let tmp = dag::Awi::from(bits);
-        Self::from_bits(&tmp)
+        Self::from_bits(&bits)
     }
-}
+}*/

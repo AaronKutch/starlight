@@ -1,11 +1,9 @@
 use std::path::PathBuf;
 
-use starlight::{awi, awint_dag::EvalError, dag::*, Epoch, LazyAwi};
+use starlight::{awi, awint_dag::EvalError, dag::*, Epoch, EvalAwi, LazyAwi};
 
 fn _render(epoch: &Epoch) -> awi::Result<(), EvalError> {
-    let mut ensemble = epoch.clone_ensemble();
-    dbg!(&ensemble);
-    ensemble.render_to_svg_file(PathBuf::from("./ensemble.svg".to_owned()))
+    epoch.render_to_svg_file(PathBuf::from("./ensemble.svg".to_owned()))
 }
 
 #[test]
@@ -22,7 +20,12 @@ fn lazy_awi() -> Option<()> {
     {
         use awi::*;
         // have an interfacing opaque
-        let mut y = LazyAwi::from(a.as_ref());
+        let mut y = EvalAwi::from(a.as_ref());
+
+        //y._internal_init();
+        //let _ = y.eval();
+        //_render(&epoch0).unwrap();
+        //dbg!(epoch0.to_debug());
         // starts epoch optimization and reevaluates
         awi::assert_eq!(y.eval().unwrap(), awi!(1));
 

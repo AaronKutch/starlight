@@ -9,6 +9,7 @@ use crate::{
     ensemble::{Ensemble, Equiv, PBack, Referent, TNode},
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
+    Epoch,
 };
 
 #[derive(Debug, Clone)]
@@ -151,5 +152,15 @@ impl Ensemble {
         let res = self.verify_integrity();
         render_to_svg_file(&self.to_debug(), false, out_file).unwrap();
         res
+    }
+}
+
+impl Epoch {
+    pub fn to_debug(&self) -> Arena<PBack, NodeKind> {
+        self.clone_ensemble().to_debug()
+    }
+
+    pub fn render_to_svg_file(&self, out_file: PathBuf) -> Result<(), EvalError> {
+        self.clone_ensemble().render_to_svg_file(out_file)
     }
 }

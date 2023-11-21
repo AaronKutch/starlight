@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use starlight::{
     awint::{awi, awint_dag::EvalError, dag},
     triple_arena::{ptr_struct, Arena},
-    Epoch, LazyAwi, StarRng,
+    Epoch, EvalAwi, LazyAwi, StarRng,
 };
 
 #[cfg(debug_assertions)]
@@ -101,7 +101,7 @@ impl Mem {
         }
 
         for (_, pair) in &self.a {
-            let mut lazy = LazyAwi::from(pair.dag.as_ref());
+            let mut lazy = EvalAwi::from(pair.dag.as_ref());
             assert_eq!(lazy.eval().unwrap(), pair.awi);
         }
         Ok(())

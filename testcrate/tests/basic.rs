@@ -1,4 +1,4 @@
-use starlight::{awi, dag::*, Epoch, LazyAwi};
+use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi};
 
 #[test]
 fn invert_twice() {
@@ -13,7 +13,7 @@ fn invert_twice() {
     {
         use awi::{assert_eq, *};
 
-        let mut y = LazyAwi::from(a.as_ref());
+        let mut y = EvalAwi::from(a.as_ref());
         assert_eq!(y.eval().unwrap(), awi!(0));
         x.retro_(&awi!(1));
         assert_eq!(y.eval().unwrap(), awi!(1));
