@@ -81,4 +81,11 @@ fn star_rng() {
     rand_choice(&mut metarng, &mut rng1, &mut bits1, &mut actions);
     assert_eq!(actions, 1413);
     assert_eq!(bits0, bits1);
+
+    let mut rng0 = StarRng::new(0);
+    let mut yes = 0u64;
+    for _ in 0..(1 << 16) {
+        yes += rng0.out_of_128(42) as u64;
+    }
+    assert_eq!(yes, 22115);
 }

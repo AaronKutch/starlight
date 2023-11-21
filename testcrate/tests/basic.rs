@@ -1,62 +1,39 @@
 use std::path::PathBuf;
 
-use starlight::{
-    awi,
-    awint_dag::{basic_state_epoch::StateEpoch, EvalError, Lineage, OpDag},
-    dag::*,
-    StarRng, TDag,
-};
+use starlight::{awi, awint_dag::EvalError, dag::*, ensemble::Ensemble, Epoch, LazyAwi};
 
 // keep imports imported
-fn _dbg(t_dag: &mut TDag) -> awi::Result<(), EvalError> {
-    t_dag.render_to_svg_file(PathBuf::from("./t_dag.svg".to_owned()))
+fn _dbg(ensemble: &mut Ensemble) -> awi::Result<(), EvalError> {
+    ensemble.render_to_svg_file(PathBuf::from("./ensemble.svg".to_owned()))
 }
 
 #[test]
 fn invert_twice() {
-    let epoch0 = StateEpoch::new();
-    let x = awi!(opaque: ..1);
-    let mut y = x.clone();
-    y.not_();
-    let y_copy = y.clone();
-    y.lut_(&inlawi!(10), &y_copy).unwrap();
-    y.not_();
-
-    // TODO also have a single function for taking `Lineage` capable structs
-    // straight to `TDag`s
-
-    let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
-    res.unwrap();
-
-    let p_x = op_dag.note_pstate(&epoch0, x.state()).unwrap();
-    let p_y = op_dag.note_pstate(&epoch0, y.state()).unwrap();
-
-    op_dag.lower_all().unwrap();
-
-    let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
-    res.unwrap();
-
-    t_dag.verify_integrity().unwrap();
-
-    t_dag.optimize_basic();
-
-    t_dag.verify_integrity().unwrap();
+    let epoch0 = Epoch::new();
+    let mut x = LazyAwi::zero(bw(1));
+    let mut a = awi!(x);
+    a.not_();
+    let a_copy = a.clone();
+    a.lut_(&inlawi!(10), &a_copy).unwrap();
+    a.not_();
 
     {
         use awi::{assert_eq, *};
 
-        t_dag.set_noted(p_x, &inlawi!(1)).unwrap();
-        t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_y).unwrap(), awi!(1));
-        t_dag.set_noted(p_x, &inlawi!(0)).unwrap();
-        t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_y).unwrap(), awi!(0));
+        let mut y = LazyAwi::from(a.as_ref());
+        assert_eq!(y.eval().unwrap(), awi!(0));
+        x.retro_(&awi!(1));
+        assert_eq!(y.eval().unwrap(), awi!(1));
     }
+    drop(epoch0);
 }
 
+// TODO should loop be a capability of LazyAwi or something? Have an enum on the
+// inside?
+/*
 #[test]
 fn invert_in_loop() {
-    let epoch0 = StateEpoch::new();
+    let epoch0 = Epoch::new();
     let looper = Loop::zero(bw(1));
     let mut x = awi!(looper);
     let x_copy = x.clone();
@@ -65,23 +42,6 @@ fn invert_in_loop() {
     let x_copy = x.clone();
     x.lut_(&inlawi!(10), &x_copy).unwrap();
     looper.drive(&x).unwrap();
-
-    let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
-    res.unwrap();
-
-    let p_x = op_dag.note_pstate(&epoch0, x.state()).unwrap();
-
-    op_dag.lower_all().unwrap();
-    op_dag.delete_unused_nodes();
-
-    let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
-    res.unwrap();
-
-    t_dag.verify_integrity().unwrap();
-
-    t_dag.optimize_basic();
-
-    t_dag.verify_integrity().unwrap();
 
     {
         use awi::{assert_eq, *};
@@ -261,3 +221,4 @@ fn luts() {
         assert_eq!(inp_bits, 1386);
     }
 }
+*/

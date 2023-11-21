@@ -211,7 +211,7 @@ impl Epoch {
         res
     }
 
-    pub fn clone_ensemble() -> Ensemble {
+    pub fn clone_ensemble(&self) -> Ensemble {
         EPOCH_DATA_TOP.with(|top| top.borrow().ensemble.clone())
     }
 }

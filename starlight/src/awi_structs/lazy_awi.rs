@@ -16,13 +16,14 @@ pub struct LazyAwi {
     state: dag::Awi,
 }
 
-impl Clone for LazyAwi {
+// TODO how to handle?
+/*impl Clone for LazyAwi {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
         }
     }
-}
+}*/
 
 impl Lineage for LazyAwi {
     fn state(&self) -> PState {

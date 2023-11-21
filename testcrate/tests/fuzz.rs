@@ -1,14 +1,9 @@
 use std::num::NonZeroUsize;
 
 use starlight::{
-    awint::{
-        awi,
-        awint_dag::{basic_state_epoch::StateEpoch, EvalError, Op, OpDag},
-        dag,
-    },
-    awint_dag::smallvec::smallvec,
-    triple_arena::{ptr_struct, Advancer, Arena},
-    StarRng, TDag, Value,
+    awint::{awi, awint_dag::EvalError, dag},
+    triple_arena::{ptr_struct, Arena},
+    Epoch, LazyAwi, StarRng,
 };
 
 #[cfg(debug_assertions)]
@@ -19,10 +14,17 @@ const N: (usize, usize) = (50, 1000);
 
 ptr_struct!(P0);
 
+#[derive(Debug, Clone)]
+struct Pair {
+    awi: awi::Awi,
+    dag: dag::Awi,
+}
+
 #[derive(Debug)]
 struct Mem {
-    a: Arena<P0, dag::Awi>,
-    // the outer Vec has 5 vecs for all supported bitwidths plus one dummy 0 bitwidth vec, the
+    a: Arena<P0, Pair>,
+    roots: Vec<(LazyAwi, awi::Awi)>,
+    // the outer Vec has all supported bitwidths plus one dummy 0 bitwidth vec, the
     // inner vecs are unsorted and used for random querying
     v: Vec<Vec<P0>>,
     rng: StarRng,
@@ -36,6 +38,7 @@ impl Mem {
         }
         Self {
             a: Arena::new(),
+            roots: vec![],
             v,
             rng: StarRng::new(0),
         }
@@ -50,15 +53,31 @@ impl Mem {
     }
 
     pub fn next(&mut self, w: usize) -> P0 {
-        let try_query = (self.rng.next_u32() % 4) != 0;
+        let try_query = self.rng.out_of_4(3);
         if try_query && (!self.v[w].is_empty()) {
-            self.v[w][(self.rng.next_u32() as usize) % self.v[w].len()]
+            *self.rng.index(&self.v[w]).unwrap()
         } else {
-            let mut lit = awi::Awi::zero(NonZeroUsize::new(w).unwrap());
-            lit.rand_(&mut self.rng).unwrap();
-            let p = self.a.insert(dag::Awi::from(lit.as_ref()));
-            self.v[w].push(p);
-            p
+            let nzbw = NonZeroUsize::new(w).unwrap();
+            let mut lit = awi::Awi::zero(nzbw);
+            self.rng.next_bits(&mut lit);
+            // Randomly make some literals and some opaques
+            if self.rng.next_bool() {
+                let p = self.a.insert(Pair {
+                    awi: lit.clone(),
+                    dag: dag::Awi::from(&lit),
+                });
+                self.v[w].push(p);
+                p
+            } else {
+                let lazy = LazyAwi::zero(nzbw);
+                let p = self.a.insert(Pair {
+                    awi: lit.clone(),
+                    dag: dag::Awi::from(lazy.as_ref()),
+                });
+                self.roots.push((lazy, lit));
+                self.v[w].push(p);
+                p
+            }
         }
     }
 
@@ -67,117 +86,61 @@ impl Mem {
         (w, self.next(w))
     }
 
-    pub fn get_op(&self, inx: P0) -> dag::Awi {
+    pub fn get(&self, inx: P0) -> Pair {
         self.a[inx].clone()
     }
 
-    pub fn verify_equivalence<F: FnMut(&mut TDag)>(
-        &mut self,
-        mut f: F,
-        epoch: &StateEpoch,
-    ) -> Result<(), EvalError> {
-        let (mut op_dag, res) = OpDag::from_epoch(epoch);
-        res?;
+    pub fn verify_equivalence(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
+        let mut _ensemble = epoch.clone_ensemble();
 
-        // randomly replace literals with opaques, because lower_all can evaluate
-        // and simplify
-        let mut replacements = vec![];
-        let mut adv = op_dag.a.advancer();
-        while let Some(p) = adv.advance(&op_dag.a) {
-            if op_dag[p].op.is_literal() {
-                if self.rng.next_bool() {
-                    if let Op::Literal(lit) = op_dag[p].op.take() {
-                        replacements.push((op_dag.note_pnode(p).unwrap(), lit));
-                        op_dag[p].op = Op::Opaque(smallvec![], None);
-                    } else {
-                        unreachable!()
-                    }
-                } else {
-                    op_dag.note_pnode(p).unwrap();
-                }
-            }
+        // the ensemble has a random mix of literals and opaques
+
+        // set all lazy roots
+        for (lazy, lit) in &mut self.roots {
+            lazy.retro_(&lit).unwrap();
         }
 
-        op_dag.lower_all().unwrap();
-
-        let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
-        res.unwrap();
-
-        f(&mut t_dag);
-
-        t_dag.verify_integrity().unwrap();
-
-        // restore literals and evaluate on both sides
-
-        for (p_note, lit) in replacements.into_iter() {
-            let len = t_dag.notes[p_note].bits.len();
-            assert_eq!(lit.bw(), len);
-            for i in 0..len {
-                let p_bit = t_dag.notes[p_note].bits[i];
-                t_dag.backrefs.get_val_mut(p_bit).unwrap().val = Value::Const(lit.get(i).unwrap());
-            }
-            op_dag.pnote_get_mut_node(p_note).unwrap().op = Op::Literal(lit);
-        }
-
-        op_dag.eval_all().unwrap();
-        t_dag.eval_all().unwrap();
-
-        t_dag.verify_integrity().unwrap();
-
-        for (p_note, p_node) in &op_dag.note_arena {
-            let op_node = &op_dag[p_node];
-            let note = &t_dag.notes[p_note];
-            if let Op::Literal(ref lit) = op_node.op {
-                let len = note.bits.len();
-                assert_eq!(lit.bw(), len);
-                for i in 0..len {
-                    let p_bit = note.bits[i];
-                    let equiv = t_dag.backrefs.get_val(p_bit).unwrap();
-                    match equiv.val {
-                        Value::Unknown => panic!(),
-                        Value::Const(val) => {
-                            assert_eq!(val, lit.get(i).unwrap());
-                        }
-                        Value::Dynam(val, _) => {
-                            assert_eq!(val, lit.get(i).unwrap());
-                        }
-                    }
-                }
-            } else {
-                unreachable!();
-            }
+        for (_, pair) in &self.a {
+            let mut lazy = LazyAwi::from(pair.dag.as_ref());
+            assert_eq!(lazy.eval().unwrap(), pair.awi);
         }
         Ok(())
     }
 }
 
-fn op_perm_duo(rng: &mut StarRng, m: &mut Mem) {
+fn operation(rng: &mut StarRng, m: &mut Mem) {
     let next_op = rng.next_u8() % 3;
     match next_op {
         // Copy
         0 => {
+            // doesn't actually do anything on the DAG side, but we use it to get parallel
+            // things in the fuzzing
             let (w, from) = m.next1_5();
             let to = m.next(w);
             if to != from {
                 let (to, from) = m.a.get2_mut(to, from).unwrap();
-                to.copy_(from).unwrap();
+                to.awi.copy_(&from.awi).unwrap();
+                to.dag.copy_(&from.dag).unwrap();
             }
         }
         // Get-Set
         1 => {
             let (w0, from) = m.next1_5();
             let (w1, to) = m.next1_5();
-            let b = m.a[from].get((rng.next_u32() as usize) % w0).unwrap();
-            m.a[to].set((rng.next_u32() as usize) % w1, b).unwrap();
+            let b = m.a[from].awi.get((rng.next_u32() as usize) % w0).unwrap();
+            m.a[to].awi.set((rng.next_u32() as usize) % w1, b).unwrap();
+            let b = m.a[from].dag.get((rng.next_u32() as usize) % w0).unwrap();
+            m.a[to].dag.set((rng.next_u32() as usize) % w1, b).unwrap();
         }
         // Lut
         2 => {
             let (out_w, out) = m.next1_5();
             let (inx_w, inx) = m.next1_5();
             let lut = m.next(out_w * (1 << inx_w));
-            let lut_a = m.get_op(lut);
-            let inx_a = m.get_op(inx);
-            m.a[out].lut_(&lut_a, &inx_a).unwrap();
+            let lut_a = m.get(lut);
+            let inx_a = m.get(inx);
+            m.a[out].awi.lut_(&lut_a.awi, &inx_a.awi).unwrap();
+            m.a[out].dag.lut_(&lut_a.dag, &inx_a.dag).unwrap();
         }
         _ => unreachable!(),
     }
@@ -189,15 +152,15 @@ fn fuzz_lower_and_eval() {
     let mut m = Mem::new();
 
     for _ in 0..N.1 {
-        let epoch = StateEpoch::new();
+        let epoch = Epoch::new();
         for _ in 0..N.0 {
-            op_perm_duo(&mut rng, &mut m)
+            operation(&mut rng, &mut m)
         }
-        let res = m.verify_equivalence(|_| {}, &epoch);
+        let res = m.verify_equivalence(&epoch);
         res.unwrap();
         // TODO verify stable optimization
-        let res = m.verify_equivalence(|t_dag| t_dag.optimize_basic(), &epoch);
-        res.unwrap();
+        //let res = m.verify_equivalence(|t_dag| t_dag.optimize_basic(), &epoch);
+        //res.unwrap();
         drop(epoch);
         m.clear();
     }

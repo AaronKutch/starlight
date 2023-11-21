@@ -53,6 +53,30 @@ macro_rules! next {
     };
 }
 
+macro_rules! out_of {
+    ($($fn:ident, $max:expr, $bw:expr);*;) => {
+        $(
+            /// Fractional chance of the output being true.
+            ///
+            /// If `num` is zero, it will always return `false`.
+            /// If `num` is equal to or larger than the denominator,
+            /// it will always return `true`.
+            pub fn $fn(&mut self, num: u8) -> bool {
+                if num == 0 {
+                    false
+                } else if num >= $max {
+                    true
+                } else {
+                    let mut tmp: inlawi_ty!($bw) = InlAwi::zero();
+                    tmp.u8_(num);
+                    self.next_bits(&mut tmp);
+                    num >= tmp.to_u8()
+                }
+            }
+        )*
+    };
+}
+
 impl StarRng {
     const BW_U8: u8 = 64;
 
@@ -62,6 +86,15 @@ impl StarRng {
         next_u32 u32 from_u32 to_u32,
         next_u64 u64 from_u64 to_u64,
         next_u128 u128 from_u128 to_u128,
+    );
+
+    out_of!(
+        out_of_4, 4, 2;
+        out_of_8, 8, 3;
+        out_of_16, 16, 4;
+        out_of_32, 32, 5;
+        out_of_64, 64, 6;
+        out_of_128, 128, 7;
     );
 
     // note: do not implement `next_usize`, if it exists then there will be
@@ -109,6 +142,38 @@ impl StarRng {
                 self.buf = InlAwi::from_u64(self.rng.next_u64());
                 self.used = 0;
             }
+        }
+    }
+
+    /// Fractional chance of the output being true.
+    ///
+    /// If `num` is zero, it will always return `false`.
+    /// If `num` is equal to or larger than the denominator,
+    /// it will always return `true`.
+    pub fn out_of_256(&mut self, num: u8) -> bool {
+        if num == 0 {
+            false
+        } else {
+            let mut tmp = InlAwi::from_u8(num);
+            tmp.u8_(num);
+            self.next_bits(&mut tmp);
+            num >= tmp.to_u8()
+        }
+    }
+
+    pub fn index<'a, T>(&mut self, slice: &'a [T]) -> Option<&'a T> {
+        let len = slice.len();
+        if len == 0 {
+            None
+        } else if len <= (u8::MAX as usize) {
+            let inx = self.next_u16();
+            slice.get((inx as usize) % len)
+        } else if len <= (u16::MAX as usize) {
+            let inx = self.next_u32();
+            slice.get((inx as usize) % len)
+        } else {
+            let inx = self.next_u64();
+            slice.get((inx as usize) % len)
         }
     }
 }
