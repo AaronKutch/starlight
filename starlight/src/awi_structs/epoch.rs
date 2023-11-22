@@ -1,10 +1,16 @@
 /// An epoch management struct used for tests and examples.
-use std::{cell::RefCell, num::NonZeroUsize, thread::panicking, sync::{Arc, Mutex}};
+use std::{
+    cell::RefCell,
+    num::NonZeroUsize,
+    sync::{Arc, Mutex},
+    thread::panicking,
+};
 
 use awint::{
     awint_dag::{
         epoch::{EpochCallback, EpochKey},
-        Lineage, Location, Op, PState, triple_arena::{Arena, ptr_struct},
+        triple_arena::{ptr_struct, Arena},
+        Lineage, Location, Op, PState,
     },
     bw, dag,
 };
@@ -38,7 +44,10 @@ pub struct PerEpochShared {
 
 impl PerEpochShared {
     pub fn new() -> Self {
-        Self { states_inserted: vec![], assertions: Assertions::new() }
+        Self {
+            states_inserted: vec![],
+            assertions: Assertions::new(),
+        }
     }
 }
 
@@ -57,21 +66,43 @@ pub struct EpochShared {
 impl EpochShared {
     /// Creates a new `Ensemble` and registers a new `EpochCallback`.
     pub fn new() -> Self {
-        let mut epoch_data = EpochData { epoch_key: _callback().push_on_epoch_stack(), ensemble: Ensemble::new(), responsible_for: Arena::new() };
+        let mut epoch_data = EpochData {
+            epoch_key: _callback().push_on_epoch_stack(),
+            ensemble: Ensemble::new(),
+            responsible_for: Arena::new(),
+        };
         let p_self = epoch_data.responsible_for.insert(PerEpochShared::new());
-        Self { epoch_data: Arc::new(Mutex::new(epoch_data)), p_self }
+        Self {
+            epoch_data: Arc::new(Mutex::new(epoch_data)),
+            p_self,
+        }
     }
 
     /// Does _not_ register a new `EpochCallback`, instead
     pub fn shared_with(other: &Self) -> Self {
-        let p_self = other.epoch_data.lock().unwrap().responsible_for.insert(PerEpochShared::new());
-        Self { epoch_data: Arc::clone(&other.epoch_data), p_self }
+        let p_self = other
+            .epoch_data
+            .lock()
+            .unwrap()
+            .responsible_for
+            .insert(PerEpochShared::new());
+        Self {
+            epoch_data: Arc::clone(&other.epoch_data),
+            p_self,
+        }
     }
 
     /// Returns a clone of the assertions currently associated with `self`
     pub fn assertions(&self) -> Assertions {
         let p_self = self.p_self;
-        self.epoch_data.lock().unwrap().responsible_for.get(p_self).unwrap().assertions.clone()
+        self.epoch_data
+            .lock()
+            .unwrap()
+            .responsible_for
+            .get(p_self)
+            .unwrap()
+            .assertions
+            .clone()
     }
 
     /// Returns a clone of the ensemble
@@ -93,12 +124,20 @@ impl EpochShared {
 }
 
 thread_local!(
-    /// We have this separate from `EPOCH_STACK` to minimize the assembly needed to access the data.
+    /// We have this separate from `EPOCH_STACK` to minimize the assembly needed
+    /// to access the data.
     static CURRENT_EPOCH: RefCell<Option<EpochShared>> = RefCell::new(None);
 
     /// Epochs lower than the current one
     static EPOCH_STACK: RefCell<Vec<EpochShared>> = RefCell::new(vec![]);
 );
+
+pub fn get_current_epoch() -> Option<EpochShared> {
+    CURRENT_EPOCH.with(|top| {
+        let top = top.borrow();
+        top.clone()
+    })
+}
 
 /// Do no call recursively.
 fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T {
@@ -129,8 +168,15 @@ pub fn _callback() -> EpochCallback {
     fn new_pstate(nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PState {
         no_recursive_current_epoch_mut(|current| {
             let mut epoch_data = current.epoch_data.lock().unwrap();
-            let p_state = epoch_data.ensemble.make_state(nzbw, op.clone(), location, true);
-            epoch_data.responsible_for.get_mut(current.p_self).unwrap().states_inserted.push(p_state);
+            let p_state = epoch_data
+                .ensemble
+                .make_state(nzbw, op.clone(), location, true);
+            epoch_data
+                .responsible_for
+                .get_mut(current.p_self)
+                .unwrap()
+                .states_inserted
+                .push(p_state);
             p_state
         })
     }
@@ -139,17 +185,40 @@ pub fn _callback() -> EpochCallback {
         let new_bit = new_pstate(bw(1), Op::Copy([bit.state()]), Some(location));
         no_recursive_current_epoch_mut(|current| {
             let mut epoch_data = current.epoch_data.lock().unwrap();
-            epoch_data.responsible_for.get_mut(current.p_self).unwrap().assertions.bits.push(new_bit);
+            epoch_data
+                .responsible_for
+                .get_mut(current.p_self)
+                .unwrap()
+                .assertions
+                .bits
+                .push(new_bit);
         })
     }
     fn get_nzbw(p_state: PState) -> NonZeroUsize {
         no_recursive_current_epoch(|current| {
-            current.epoch_data.lock().unwrap().ensemble.states.get(p_state).unwrap().nzbw
+            current
+                .epoch_data
+                .lock()
+                .unwrap()
+                .ensemble
+                .states
+                .get(p_state)
+                .unwrap()
+                .nzbw
         })
     }
     fn get_op(p_state: PState) -> Op<PState> {
         no_recursive_current_epoch(|current| {
-            current.epoch_data.lock().unwrap().ensemble.states.get(p_state).unwrap().op.clone()
+            current
+                .epoch_data
+                .lock()
+                .unwrap()
+                .ensemble
+                .states
+                .get(p_state)
+                .unwrap()
+                .op
+                .clone()
         })
     }
     EpochCallback {
@@ -211,9 +280,7 @@ impl Epoch {
             }
             *current = Some(new.clone());
         });
-        Self {
-            shared: new
-        }
+        Self { shared: new }
     }
 
     pub fn shared_with(other: &Epoch) -> Self {
@@ -228,9 +295,7 @@ impl Epoch {
             }
             *current = Some(shared.clone());
         });
-        Self {
-            shared
-        }
+        Self { shared }
     }
 
     /// Gets the assertions associated with this Epoch (not including assertions

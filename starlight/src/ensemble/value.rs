@@ -3,13 +3,16 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use awint::{
     awint_dag::{
         triple_arena::{ptr_struct, Advancer, OrdArena},
-        EvalError,
+        EvalError, PState,
     },
     Awi,
 };
 
 use super::{PTNode, Referent, TNode};
-use crate::ensemble::{Ensemble, PBack};
+use crate::{
+    ensemble::{Ensemble, PBack},
+    epoch::{get_current_epoch, EpochShared},
+};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
@@ -147,6 +150,46 @@ impl Evaluator {
     pub fn insert(&mut self, eval_step: Eval) {
         let _ = self.evaluations.insert(eval_step, ());
     }
+
+    // stepping loops should request their drivers, evaluating everything requests
+    // everything
+    pub fn thread_local_state_value(p_state: PState, bit_i: usize) -> Result<Value, EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+        let ensemble = &mut lock.ensemble;
+        ensemble.initialize_state_bits_if_needed(p_state).unwrap();
+        let state = ensemble.states.get(p_state).unwrap();
+        let p_back = *state.p_self_bits.get(bit_i).unwrap();
+        if let Some(equiv) = ensemble.backrefs.get_val_mut(p_back) {
+            // switch to request phase
+            if ensemble.evaluator.phase != EvalPhase::Request {
+                ensemble.evaluator.phase = EvalPhase::Request;
+                ensemble.evaluator.next_request_visit_gen();
+            }
+            let visit = ensemble.evaluator.request_visit_gen();
+            if equiv.request_visit != visit {
+                equiv.request_visit = visit;
+                ensemble
+                    .evaluator
+                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
+                drop(lock);
+                Ensemble::handle_requests(&epoch_shared);
+            } else {
+                drop(lock);
+            }
+            Ok(epoch_shared
+                .epoch_data
+                .lock()
+                .unwrap()
+                .ensemble
+                .backrefs
+                .get_val(p_back)
+                .unwrap()
+                .val)
+        } else {
+            Err(EvalError::InvalidPtr)
+        }
+    }
 }
 
 impl Ensemble {
@@ -276,37 +319,34 @@ impl Ensemble {
         }
     }
 
-    // stepping loops should request their drivers, evaluating everything requests
-    // everything
-    pub fn request_value(&mut self, p_back: PBack) -> Result<Value, EvalError> {
-        if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
-            // switch to request phase
-            if self.evaluator.phase != EvalPhase::Request {
-                self.evaluator.phase = EvalPhase::Request;
-                self.evaluator.next_request_visit_gen();
-            }
-            let visit = self.evaluator.request_visit_gen();
-            if equiv.request_visit != visit {
-                equiv.request_visit = visit;
-                self.evaluator
-                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
-                self.handle_requests();
-            }
-            Ok(self.backrefs.get_val(p_back).unwrap().val)
-        } else {
-            Err(EvalError::InvalidPtr)
-        }
-    }
-
-    fn handle_requests(&mut self) {
+    fn handle_requests(epoch_shared: &EpochShared) {
         // TODO currently, the only way of avoiding N^2 worst case scenarios where
         // different change cascades lead to large groups of nodes being evaluated
         // repeatedly, is to use the front strategy. Only a powers of two reduction tree
         // hierarchy system could fix this it appears, which will require a lot more
         // code.
 
-        while let Some(p_eval) = self.evaluator.evaluations.min() {
-            self.evaluate(p_eval);
+        loop {
+            while let Some(p_state) = epoch_shared
+                .epoch_data
+                .lock()
+                .unwrap()
+                .ensemble
+                .states_to_lower
+                .pop()
+            {
+                Ensemble::dfs_lower(&epoch_shared, p_state).unwrap();
+            }
+            let mut lock = epoch_shared.epoch_data.lock().unwrap();
+            if lock.ensemble.evaluator.evaluations.is_empty()
+                && lock.ensemble.states_to_lower.is_empty()
+            {
+                break
+            }
+            if let Some(p_eval) = lock.ensemble.evaluator.evaluations.min() {
+                lock.ensemble.evaluate(p_eval);
+            }
+            drop(lock);
         }
     }
 
@@ -403,7 +443,7 @@ impl Ensemble {
         }
         if !saw_tnode {
             if let Some(p_state) = saw_state {
-                self.dfs_lower(p_state).unwrap();
+                self.states_to_lower.push(p_state);
             }
         }
         for eval in insert_if_no_early_exit {

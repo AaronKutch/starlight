@@ -1,20 +1,18 @@
 use std::num::{NonZeroU64, NonZeroUsize};
 
-use awint::{
-    awint_dag::{
-        lowering::{lower_state, LowerManagement},
-        smallvec::SmallVec,
-        EvalError, Location,
-        Op::{self, *},
-        PState,
-    },
-    Bits,
+use awint::awint_dag::{
+    lowering::{lower_state, LowerManagement},
+    smallvec::SmallVec,
+    EvalError, Location,
+    Op::{self, *},
+    PState,
 };
 
 use super::Value;
 use crate::{
     awi,
     ensemble::{Ensemble, PBack},
+    epoch::EpochShared,
 };
 
 /// Represents the state resulting from a mimicking operation
@@ -82,40 +80,61 @@ impl Ensemble {
         Ok(())
     }
 
-    pub fn lower_state(&mut self, p_state: PState) -> Result<(), EvalError> {
+    pub fn lower_state(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
         // TODO optimization to remove unused nodes early
         //let epoch = StateEpoch::new();
         struct Tmp<'a> {
             ptr: PState,
-            ensemble: &'a mut Ensemble,
+            epoch_shared: &'a EpochShared,
         }
         impl<'a> LowerManagement<PState> for Tmp<'a> {
             fn graft(&mut self, operands: &[PState]) {
-                self.ensemble.graft(self.ptr, operands).unwrap()
+                self.epoch_shared
+                    .epoch_data
+                    .lock()
+                    .unwrap()
+                    .ensemble
+                    .graft(self.ptr, operands)
+                    .unwrap()
             }
 
             fn get_nzbw(&self, p: PState) -> NonZeroUsize {
-                self.ensemble.states.get(p).unwrap().nzbw
+                self.epoch_shared
+                    .epoch_data
+                    .lock()
+                    .unwrap()
+                    .ensemble
+                    .states
+                    .get(p)
+                    .unwrap()
+                    .nzbw
             }
 
-            fn get_op(&self, p: PState) -> &Op<PState> {
-                &self.ensemble.states.get(p).unwrap().op
-            }
-
-            fn get_op_mut(&mut self, p: PState) -> &mut Op<PState> {
-                &mut self.ensemble.states.get_mut(p).unwrap().op
-            }
-
-            fn lit(&self, p: PState) -> &Bits {
-                if let Op::Literal(ref lit) = self.ensemble.states.get(p).unwrap().op {
-                    lit
-                } else {
-                    panic!()
-                }
+            fn is_literal(&self, p: PState) -> bool {
+                self.epoch_shared
+                    .epoch_data
+                    .lock()
+                    .unwrap()
+                    .ensemble
+                    .states
+                    .get(p)
+                    .unwrap()
+                    .op
+                    .is_literal()
             }
 
             fn usize(&self, p: PState) -> usize {
-                if let Op::Literal(ref lit) = self.ensemble.states.get(p).unwrap().op {
+                if let Op::Literal(ref lit) = self
+                    .epoch_shared
+                    .epoch_data
+                    .lock()
+                    .unwrap()
+                    .ensemble
+                    .states
+                    .get(p)
+                    .unwrap()
+                    .op
+                {
                     if lit.bw() != 64 {
                         panic!()
                     }
@@ -126,7 +145,17 @@ impl Ensemble {
             }
 
             fn bool(&self, p: PState) -> bool {
-                if let Op::Literal(ref lit) = self.ensemble.states.get(p).unwrap().op {
+                if let Op::Literal(ref lit) = self
+                    .epoch_shared
+                    .epoch_data
+                    .lock()
+                    .unwrap()
+                    .ensemble
+                    .states
+                    .get(p)
+                    .unwrap()
+                    .op
+                {
                     if lit.bw() != 1 {
                         panic!()
                     }
@@ -140,36 +169,50 @@ impl Ensemble {
                 //
             }
         }
-        let state = self.states.get(p_state).unwrap();
+        let lock = epoch_shared.epoch_data.lock().unwrap();
+        let state = lock.ensemble.states.get(p_state).unwrap();
         let start_op = state.op.clone();
         let out_w = state.nzbw;
-        lower_state(p_state, start_op, out_w, Tmp {
+        drop(lock);
+        lower_state(start_op, out_w, Tmp {
             ptr: p_state,
-            ensemble: self,
+            epoch_shared,
         })?;
         Ok(())
     }
 
     /// Lowers the rootward tree from `p_state` down to `TNode`s
-    pub fn dfs_lower(&mut self, p_state: PState) -> Result<(), EvalError> {
-        self.dfs_lower_states_to_elementary(p_state).unwrap();
-        self.dfs_lower_elementary_to_tnodes(p_state).unwrap();
+    pub fn dfs_lower(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
+        Ensemble::dfs_lower_states_to_elementary(epoch_shared, p_state).unwrap();
+        epoch_shared
+            .epoch_data
+            .lock()
+            .unwrap()
+            .ensemble
+            .dfs_lower_elementary_to_tnodes(p_state)
+            .unwrap();
         Ok(())
     }
 
     /// Lowers the rootward tree from `p_state` down to the elementary `Op`s
-    pub fn dfs_lower_states_to_elementary(&mut self, p_state: PState) -> Result<(), EvalError> {
+    pub fn dfs_lower_states_to_elementary(
+        epoch_shared: &EpochShared,
+        p_state: PState,
+    ) -> Result<(), EvalError> {
         let mut state_list = vec![p_state];
-        let visit = NonZeroU64::new(self.lower_visit.get().checked_add(1).unwrap()).unwrap();
-        self.lower_visit = visit;
+        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+        let visit =
+            NonZeroU64::new(lock.ensemble.lower_visit.get().checked_add(1).unwrap()).unwrap();
+        lock.ensemble.lower_visit = visit;
+        drop(lock);
         while let Some(leaf) = state_list.pop() {
-            if self.states[leaf].lower_visit == visit {
+            if epoch_shared.epoch_data.lock().unwrap().ensemble.states[leaf].lower_visit == visit {
                 continue
             }
             let mut path: Vec<(usize, PState)> = vec![(0, leaf)];
             loop {
                 let (i, p_state) = path[path.len() - 1];
-                let state = &self.states[p_state];
+                let state = &epoch_shared.epoch_data.lock().unwrap().ensemble.states[p_state];
                 let ops = state.op.operands();
                 if ops.is_empty() {
                     // reached a root
@@ -180,10 +223,12 @@ impl Ensemble {
                     path.last_mut().unwrap().0 += 1;
                 } else if i >= ops.len() {
                     // checked all sources
-                    match self.states[p_state].op {
+                    let lock = epoch_shared.epoch_data.lock().unwrap();
+                    match lock.ensemble.states[p_state].op {
                         Copy(_) | StaticGet(..) | StaticSet(..) | StaticLut(..) | Opaque(..) => (),
                         _ => {
-                            self.lower_state(p_state).unwrap();
+                            drop(lock);
+                            Ensemble::lower_state(epoch_shared, p_state).unwrap();
                         }
                     }
                     path.pop().unwrap();
@@ -192,11 +237,14 @@ impl Ensemble {
                     }
                 } else {
                     let p_next = ops[i];
-                    if self.states[p_next].lower_visit == visit {
+                    if epoch_shared.epoch_data.lock().unwrap().ensemble.states[p_next].lower_visit
+                        == visit
+                    {
                         // do not visit
                         path.last_mut().unwrap().0 += 1;
                     } else {
-                        self.states[p_next].lower_visit = visit;
+                        epoch_shared.epoch_data.lock().unwrap().ensemble.states[p_next]
+                            .lower_visit = visit;
                         path.push((0, p_next));
                     }
                 }

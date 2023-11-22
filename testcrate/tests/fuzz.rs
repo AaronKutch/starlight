@@ -91,7 +91,7 @@ impl Mem {
     }
 
     pub fn verify_equivalence(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
-        let mut _ensemble = epoch.clone_ensemble();
+        let mut _ensemble = epoch.ensemble();
 
         // the ensemble has a random mix of literals and opaques
 

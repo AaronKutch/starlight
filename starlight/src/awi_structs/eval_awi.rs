@@ -5,7 +5,10 @@ use awint::{
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{awi,};
+use crate::{
+    awi,
+    ensemble::{Evaluator, Value},
+};
 
 pub struct EvalAwi {
     state: dag::Awi,
@@ -33,23 +36,18 @@ impl EvalAwi {
     }
 
     pub fn eval(&mut self) -> Result<awi::Awi, EvalError> {
-        /*let nzbw = self.nzbw();
-        // DFS from leaf to roots
-        let current = get_current_epoch().unwrap();
+        let nzbw = self.nzbw();
         let p_self = self.state();
-        current.data.ensemble.lock().unwrap().initialize_state_bits_if_needed(p_self).unwrap();
         let mut res = awi::Awi::zero(nzbw);
-        for i in 0..res.bw() {
-            let bit = current.data.ensemble.lock().unwrap().states.get(p_self).unwrap().p_self_bits[i];
-            let val = current.data.ensemble.lock().unwrap().request_value(bit)?;
+        for bit_i in 0..res.bw() {
+            let val = Evaluator::thread_local_state_value(p_self, bit_i)?;
             if let Some(val) = val.known_value() {
-                res.set(i, val).unwrap();
+                res.set(bit_i, val).unwrap();
             } else {
                 return Err(EvalError::OtherStr("could not eval bit to known value"))
             }
         }
-        Ok(res)*/
-        todo!()
+        Ok(res)
     }
 
     pub fn zero(w: NonZeroUsize) -> Self {
