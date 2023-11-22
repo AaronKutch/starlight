@@ -157,7 +157,7 @@ impl Ensemble {
 
 impl Epoch {
     pub fn eprint_debug_summary(&self) {
-        let ensemble = self.clone_ensemble();
+        let ensemble = self.ensemble();
         let chain_arena = ensemble.backrefs_to_chain_arena();
         let debug = ensemble.to_debug();
         eprintln!(
@@ -167,6 +167,6 @@ impl Epoch {
     }
 
     pub fn render_to_svg_file(&self, out_file: PathBuf) -> Result<(), EvalError> {
-        self.clone_ensemble().render_to_svg_file(out_file)
+        self.ensemble().render_to_svg_file(out_file)
     }
 }

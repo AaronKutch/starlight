@@ -465,6 +465,14 @@ impl Ensemble {
         Some(())
     }
 
+    pub fn remove_state(&mut self, p_state: PState) -> Option<State> {
+        let mut state = self.states.remove(p_state)?;
+        for p_self_state in state.p_self_bits.drain(..) {
+            self.backrefs.remove_key(p_self_state).unwrap();
+        }
+        Some(state)
+    }
+
     pub fn drive_loops(&mut self) {
         let mut adv = self.tnodes.advancer();
         while let Some(p_tnode) = adv.advance(&self.tnodes) {

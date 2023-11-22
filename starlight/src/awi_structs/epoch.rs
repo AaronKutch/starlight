@@ -1,10 +1,10 @@
 /// An epoch management struct used for tests and examples.
-use std::{cell::RefCell, mem, num::NonZeroUsize, thread::panicking};
+use std::{cell::RefCell, num::NonZeroUsize, thread::panicking, sync::{Arc, Mutex}};
 
 use awint::{
     awint_dag::{
         epoch::{EpochCallback, EpochKey},
-        Lineage, Location, Op, PState,
+        Lineage, Location, Op, PState, triple_arena::{Arena, ptr_struct},
     },
     bw, dag,
 };
@@ -28,85 +28,128 @@ impl Default for Assertions {
     }
 }
 
-#[derive(Default)]
-struct EpochData {
-    key: EpochKey,
-    assertions: Assertions,
-    /// All states associated with this epoch
-    states: Vec<PState>,
+ptr_struct!(PEpochShared);
+
+#[derive(Debug)]
+pub struct PerEpochShared {
+    pub states_inserted: Vec<PState>,
+    pub assertions: Assertions,
 }
 
-pub struct TopEpochData {
-    pub ensemble: Ensemble,
-    /// The top level `EpochData`
-    data: EpochData,
-    /// If the top level is active
-    active: bool,
-}
-
-impl TopEpochData {
+impl PerEpochShared {
     pub fn new() -> Self {
-        Self {
-            ensemble: Ensemble::new(),
-            data: EpochData::default(),
-            active: false,
+        Self { states_inserted: vec![], assertions: Assertions::new() }
+    }
+}
+
+pub struct EpochData {
+    pub epoch_key: EpochKey,
+    pub ensemble: Ensemble,
+    pub responsible_for: Arena<PEpochShared, PerEpochShared>,
+}
+
+#[derive(Clone)]
+pub struct EpochShared {
+    pub epoch_data: Arc<Mutex<EpochData>>,
+    pub p_self: PEpochShared,
+}
+
+impl EpochShared {
+    /// Creates a new `Ensemble` and registers a new `EpochCallback`.
+    pub fn new() -> Self {
+        let mut epoch_data = EpochData { epoch_key: _callback().push_on_epoch_stack(), ensemble: Ensemble::new(), responsible_for: Arena::new() };
+        let p_self = epoch_data.responsible_for.insert(PerEpochShared::new());
+        Self { epoch_data: Arc::new(Mutex::new(epoch_data)), p_self }
+    }
+
+    /// Does _not_ register a new `EpochCallback`, instead
+    pub fn shared_with(other: &Self) -> Self {
+        let p_self = other.epoch_data.lock().unwrap().responsible_for.insert(PerEpochShared::new());
+        Self { epoch_data: Arc::clone(&other.epoch_data), p_self }
+    }
+
+    /// Returns a clone of the assertions currently associated with `self`
+    pub fn assertions(&self) -> Assertions {
+        let p_self = self.p_self;
+        self.epoch_data.lock().unwrap().responsible_for.get(p_self).unwrap().assertions.clone()
+    }
+
+    /// Returns a clone of the ensemble
+    pub fn ensemble(&self) -> Ensemble {
+        self.epoch_data.lock().unwrap().ensemble.clone()
+    }
+
+    /// Removes associated states and assertions
+    pub fn remove_associated(self) {
+        let mut epoch_data = self.epoch_data.lock().unwrap();
+        let ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
+        for p_state in ours.states_inserted {
+            let _ = epoch_data.ensemble.remove_state(p_state);
+        }
+        for p_state in ours.assertions.bits {
+            let _ = epoch_data.ensemble.remove_state(p_state);
         }
     }
 }
 
 thread_local!(
-    /// The `TopEpochData`. We have this separate from `EPOCH_DATA_STACK` in the
-    /// first place to minimize the assembly needed to access the data.
-    static EPOCH_DATA_TOP: RefCell<TopEpochData> = RefCell::new(TopEpochData::new());
+    /// We have this separate from `EPOCH_STACK` to minimize the assembly needed to access the data.
+    static CURRENT_EPOCH: RefCell<Option<EpochShared>> = RefCell::new(None);
 
-    /// Stores data for epochs lower than the current one
-    static EPOCH_DATA_STACK: RefCell<Vec<EpochData>> = RefCell::new(vec![]);
+    /// Epochs lower than the current one
+    static EPOCH_STACK: RefCell<Vec<EpochShared>> = RefCell::new(vec![]);
 );
 
-/// Gets the thread-local `Ensemble`. Note: do not get recursively.
-pub fn get_ensemble<T, F: FnMut(&Ensemble) -> T>(mut f: F) -> T {
-    EPOCH_DATA_TOP.with(|top| {
+/// Do no call recursively.
+fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T {
+    CURRENT_EPOCH.with(|top| {
         let top = top.borrow();
-        f(&top.ensemble)
+        if let Some(current) = top.as_ref() {
+            f(&current)
+        } else {
+            panic!("There needs to be an `Epoch` in scope for this to work");
+        }
     })
 }
 
-/// Gets the thread-local `Ensemble`. Note: do not get recursively.
-pub fn get_ensemble_mut<T, F: FnMut(&mut Ensemble) -> T>(mut f: F) -> T {
-    EPOCH_DATA_TOP.with(|top| {
+/// Do no call recursively.
+fn no_recursive_current_epoch_mut<T, F: FnMut(&mut EpochShared) -> T>(mut f: F) -> T {
+    CURRENT_EPOCH.with(|top| {
         let mut top = top.borrow_mut();
-        f(&mut top.ensemble)
+        if let Some(mut current) = top.as_mut() {
+            f(&mut current)
+        } else {
+            panic!("There needs to be an `Epoch` in scope for this to work");
+        }
     })
 }
 
 #[doc(hidden)]
 pub fn _callback() -> EpochCallback {
     fn new_pstate(nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PState {
-        EPOCH_DATA_TOP.with(|top| {
-            let mut top = top.borrow_mut();
-            let p_state = top.ensemble.make_state(nzbw, op, location, true);
-            top.data.states.push(p_state);
+        no_recursive_current_epoch_mut(|current| {
+            let mut epoch_data = current.epoch_data.lock().unwrap();
+            let p_state = epoch_data.ensemble.make_state(nzbw, op.clone(), location, true);
+            epoch_data.responsible_for.get_mut(current.p_self).unwrap().states_inserted.push(p_state);
             p_state
         })
     }
     fn register_assertion_bit(bit: dag::bool, location: Location) {
         // need a new bit to attach location data to
         let new_bit = new_pstate(bw(1), Op::Copy([bit.state()]), Some(location));
-        EPOCH_DATA_TOP.with(|top| {
-            let mut top = top.borrow_mut();
-            top.data.assertions.bits.push(new_bit);
+        no_recursive_current_epoch_mut(|current| {
+            let mut epoch_data = current.epoch_data.lock().unwrap();
+            epoch_data.responsible_for.get_mut(current.p_self).unwrap().assertions.bits.push(new_bit);
         })
     }
     fn get_nzbw(p_state: PState) -> NonZeroUsize {
-        EPOCH_DATA_TOP.with(|top| {
-            let top = top.borrow();
-            top.ensemble.states.get(p_state).unwrap().nzbw
+        no_recursive_current_epoch(|current| {
+            current.epoch_data.lock().unwrap().ensemble.states.get(p_state).unwrap().nzbw
         })
     }
     fn get_op(p_state: PState) -> Op<PState> {
-        EPOCH_DATA_TOP.with(|top| {
-            let top = top.borrow();
-            top.ensemble.states.get(p_state).unwrap().op.clone()
+        no_recursive_current_epoch(|current| {
+            current.epoch_data.lock().unwrap().ensemble.states.get(p_state).unwrap().op.clone()
         })
     }
     EpochCallback {
@@ -117,36 +160,37 @@ pub fn _callback() -> EpochCallback {
     }
 }
 
-#[derive(Debug)]
 pub struct Epoch {
-    key: EpochKey,
+    shared: EpochShared,
 }
 
 impl Drop for Epoch {
     fn drop(&mut self) {
         // prevent invoking recursive panics and a buffer overrun
         if !panicking() {
-            // unregister callback
-            self.key.pop_off_epoch_stack();
-            EPOCH_DATA_TOP.with(|top| {
-                let mut top = top.borrow_mut();
-                // remove all the states associated with this epoch
-                for _p_state in top.data.states.iter() {
-                    // TODO
-                    //top.tdag.states.remove(*p_state).unwrap();
-                }
-                top.ensemble = Ensemble::new();
-                // move the top of the stack to the new top
-                let new_top = EPOCH_DATA_STACK.with(|stack| {
-                    let mut stack = stack.borrow_mut();
-                    stack.pop()
-                });
-                if let Some(new_data) = new_top {
-                    top.data = new_data;
+            EPOCH_STACK.with(|top| {
+                let mut stack = top.borrow_mut();
+                if let Some(next_current) = stack.pop() {
+                    CURRENT_EPOCH.with(|top| {
+                        let mut current = top.borrow_mut();
+                        if let Some(to_drop) = current.take() {
+                            to_drop.remove_associated();
+                            *current = Some(next_current);
+                        } else {
+                            // there should be something current if the `Epoch` still exists
+                            unreachable!()
+                        }
+                    });
                 } else {
-                    top.active = false;
-                    top.data = EpochData::default();
-                    // TODO capacity clearing?
+                    CURRENT_EPOCH.with(|top| {
+                        let mut current = top.borrow_mut();
+                        if let Some(to_drop) = current.take() {
+                            to_drop.remove_associated();
+                        } else {
+                            // there should be something current if the `Epoch` still exists
+                            unreachable!()
+                        }
+                    });
                 }
             });
         }
@@ -156,62 +200,47 @@ impl Drop for Epoch {
 impl Epoch {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let key = _callback().push_on_epoch_stack();
-        EPOCH_DATA_TOP.with(|top| {
-            let mut top = top.borrow_mut();
-            if top.active {
-                // move old top to the stack
-                EPOCH_DATA_STACK.with(|stack| {
-                    let mut stack = stack.borrow_mut();
-                    let new_top = EpochData {
-                        key,
-                        ..Default::default()
-                    };
-                    let old_top = mem::replace(&mut top.data, new_top);
-                    stack.push(old_top);
+        let new = EpochShared::new();
+        CURRENT_EPOCH.with(|top| {
+            let mut current = top.borrow_mut();
+            if let Some(current) = current.take() {
+                EPOCH_STACK.with(|top| {
+                    let mut stack = top.borrow_mut();
+                    stack.push(current);
                 })
-            } else {
-                top.active = true;
-                top.data.key = key;
-                // do not have to do anything else, defaults are set at the
-                // beginning and during dropping
             }
+            *current = Some(new.clone());
         });
-        Self { key }
+        Self {
+            shared: new
+        }
+    }
+
+    pub fn shared_with(other: &Epoch) -> Self {
+        let shared = EpochShared::shared_with(&other.shared);
+        CURRENT_EPOCH.with(|top| {
+            let mut current = top.borrow_mut();
+            if let Some(current) = current.take() {
+                EPOCH_STACK.with(|top| {
+                    let mut stack = top.borrow_mut();
+                    stack.push(current);
+                })
+            }
+            *current = Some(shared.clone());
+        });
+        Self {
+            shared
+        }
     }
 
     /// Gets the assertions associated with this Epoch (not including assertions
     /// from when sub-epochs are alive or from before the this Epoch was
     /// created)
     pub fn assertions(&self) -> Assertions {
-        let mut res = Assertions::new();
-        let mut found = false;
-        EPOCH_DATA_TOP.with(|top| {
-            let top = top.borrow();
-            if top.data.key == self.key {
-                res = top.data.assertions.clone();
-                found = true;
-            }
-        });
-        if !found {
-            EPOCH_DATA_STACK.with(|stack| {
-                let stack = stack.borrow();
-                for (i, layer) in stack.iter().enumerate().rev() {
-                    if layer.key == self.key {
-                        res = layer.assertions.clone();
-                        break
-                    }
-                    if i == 0 {
-                        // shouldn't be reachable even with leaks
-                        unreachable!();
-                    }
-                }
-            });
-        }
-        res
+        self.shared.assertions()
     }
 
-    pub fn clone_ensemble(&self) -> Ensemble {
-        EPOCH_DATA_TOP.with(|top| top.borrow().ensemble.clone())
+    pub fn ensemble(&self) -> Ensemble {
+        self.shared.ensemble()
     }
 }

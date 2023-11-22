@@ -5,7 +5,7 @@ use awint::{
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{awi, epoch::get_ensemble_mut};
+use crate::{awi,};
 
 pub struct EvalAwi {
     state: dag::Awi,
@@ -33,30 +33,23 @@ impl EvalAwi {
     }
 
     pub fn eval(&mut self) -> Result<awi::Awi, EvalError> {
-        let nzbw = self.nzbw();
+        /*let nzbw = self.nzbw();
         // DFS from leaf to roots
-        get_ensemble_mut(|ensemble| {
-            let p_self = self.state();
-            ensemble.initialize_state_bits_if_needed(p_self).unwrap();
-            let mut res = awi::Awi::zero(nzbw);
-            for i in 0..res.bw() {
-                let bit = ensemble.states.get(p_self).unwrap().p_self_bits[i];
-                let val = ensemble.request_value(bit)?;
-                if let Some(val) = val.known_value() {
-                    res.set(i, val).unwrap();
-                } else {
-                    return Err(EvalError::OtherStr("could not eval bit to known value"))
-                }
+        let current = get_current_epoch().unwrap();
+        let p_self = self.state();
+        current.data.ensemble.lock().unwrap().initialize_state_bits_if_needed(p_self).unwrap();
+        let mut res = awi::Awi::zero(nzbw);
+        for i in 0..res.bw() {
+            let bit = current.data.ensemble.lock().unwrap().states.get(p_self).unwrap().p_self_bits[i];
+            let val = current.data.ensemble.lock().unwrap().request_value(bit)?;
+            if let Some(val) = val.known_value() {
+                res.set(i, val).unwrap();
+            } else {
+                return Err(EvalError::OtherStr("could not eval bit to known value"))
             }
-            Ok(res)
-        })
-    }
-
-    pub fn _internal_init(&mut self) {
-        let p_lhs = self.state();
-        get_ensemble_mut(|ensemble| {
-            ensemble.initialize_state_bits_if_needed(p_lhs).unwrap();
-        })
+        }
+        Ok(res)*/
+        todo!()
     }
 
     pub fn zero(w: NonZeroUsize) -> Self {

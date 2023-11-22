@@ -10,7 +10,7 @@ use awint::{
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{awi, ensemble::Value, epoch::get_ensemble_mut};
+use crate::{awi, ensemble::Value};
 
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
 // type
@@ -70,31 +70,27 @@ impl LazyAwi {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&mut self, rhs: &awi::Bits) -> Option<()> {
+        /*
         let p_lhs = self.state();
-        get_ensemble_mut(|ensemble| {
-            if let Some(lhs) = ensemble.states.get(p_lhs) {
-                if lhs.nzbw != rhs.nzbw() {
-                    return None
-                }
+        let current = get_current_epoch().unwrap();
+        if let Some(lhs) = current.data.ensemble.lock().unwrap().states.get(p_lhs) {
+            if lhs.nzbw != rhs.nzbw() {
+                return None
             }
-            // initialize if needed
-            ensemble.initialize_state_bits_if_needed(p_lhs).unwrap();
-            if let Some(lhs) = ensemble.states.get_mut(p_lhs) {
-                for i in 0..rhs.bw() {
-                    let p_bit = lhs.p_self_bits[i];
-                    let bit = ensemble.backrefs.get_val_mut(p_bit).unwrap();
-                    bit.val = Value::Dynam(rhs.get(i).unwrap());
-                }
+        }
+        // initialize if needed
+        current.data.ensemble.lock().unwrap().initialize_state_bits_if_needed(p_lhs).unwrap();
+        if let Some(lhs) = current.data.ensemble.lock().unwrap().states.get_mut(p_lhs) {
+            for i in 0..rhs.bw() {
+                let p_bit = lhs.p_self_bits[i];
+                let mut lock = current.data.ensemble.lock().unwrap();
+                let bit = lock.backrefs.get_val_mut(p_bit).unwrap();
+                bit.val = Value::Dynam(rhs.get(i).unwrap());
             }
-            Some(())
-        })
-    }
-
-    pub fn _internal_init(&mut self) {
-        let p_lhs = self.state();
-        get_ensemble_mut(|ensemble| {
-            ensemble.initialize_state_bits_if_needed(p_lhs).unwrap();
-        })
+        }
+        Some(())
+        */
+        todo!()
     }
 }
 
