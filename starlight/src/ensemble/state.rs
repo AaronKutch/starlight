@@ -170,7 +170,6 @@ impl Ensemble {
             loop {
                 let (i, p_state) = path[path.len() - 1];
                 let state = &self.states[p_state];
-                let nzbw = state.nzbw;
                 let ops = state.op.operands();
                 if ops.is_empty() {
                     // reached a root
@@ -183,7 +182,7 @@ impl Ensemble {
                     // checked all sources
                     match self.states[p_state].op {
                         Copy(_) | StaticGet(..) | StaticSet(..) | StaticLut(..) | Opaque(..) => (),
-                        ref op => {
+                        _ => {
                             self.lower_state(p_state).unwrap();
                         }
                     }
