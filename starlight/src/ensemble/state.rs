@@ -150,7 +150,65 @@ impl Ensemble {
         Ok(())
     }
 
+    /// Lowers the rootward tree from `p_state` down to `TNode`s
     pub fn dfs_lower(&mut self, p_state: PState) -> Result<(), EvalError> {
+        self.dfs_lower_states_to_elementary(p_state).unwrap();
+        self.dfs_lower_elementary_to_tnodes(p_state).unwrap();
+        Ok(())
+    }
+
+    /// Lowers the rootward tree from `p_state` down to the elementary `Op`s
+    pub fn dfs_lower_states_to_elementary(&mut self, p_state: PState) -> Result<(), EvalError> {
+        let mut state_list = vec![p_state];
+        let visit = NonZeroU64::new(self.lower_visit.get().checked_add(1).unwrap()).unwrap();
+        self.lower_visit = visit;
+        while let Some(leaf) = state_list.pop() {
+            if self.states[leaf].lower_visit == visit {
+                continue
+            }
+            let mut path: Vec<(usize, PState)> = vec![(0, leaf)];
+            loop {
+                let (i, p_state) = path[path.len() - 1];
+                let state = &self.states[p_state];
+                let nzbw = state.nzbw;
+                let ops = state.op.operands();
+                if ops.is_empty() {
+                    // reached a root
+                    path.pop().unwrap();
+                    if path.is_empty() {
+                        break
+                    }
+                    path.last_mut().unwrap().0 += 1;
+                } else if i >= ops.len() {
+                    // checked all sources
+                    match self.states[p_state].op {
+                        Copy(_) | StaticGet(..) | StaticSet(..) | StaticLut(..) | Opaque(..) => (),
+                        ref op => {
+                            self.lower_state(p_state).unwrap();
+                        }
+                    }
+                    path.pop().unwrap();
+                    if path.is_empty() {
+                        break
+                    }
+                } else {
+                    let p_next = ops[i];
+                    if self.states[p_next].lower_visit == visit {
+                        // do not visit
+                        path.last_mut().unwrap().0 += 1;
+                    } else {
+                        self.states[p_next].lower_visit = visit;
+                        path.push((0, p_next));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Assuming that the rootward tree from `p_state` is lowered down to the
+    /// elementary `Op`s, this will create the `TNode` network
+    pub fn dfs_lower_elementary_to_tnodes(&mut self, p_state: PState) -> Result<(), EvalError> {
         let mut state_list = vec![p_state];
         let visit = NonZeroU64::new(self.lower_visit.get().checked_add(1).unwrap()).unwrap();
         self.lower_visit = visit;
