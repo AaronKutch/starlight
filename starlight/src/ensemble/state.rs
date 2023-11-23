@@ -3,6 +3,7 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use awint::awint_dag::{
     lowering::{lower_state, LowerManagement},
     smallvec::SmallVec,
+    triple_arena::Arena,
     EvalError, Location,
     Op::{self, *},
     PState,
@@ -33,7 +34,40 @@ pub struct State {
     pub lowered: bool,
 }
 
-impl Ensemble {
+#[derive(Debug, Clone)]
+pub struct Stator {
+    pub states: Arena<PState, State>,
+    pub states_to_remove: Vec<PState>,
+    pub states_to_lower: Vec<PState>,
+    pub lower_visit: NonZeroU64,
+}
+
+impl Stator {
+    pub fn new() -> Self {
+        Self {
+            states: Arena::new(),
+            states_to_remove: vec![],
+            states_to_lower: vec![],
+            lower_visit: NonZeroU64::new(2).unwrap(),
+        }
+    }
+
+    pub fn dec_rc(&mut self, p_state: PState) -> Result<(), EvalError> {
+        if let Some(state) = self.states.get_mut(p_state) {
+            state.rc = if let Some(x) = state.rc.checked_sub(1) {
+                x
+            } else {
+                return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
+            };
+            if (state.rc == 0) && (!state.keep) {
+                self.states_to_remove.push(p_state);
+            }
+            Ok(())
+        } else {
+            Err(EvalError::InvalidPtr)
+        }
+    }
+
     /// Used for forbidden meta psuedo-DSL techniques in which a single state is
     /// replaced by more basic states.
     pub fn graft(&mut self, p_state: PState, operands: &[PState]) -> Result<(), EvalError> {
@@ -100,6 +134,7 @@ impl Ensemble {
                     .lock()
                     .unwrap()
                     .ensemble
+                    .stator
                     .graft(self.ptr, operands)
                     .unwrap()
             }
@@ -110,6 +145,7 @@ impl Ensemble {
                     .lock()
                     .unwrap()
                     .ensemble
+                    .stator
                     .states
                     .get(p)
                     .unwrap()
@@ -122,6 +158,7 @@ impl Ensemble {
                     .lock()
                     .unwrap()
                     .ensemble
+                    .stator
                     .states
                     .get(p)
                     .unwrap()
@@ -136,6 +173,7 @@ impl Ensemble {
                     .lock()
                     .unwrap()
                     .ensemble
+                    .stator
                     .states
                     .get(p)
                     .unwrap()
@@ -157,6 +195,7 @@ impl Ensemble {
                     .lock()
                     .unwrap()
                     .ensemble
+                    .stator
                     .states
                     .get(p)
                     .unwrap()
@@ -177,12 +216,13 @@ impl Ensemble {
                     .lock()
                     .unwrap()
                     .ensemble
+                    .stator
                     .dec_rc(p)
                     .unwrap()
             }
         }
         let lock = epoch_shared.epoch_data.lock().unwrap();
-        let state = lock.ensemble.states.get(p_state).unwrap();
+        let state = lock.ensemble.stator.states.get(p_state).unwrap();
         let start_op = state.op.clone();
         let out_w = state.nzbw;
         drop(lock);
@@ -193,9 +233,102 @@ impl Ensemble {
         Ok(())
     }
 
+    /// Lowers the rootward tree from `p_state` down to the elementary `Op`s
+    pub fn dfs_lower_states_to_elementary(
+        epoch_shared: &EpochShared,
+        p_state: PState,
+    ) -> Result<(), EvalError> {
+        let mut state_list = vec![p_state];
+        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+        let visit = NonZeroU64::new(
+            lock.ensemble
+                .stator
+                .lower_visit
+                .get()
+                .checked_add(1)
+                .unwrap(),
+        )
+        .unwrap();
+        lock.ensemble.stator.lower_visit = visit;
+        drop(lock);
+        while let Some(leaf) = state_list.pop() {
+            let lock = epoch_shared.epoch_data.lock().unwrap();
+            if lock.ensemble.stator.states[leaf].lower_visit == visit {
+                drop(lock);
+                continue
+            }
+            drop(lock);
+            let mut path: Vec<(usize, PState)> = vec![(0, leaf)];
+            loop {
+                let (i, p_state) = path[path.len() - 1];
+                let mut lock = epoch_shared.epoch_data.lock().unwrap();
+                let state = &lock.ensemble.stator.states[p_state];
+                let ops = state.op.operands();
+                if ops.is_empty() {
+                    // reached a root
+                    path.pop().unwrap();
+                    if path.is_empty() {
+                        break
+                    }
+                    path.last_mut().unwrap().0 += 1;
+                } else if i >= ops.len() {
+                    // checked all sources
+                    match lock.ensemble.stator.states[p_state].op {
+                        Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
+                        | StaticLut(..) => drop(lock),
+                        Lut([lut, inx]) => {
+                            if let Op::Literal(awi) = lock.ensemble.stator.states[lut].op.take() {
+                                lock.ensemble.stator.states[p_state].op = StaticLut([inx], awi);
+                                lock.ensemble.stator.dec_rc(lut).unwrap();
+                            }
+                            drop(lock)
+                        }
+                        Get([bits, inx]) => {
+                            if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
+                                lock.ensemble.stator.states[p_state].op =
+                                    StaticGet([bits], lit.to_usize());
+                                lock.ensemble.stator.dec_rc(inx).unwrap();
+                            }
+                            drop(lock)
+                        }
+                        Set([bits, inx, bit]) => {
+                            if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
+                                lock.ensemble.stator.states[p_state].op =
+                                    StaticSet([bits, bit], lit.to_usize());
+                                lock.ensemble.stator.dec_rc(inx).unwrap();
+                            }
+                            drop(lock)
+                        }
+                        _ => {
+                            drop(lock);
+                            Stator::lower_state(epoch_shared, p_state).unwrap();
+                        }
+                    }
+                    path.pop().unwrap();
+                    if path.is_empty() {
+                        break
+                    }
+                } else {
+                    let p_next = ops[i];
+                    if lock.ensemble.stator.states[p_next].lower_visit == visit {
+                        // do not visit
+                        path.last_mut().unwrap().0 += 1;
+                    } else {
+                        lock.ensemble.stator.states[p_next].lower_visit = visit;
+                        path.push((0, p_next));
+                    }
+                    drop(lock);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Ensemble {
     /// Lowers the rootward tree from `p_state` down to `TNode`s
     pub fn dfs_lower(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
-        Ensemble::dfs_lower_states_to_elementary(epoch_shared, p_state).unwrap();
+        Stator::dfs_lower_states_to_elementary(epoch_shared, p_state).unwrap();
         epoch_shared
             .epoch_data
             .lock()
@@ -208,109 +341,25 @@ impl Ensemble {
 
     // TODO `lower_tree` equivalent needs to have copy forwarding optimization
 
-    /// Lowers the rootward tree from `p_state` down to the elementary `Op`s
-    pub fn dfs_lower_states_to_elementary(
-        epoch_shared: &EpochShared,
-        p_state: PState,
-    ) -> Result<(), EvalError> {
-        let mut state_list = vec![p_state];
-        let mut lock = epoch_shared.epoch_data.lock().unwrap();
-        let visit =
-            NonZeroU64::new(lock.ensemble.lower_visit.get().checked_add(1).unwrap()).unwrap();
-        lock.ensemble.lower_visit = visit;
-        drop(lock);
-        while let Some(leaf) = state_list.pop() {
-            let lock = epoch_shared.epoch_data.lock().unwrap();
-            if lock.ensemble.states[leaf].lower_visit == visit {
-                drop(lock);
-                continue
-            }
-            drop(lock);
-            let mut path: Vec<(usize, PState)> = vec![(0, leaf)];
-            loop {
-                let (i, p_state) = path[path.len() - 1];
-                let mut lock = epoch_shared.epoch_data.lock().unwrap();
-                let state = &lock.ensemble.states[p_state];
-                let ops = state.op.operands();
-                if ops.is_empty() {
-                    // reached a root
-                    path.pop().unwrap();
-                    if path.is_empty() {
-                        break
-                    }
-                    path.last_mut().unwrap().0 += 1;
-                } else if i >= ops.len() {
-                    // checked all sources
-                    match lock.ensemble.states[p_state].op {
-                        Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
-                        | StaticLut(..) => drop(lock),
-                        Lut([lut, inx]) => {
-                            if let Op::Literal(awi) = lock.ensemble.states[lut].op.take() {
-                                lock.ensemble.states[p_state].op = StaticLut([inx], awi);
-                                lock.ensemble.dec_rc(lut).unwrap();
-                            }
-                            drop(lock)
-                        }
-                        Get([bits, inx]) => {
-                            if let Op::Literal(lit) = lock.ensemble.states[inx].op.take() {
-                                lock.ensemble.states[p_state].op =
-                                    StaticGet([bits], lit.to_usize());
-                                lock.ensemble.dec_rc(inx).unwrap();
-                            }
-                            drop(lock)
-                        }
-                        Set([bits, inx, bit]) => {
-                            if let Op::Literal(lit) = lock.ensemble.states[inx].op.take() {
-                                lock.ensemble.states[p_state].op =
-                                    StaticSet([bits, bit], lit.to_usize());
-                                lock.ensemble.dec_rc(inx).unwrap();
-                            }
-                            drop(lock)
-                        }
-                        _ => {
-                            drop(lock);
-                            Ensemble::lower_state(epoch_shared, p_state).unwrap();
-                        }
-                    }
-                    path.pop().unwrap();
-                    if path.is_empty() {
-                        break
-                    }
-                } else {
-                    let p_next = ops[i];
-                    if lock.ensemble.states[p_next].lower_visit == visit {
-                        // do not visit
-                        path.last_mut().unwrap().0 += 1;
-                    } else {
-                        lock.ensemble.states[p_next].lower_visit = visit;
-                        path.push((0, p_next));
-                    }
-                    drop(lock);
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Assuming that the rootward tree from `p_state` is lowered down to the
     /// elementary `Op`s, this will create the `TNode` network
     pub fn dfs_lower_elementary_to_tnodes(&mut self, p_state: PState) -> Result<(), EvalError> {
         let mut state_list = vec![p_state];
-        let visit = NonZeroU64::new(self.lower_visit.get().checked_add(1).unwrap()).unwrap();
-        self.lower_visit = visit;
+        let visit = NonZeroU64::new(self.stator.lower_visit.get().checked_add(1).unwrap()).unwrap();
+        self.stator.lower_visit = visit;
         while let Some(leaf) = state_list.pop() {
-            if self.states[leaf].lower_visit == visit {
+            if self.stator.states[leaf].lower_visit == visit {
                 continue
             }
             let mut path: Vec<(usize, PState)> = vec![(0, leaf)];
             loop {
                 let (i, p_state) = path[path.len() - 1];
-                let state = &self.states[p_state];
+                let state = &self.stator.states[p_state];
                 let nzbw = state.nzbw;
                 let ops = state.op.operands();
                 if ops.is_empty() {
                     // reached a root
-                    match self.states[p_state].op {
+                    match self.stator.states[p_state].op {
                         Literal(ref lit) => {
                             assert_eq!(lit.nzbw(), nzbw);
                             self.initialize_state_bits_if_needed(p_state);
@@ -334,48 +383,48 @@ impl Ensemble {
                     path.last_mut().unwrap().0 += 1;
                 } else if i >= ops.len() {
                     // checked all sources
-                    match self.states[p_state].op {
+                    match self.stator.states[p_state].op {
                         Copy([x]) => {
                             // this is the only foolproof way of doing this, at least without more
                             // branches
                             self.initialize_state_bits_if_needed(p_state);
-                            let len = self.states[p_state].p_self_bits.len();
-                            assert_eq!(len, self.states[x].p_self_bits.len());
+                            let len = self.stator.states[p_state].p_self_bits.len();
+                            assert_eq!(len, self.stator.states[x].p_self_bits.len());
                             for i in 0..len {
-                                let p_equiv0 = self.states[p_state].p_self_bits[i];
-                                let p_equiv1 = self.states[x].p_self_bits[i];
+                                let p_equiv0 = self.stator.states[p_state].p_self_bits[i];
+                                let p_equiv1 = self.stator.states[x].p_self_bits[i];
                                 self.union_equiv(p_equiv0, p_equiv1).unwrap();
                             }
                         }
                         StaticGet([bits], inx) => {
                             self.initialize_state_bits_if_needed(p_state);
-                            let p_self_bits = &self.states[p_state].p_self_bits;
+                            let p_self_bits = &self.stator.states[p_state].p_self_bits;
                             assert_eq!(p_self_bits.len(), 1);
                             let p_equiv0 = p_self_bits[0];
-                            let p_equiv1 = self.states[bits].p_self_bits[inx];
+                            let p_equiv1 = self.stator.states[bits].p_self_bits[inx];
                             self.union_equiv(p_equiv0, p_equiv1).unwrap();
                         }
                         StaticSet([bits, bit], inx) => {
                             self.initialize_state_bits_if_needed(p_state);
-                            let len = self.states[p_state].p_self_bits.len();
-                            assert_eq!(len, self.states[bits].p_self_bits.len());
+                            let len = self.stator.states[p_state].p_self_bits.len();
+                            assert_eq!(len, self.stator.states[bits].p_self_bits.len());
                             for i in 0..len {
-                                let p_equiv0 = self.states[p_state].p_self_bits[i];
-                                let p_equiv1 = self.states[bits].p_self_bits[i];
+                                let p_equiv0 = self.stator.states[p_state].p_self_bits[i];
+                                let p_equiv1 = self.stator.states[bits].p_self_bits[i];
                                 self.union_equiv(p_equiv0, p_equiv1).unwrap();
                             }
-                            let p_self_bits = &self.states[bit].p_self_bits;
+                            let p_self_bits = &self.stator.states[bit].p_self_bits;
                             assert_eq!(p_self_bits.len(), 1);
                             let p_equiv0 = p_self_bits[0];
-                            let p_equiv1 = self.states[p_state].p_self_bits[inx];
+                            let p_equiv1 = self.stator.states[p_state].p_self_bits[inx];
                             self.union_equiv(p_equiv0, p_equiv1).unwrap();
                         }
                         StaticLut([inx], ref table) => {
                             let table = table.clone();
                             self.initialize_state_bits_if_needed(p_state);
-                            let inx_bits = self.states[inx].p_self_bits.clone();
+                            let inx_bits = self.stator.states[inx].p_self_bits.clone();
                             let inx_len = inx_bits.len();
-                            let out_bw = self.states[p_state].p_self_bits.len();
+                            let out_bw = self.stator.states[p_state].p_self_bits.len();
                             let num_entries = 1 << inx_len;
                             assert_eq!(out_bw * num_entries, table.bw());
                             // convert from multiple out to single out bit lut
@@ -392,7 +441,7 @@ impl Ensemble {
                                     val
                                 };
                                 let p_equiv0 = self.make_lut(&inx_bits, &single_bit_table).unwrap();
-                                let p_equiv1 = self.states[p_state].p_self_bits[bit_i];
+                                let p_equiv1 = self.stator.states[p_state].p_self_bits[bit_i];
                                 self.union_equiv(p_equiv0, p_equiv1).unwrap();
                             }
                         }
@@ -405,8 +454,8 @@ impl Ensemble {
                                 }
                                 let v0 = v[0];
                                 let v1 = v[1];
-                                let w = self.states[v0].p_self_bits.len();
-                                if w != self.states[v1].p_self_bits.len() {
+                                let w = self.stator.states[v0].p_self_bits.len();
+                                if w != self.stator.states[v1].p_self_bits.len() {
                                     return Err(EvalError::OtherStr(
                                         "LoopHandle `Opaque` has a bitwidth mismatch of looper \
                                          and driver",
@@ -417,8 +466,8 @@ impl Ensemble {
                                 // LoopHandle Opaque references the first with `p_looper` and
                                 // supplies a driver.
                                 for i in 0..w {
-                                    let p_looper = self.states[v0].p_self_bits[i];
-                                    let p_driver = self.states[v1].p_self_bits[i];
+                                    let p_looper = self.stator.states[v0].p_self_bits[i];
+                                    let p_driver = self.stator.states[v1].p_self_bits[i];
                                     self.make_loop(p_looper, p_driver, Value::Dynam(false))
                                         .unwrap();
                                 }
@@ -440,11 +489,11 @@ impl Ensemble {
                     }
                 } else {
                     let p_next = ops[i];
-                    if self.states[p_next].lower_visit == visit {
+                    if self.stator.states[p_next].lower_visit == visit {
                         // do not visit
                         path.last_mut().unwrap().0 += 1;
                     } else {
-                        self.states[p_next].lower_visit = visit;
+                        self.stator.states[p_next].lower_visit = visit;
                         path.push((0, p_next));
                     }
                 }

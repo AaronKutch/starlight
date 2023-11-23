@@ -201,6 +201,7 @@ pub fn _callback() -> EpochCallback {
                 .lock()
                 .unwrap()
                 .ensemble
+                .stator
                 .states
                 .get(p_state)
                 .unwrap()
@@ -214,6 +215,7 @@ pub fn _callback() -> EpochCallback {
                 .lock()
                 .unwrap()
                 .ensemble
+                .stator
                 .states
                 .get(p_state)
                 .unwrap()

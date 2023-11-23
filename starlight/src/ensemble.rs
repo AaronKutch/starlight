@@ -9,7 +9,7 @@ mod value;
 
 pub use note::Note;
 pub use optimize::Optimizer;
-pub use state::State;
+pub use state::{State, Stator};
 pub use tnode::{PTNode, TNode};
 pub use together::{Ensemble, Equiv, PBack, Referent};
 pub use value::{Evaluator, Value};

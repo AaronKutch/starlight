@@ -161,7 +161,7 @@ impl Evaluator {
         let mut lock = epoch_shared.epoch_data.lock().unwrap();
         let ensemble = &mut lock.ensemble;
         ensemble.initialize_state_bits_if_needed(p_state).unwrap();
-        let state = ensemble.states.get(p_state).unwrap();
+        let state = ensemble.stator.states.get(p_state).unwrap();
         let p_back = *state.p_self_bits.get(bit_i).unwrap();
         if let Some(equiv) = ensemble.backrefs.get_val_mut(p_back) {
             // switch to request phase
@@ -332,7 +332,7 @@ impl Ensemble {
         loop {
             loop {
                 let mut lock = epoch_shared.epoch_data.lock().unwrap();
-                if let Some(p_state) = lock.ensemble.states_to_lower.pop() {
+                if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
                     drop(lock);
                     Ensemble::dfs_lower(&epoch_shared, p_state).unwrap();
                 } else {
@@ -341,9 +341,12 @@ impl Ensemble {
             }
             let mut lock = epoch_shared.epoch_data.lock().unwrap();
             if lock.ensemble.evaluator.evaluations.is_empty()
-                && lock.ensemble.states_to_lower.is_empty()
+                && lock.ensemble.stator.states_to_lower.is_empty()
             {
                 break
+            }
+            while let Some(p_state) = lock.ensemble.stator.states_to_remove.pop() {
+                lock.ensemble.remove_state(p_state).unwrap();
             }
             if let Some(p_eval) = lock.ensemble.evaluator.evaluations.min() {
                 lock.ensemble.evaluate(p_eval);
@@ -445,7 +448,7 @@ impl Ensemble {
         }
         if !saw_tnode {
             if let Some(p_state) = saw_state {
-                self.states_to_lower.push(p_state);
+                self.stator.states_to_lower.push(p_state);
             }
         }
         for eval in insert_if_no_early_exit {

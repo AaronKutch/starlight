@@ -9,7 +9,7 @@ use awint::{
     Awi, Bits,
 };
 
-use super::{value::Evaluator, Optimizer};
+use super::{value::Evaluator, Optimizer, Stator};
 use crate::{
     ensemble::{Note, PTNode, State, TNode, Value},
     triple_arena::{ptr_struct, Arena, SurjectArena},
@@ -61,9 +61,7 @@ pub enum Referent {
 pub struct Ensemble {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
     pub notes: Arena<PNote, Note>,
-    pub states: Arena<PState, State>,
-    pub states_to_lower: Vec<PState>,
-    pub lower_visit: NonZeroU64,
+    pub stator: Stator,
     pub tnodes: Arena<PTNode, TNode>,
     pub evaluator: Evaluator,
     pub optimizer: Optimizer,
@@ -74,9 +72,7 @@ impl Ensemble {
         Self {
             backrefs: SurjectArena::new(),
             notes: Arena::new(),
-            states: Arena::new(),
-            states_to_lower: vec![],
-            lower_visit: NonZeroU64::new(2).unwrap(),
+            stator: Stator::new(),
             tnodes: Arena::new(),
             evaluator: Evaluator::new(),
             optimizer: Optimizer::new(),
@@ -128,7 +124,7 @@ impl Ensemble {
                 )))
             }
         }
-        for (p_state, state) in &self.states {
+        for (p_state, state) in &self.stator.states {
             for (inx, p_self_bit) in state.p_self_bits.iter().enumerate() {
                 if let Some(Referent::ThisStateBit(p_self, inx_self)) =
                     self.backrefs.get_key(*p_self_bit)
@@ -233,7 +229,7 @@ impl Ensemble {
                     p_back != tnode.p_self
                 }
                 Referent::ThisStateBit(p_state, inx) => {
-                    let state = self.states.get(*p_state).unwrap();
+                    let state = self.stator.states.get(*p_state).unwrap();
                     let p_bit = state.p_self_bits.get(*inx).unwrap();
                     *p_bit != p_back
                 }
@@ -305,10 +301,10 @@ impl Ensemble {
         keep: bool,
     ) -> PState {
         for operand in op.operands() {
-            let state = self.states.get_mut(*operand).unwrap();
+            let state = self.stator.states.get_mut(*operand).unwrap();
             state.rc = state.rc.checked_add(1).unwrap();
         }
-        self.states.insert(State {
+        self.stator.states.insert(State {
             nzbw,
             p_self_bits: SmallVec::new(),
             op,
@@ -324,7 +320,7 @@ impl Ensemble {
     /// `Referent::ThisStateBits`s needed for every self bit. Sets the values to
     /// a constant if the `Op` is a `Literal`, otherwise sets to unknown.
     pub fn initialize_state_bits_if_needed(&mut self, p_state: PState) -> Option<()> {
-        let state = self.states.get(p_state)?;
+        let state = self.stator.states.get(p_state)?;
         if !state.p_self_bits.is_empty() {
             return Some(())
         }
@@ -345,7 +341,7 @@ impl Ensemble {
                     .unwrap(),
             );
         }
-        let state = self.states.get_mut(p_state).unwrap();
+        let state = self.stator.states.get_mut(p_state).unwrap();
         state.p_self_bits = bits;
         Some(())
     }
@@ -479,44 +475,29 @@ impl Ensemble {
         let mut pstate_stack = vec![p_state];
         while let Some(p) = pstate_stack.pop() {
             let mut delete = false;
-            if let Some(state) = self.states.get(p) {
+            if let Some(state) = self.stator.states.get(p) {
                 if (state.rc == 0) && !state.keep {
                     delete = true;
                 }
             }
             if delete {
-                for i in 0..self.states[p].op.operands_len() {
-                    let op = self.states[p].op.operands()[i];
-                    self.states[op].rc = if let Some(x) = self.states[op].rc.checked_sub(1) {
-                        x
-                    } else {
-                        return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
-                    };
+                for i in 0..self.stator.states[p].op.operands_len() {
+                    let op = self.stator.states[p].op.operands()[i];
+                    self.stator.states[op].rc =
+                        if let Some(x) = self.stator.states[op].rc.checked_sub(1) {
+                            x
+                        } else {
+                            return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
+                        };
                     pstate_stack.push(op);
                 }
-                let mut state = self.states.remove(p_state).unwrap();
+                let mut state = self.stator.states.remove(p_state).unwrap();
                 for p_self_state in state.p_self_bits.drain(..) {
                     self.backrefs.remove_key(p_self_state).unwrap();
                 }
             }
         }
         Ok(())
-    }
-
-    pub fn dec_rc(&mut self, p_state: PState) -> Result<(), EvalError> {
-        if let Some(state) = self.states.get_mut(p_state) {
-            state.rc = if let Some(x) = state.rc.checked_sub(1) {
-                x
-            } else {
-                return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
-            };
-            if (state.rc == 0) && (!state.keep) {
-                self.remove_state(p_state)?;
-            }
-            Ok(())
-        } else {
-            Err(EvalError::InvalidPtr)
-        }
     }
 
     pub fn drive_loops(&mut self) {
