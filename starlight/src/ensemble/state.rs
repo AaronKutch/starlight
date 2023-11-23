@@ -322,13 +322,13 @@ impl Ensemble {
     /// Lowers the rootward tree from `p_state` down to `TNode`s
     pub fn dfs_lower(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
         Stator::dfs_lower_states_to_elementary(epoch_shared, p_state).unwrap();
-        epoch_shared
+        let res = epoch_shared
             .epoch_data
             .lock()
             .unwrap()
             .ensemble
-            .dfs_lower_elementary_to_tnodes(p_state)
-            .unwrap();
+            .dfs_lower_elementary_to_tnodes(p_state);
+        res.unwrap();
         Ok(())
     }
 

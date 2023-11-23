@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use starlight::{awi, awint_dag::EvalError, dag::*, Epoch, EvalAwi, LazyAwi};
 
 fn _render(epoch: &Epoch) -> awi::Result<(), EvalError> {
-    epoch.render_to_svg_file(PathBuf::from("./ensemble.svg".to_owned()))
+    epoch.render_to_svgs_in_dir(PathBuf::from("./".to_owned()))
 }
 
 #[test]

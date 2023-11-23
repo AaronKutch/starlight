@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use awint::{
-    awint_dag::{EvalError, PNote, PState},
+    awint_dag::{EvalError, PNote, PState, Op},
     awint_macro_internals::triple_arena::Arena,
 };
 
@@ -11,6 +11,32 @@ use crate::{
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
     Epoch,
 };
+
+use super::State;
+
+impl DebugNodeTrait<PState> for State {
+    fn debug_node(p_this: PState, this: &Self) -> DebugNode<PState> {DebugNode {
+        sources: {
+            let mut v = vec![];
+            for i in 0..this.op.operands_len() {
+                v.push((this.op.operands()[i], this.op.operand_names()[i].to_owned()))
+            }
+            v
+        },
+        center: {
+            let mut v = vec![format!("{:?}", p_this)];
+            if let Op::Literal(ref lit) = this.op {
+                v.push(format!("{} {}", this.nzbw, lit));
+            } else {
+                v.push(format!("{} {}", this.nzbw, this.op.operation_name()));
+            }
+            v.push(format!("{} {} {}", this.rc, this.lowered_to_elementary, this.lowered_to_tnodes));
+            v
+        },
+        sinks: vec![],
+    }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct StateBit {
@@ -148,9 +174,25 @@ impl Ensemble {
         arena
     }
 
-    pub fn render_to_svg_file(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
+    pub fn render_to_svgs_in_dir(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
+        let dir = match out_file.canonicalize() {
+            Ok(o) => {
+                if !o.is_dir() {
+                    return Err(EvalError::OtherStr("need a directory not a file"));
+                }
+                o
+            },
+            Err(e) => {
+                return Err(EvalError::OtherString(format!("{e:?}")));
+            },
+        };
+        let mut ensemble_file = dir.clone();
+        ensemble_file.push("ensemble.svg");
+        let mut state_file = dir;
+        state_file.push("states.svg");
         let res = self.verify_integrity();
-        render_to_svg_file(&self.to_debug(), false, out_file).unwrap();
+        render_to_svg_file(&self.to_debug(), false, ensemble_file).unwrap();
+        render_to_svg_file(&self.stator.states, false, state_file).unwrap();
         res
     }
 }
@@ -166,7 +208,7 @@ impl Epoch {
         );
     }
 
-    pub fn render_to_svg_file(&self, out_file: PathBuf) -> Result<(), EvalError> {
-        self.ensemble().render_to_svg_file(out_file)
+    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), EvalError> {
+        self.ensemble().render_to_svgs_in_dir(out_file)
     }
 }
