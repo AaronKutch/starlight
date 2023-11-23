@@ -10,6 +10,7 @@ use awint::{
 
 use super::{PTNode, Referent, TNode};
 use crate::{
+    awi,
     ensemble::{Ensemble, PBack},
     epoch::{get_current_epoch, EpochShared},
 };
@@ -149,6 +150,34 @@ impl Evaluator {
 
     pub fn insert(&mut self, eval_step: Eval) {
         let _ = self.evaluations.insert(eval_step, ());
+    }
+
+    // stepping loops should request their drivers, evaluating everything requests
+    // everything
+    pub fn change_thread_local_state_value(
+        p_state: PState,
+        bits: &awi::Bits,
+    ) -> Result<(), EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+        let ensemble = &mut lock.ensemble;
+        let state = ensemble.stator.states.get(p_state).unwrap();
+        if state.nzbw != bits.nzbw() {
+            return Err(EvalError::WrongBitwidth);
+        }
+        // switch to change phase
+        if ensemble.evaluator.phase != EvalPhase::Change {
+            ensemble.evaluator.phase = EvalPhase::Change;
+            ensemble.evaluator.next_change_visit_gen();
+        }
+        ensemble.initialize_state_bits_if_needed(p_state).unwrap();
+        for bit_i in 0..bits.bw() {
+            let p_bit = ensemble.stator.states.get(p_state).unwrap().p_self_bits[bit_i];
+            ensemble
+                .change_value(p_bit, Value::Dynam(bits.get(bit_i).unwrap()))
+                .unwrap();
+        }
+        Ok(())
     }
 
     // stepping loops should request their drivers, evaluating everything requests

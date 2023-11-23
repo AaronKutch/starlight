@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
 use awint::{
-    awint_dag::{EvalError, PNote, PState, Op},
+    awint_dag::{EvalError, Op, PNote, PState},
     awint_macro_internals::triple_arena::Arena,
 };
 
+use super::State;
 use crate::{
     ensemble::{Ensemble, Equiv, PBack, Referent, TNode},
     triple_arena::{Advancer, ChainArena},
@@ -12,29 +13,31 @@ use crate::{
     Epoch,
 };
 
-use super::State;
-
 impl DebugNodeTrait<PState> for State {
-    fn debug_node(p_this: PState, this: &Self) -> DebugNode<PState> {DebugNode {
-        sources: {
-            let mut v = vec![];
-            for i in 0..this.op.operands_len() {
-                v.push((this.op.operands()[i], this.op.operand_names()[i].to_owned()))
-            }
-            v
-        },
-        center: {
-            let mut v = vec![format!("{:?}", p_this)];
-            if let Op::Literal(ref lit) = this.op {
-                v.push(format!("{} {}", this.nzbw, lit));
-            } else {
-                v.push(format!("{} {}", this.nzbw, this.op.operation_name()));
-            }
-            v.push(format!("{} {} {}", this.rc, this.lowered_to_elementary, this.lowered_to_tnodes));
-            v
-        },
-        sinks: vec![],
-    }
+    fn debug_node(p_this: PState, this: &Self) -> DebugNode<PState> {
+        DebugNode {
+            sources: {
+                let mut v = vec![];
+                for i in 0..this.op.operands_len() {
+                    v.push((this.op.operands()[i], this.op.operand_names()[i].to_owned()))
+                }
+                v
+            },
+            center: {
+                let mut v = vec![format!("{:?}", p_this)];
+                if let Op::Literal(ref lit) = this.op {
+                    v.push(format!("{} {}", this.nzbw, lit));
+                } else {
+                    v.push(format!("{} {}", this.nzbw, this.op.operation_name()));
+                }
+                v.push(format!(
+                    "{} {} {}",
+                    this.rc, this.lowered_to_elementary, this.lowered_to_tnodes
+                ));
+                v
+            },
+            sinks: vec![],
+        }
     }
 }
 
@@ -181,10 +184,10 @@ impl Ensemble {
                     return Err(EvalError::OtherStr("need a directory not a file"));
                 }
                 o
-            },
+            }
             Err(e) => {
                 return Err(EvalError::OtherString(format!("{e:?}")));
-            },
+            }
         };
         let mut ensemble_file = dir.clone();
         ensemble_file.push("ensemble.svg");

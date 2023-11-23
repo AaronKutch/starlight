@@ -10,7 +10,7 @@ use awint::{
     awint_internals::forward_debug_fmt,
 };
 
-use crate::awi;
+use crate::{awi, ensemble::Evaluator};
 
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
 // type
@@ -39,16 +39,24 @@ impl LazyAwi {
         self.nzbw().get()
     }
 
+    pub fn opaque(w: NonZeroUsize) -> Self {
+        Self {
+            opaque: dag::Awi::opaque(w),
+        }
+    }
+
     // TODO it probably does need to be an extra `Awi` in the `Opaque` variant
     /*pub fn from_bits(bits: &awi::Bits) -> Self {
         Self { opaque: dag::Awi::opaque(bits.nzbw()), lazy_value: Some(awi::Awi::from_bits(bits)) }
     }*/
 
-    pub fn zero(w: NonZeroUsize) -> Self {
-        Self {
+    /*pub fn zero(w: NonZeroUsize) -> Self {
+        let mut res = Self {
             opaque: dag::Awi::opaque(w),
-        }
-    }
+        };
+        //res.retro_(&awi!(zero: ..w.get()).unwrap()).unwrap();
+        res
+    }*/
 
     /*pub fn umax(w: NonZeroUsize) -> Self {
         Self::from_bits(&awi::Awi::umax(w))
@@ -69,28 +77,10 @@ impl LazyAwi {
     /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
-    pub fn retro_(&mut self, _rhs: &awi::Bits) -> Option<()> {
-        /*
+    pub fn retro_(&mut self, rhs: &awi::Bits) -> Option<()> {
         let p_lhs = self.state();
-        let current = get_current_epoch().unwrap();
-        if let Some(lhs) = current.data.ensemble.lock().unwrap().states.get(p_lhs) {
-            if lhs.nzbw != rhs.nzbw() {
-                return None
-            }
-        }
-        // initialize if needed
-        current.data.ensemble.lock().unwrap().initialize_state_bits_if_needed(p_lhs).unwrap();
-        if let Some(lhs) = current.data.ensemble.lock().unwrap().states.get_mut(p_lhs) {
-            for i in 0..rhs.bw() {
-                let p_bit = lhs.p_self_bits[i];
-                let mut lock = current.data.ensemble.lock().unwrap();
-                let bit = lock.backrefs.get_val_mut(p_bit).unwrap();
-                bit.val = Value::Dynam(rhs.get(i).unwrap());
-            }
-        }
+        Evaluator::change_thread_local_state_value(p_lhs, rhs).unwrap();
         Some(())
-        */
-        todo!()
     }
 }
 

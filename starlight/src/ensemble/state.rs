@@ -134,7 +134,14 @@ impl Stator {
         }
         impl<'a> LowerManagement<PState> for Tmp<'a> {
             fn graft(&mut self, operands: &[PState]) {
-                self.epoch_shared.epoch_data.lock().unwrap().ensemble.stator.graft(self.ptr, operands).unwrap();
+                self.epoch_shared
+                    .epoch_data
+                    .lock()
+                    .unwrap()
+                    .ensemble
+                    .stator
+                    .graft(self.ptr, operands)
+                    .unwrap();
             }
 
             fn get_nzbw(&self, p: PState) -> NonZeroUsize {
@@ -257,8 +264,7 @@ impl Stator {
                 path.last_mut().unwrap().0 += 1;
             } else if i >= ops.len() {
                 // checked all sources
-                let needs_lower =
-                match lock.ensemble.stator.states[p_state].op {
+                let needs_lower = match lock.ensemble.stator.states[p_state].op {
                     Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
                     | StaticLut(..) => false,
                     Lut([lut, inx]) => {
@@ -290,9 +296,7 @@ impl Stator {
                             true
                         }
                     }
-                    _ => {
-                        true
-                    }
+                    _ => true,
                 };
                 drop(lock);
                 if needs_lower {
