@@ -82,8 +82,8 @@ impl Stator {
                 return Err(EvalError::WrongNumberOfOperands)
             }
             for (i, op) in self.states[p_state].op.operands().iter().enumerate() {
-                let current_nzbw = operands[i + 1].get_nzbw();
-                let current_is_opaque = operands[i + 1].get_op().is_opaque();
+                let current_nzbw = self.states[operands[i + 1]].nzbw;
+                let current_is_opaque = self.states[operands[i + 1]].op.is_opaque();
                 if self.states[op].nzbw != current_nzbw {
                     return Err(EvalError::OtherString(format!(
                         "operand {}: a bitwidth of {:?} is trying to be grafted to a bitwidth of \
@@ -95,7 +95,7 @@ impl Stator {
                     return Err(EvalError::ExpectedOpaque)
                 }
             }
-            if self.states[p_state].nzbw != operands[0].get_nzbw() {
+            if self.states[p_state].nzbw != self.states[operands[0]].nzbw {
                 return Err(EvalError::WrongBitwidth)
             }
         }
@@ -134,14 +134,7 @@ impl Stator {
         }
         impl<'a> LowerManagement<PState> for Tmp<'a> {
             fn graft(&mut self, operands: &[PState]) {
-                self.epoch_shared
-                    .epoch_data
-                    .lock()
-                    .unwrap()
-                    .ensemble
-                    .stator
-                    .graft(self.ptr, operands)
-                    .unwrap()
+                self.epoch_shared.epoch_data.lock().unwrap().ensemble.stator.graft(self.ptr, operands).unwrap();
             }
 
             fn get_nzbw(&self, p: PState) -> NonZeroUsize {

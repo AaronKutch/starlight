@@ -357,7 +357,6 @@ impl Ensemble {
 
     fn evaluate(&mut self, p_eval: PEval) {
         let evaluation = self.evaluator.evaluations.remove(p_eval).unwrap().0;
-        dbg!(evaluation);
         match evaluation {
             Eval::Investigate0(depth, p_equiv) => self.eval_investigate0(p_equiv, depth),
             Eval::ChangeTNode(p_tnode) => {

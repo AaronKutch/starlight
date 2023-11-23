@@ -198,7 +198,6 @@ fn luts() {
                 let res = lut.get(test_input.to_usize()).unwrap();
                 if opt_res != res {
                     /*
-                    //dbg!(&t_dag);
                     println!("{:0b}", &opaque_set);
                     println!("{:0b}", &test_input);
                     println!("{:0b}", &lut);
