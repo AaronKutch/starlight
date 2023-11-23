@@ -25,6 +25,9 @@ pub struct State {
     pub op: Op<PState>,
     /// Location where this state is derived from
     pub location: Option<Location>,
+    /// The number of other `State`s, and only other `State`s, that reference
+    /// this one through the `Op`s
+    pub rc: usize,
     pub lower_visit: NonZeroU64,
     pub keep: bool,
     pub lowered: bool,
@@ -68,14 +71,17 @@ impl Ensemble {
                 // of needing to change all the operands of potentially many nodes
                 grafted.op = Copy([graftee]);
             } else {
-                // dec graftee rc
+                // else the operand is not used because it was optimized away, this is removing
+                // a tree outside of the grafted part
+                self.dec_rc(graftee).unwrap();
             }
         }
 
         // graft output
         let grafted = operands[0];
         self.states.get_mut(p_state).unwrap().op = Copy([grafted]);
-        // dec grafted rc?
+        self.states[grafted].rc = self.states[grafted].rc.checked_add(1).unwrap();
+        // TODO there are decrements I am missing dec grafted rc?
 
         Ok(())
     }
@@ -165,8 +171,14 @@ impl Ensemble {
                 }
             }
 
-            fn dec_rc(&mut self, _p: PState) {
-                //
+            fn dec_rc(&mut self, p: PState) {
+                self.epoch_shared
+                    .epoch_data
+                    .lock()
+                    .unwrap()
+                    .ensemble
+                    .dec_rc(p)
+                    .unwrap()
             }
         }
         let lock = epoch_shared.epoch_data.lock().unwrap();
@@ -194,6 +206,8 @@ impl Ensemble {
         Ok(())
     }
 
+    // TODO `lower_tree` equivalent needs to have copy forwarding optimization
+
     /// Lowers the rootward tree from `p_state` down to the elementary `Op`s
     pub fn dfs_lower_states_to_elementary(
         epoch_shared: &EpochShared,
@@ -206,13 +220,17 @@ impl Ensemble {
         lock.ensemble.lower_visit = visit;
         drop(lock);
         while let Some(leaf) = state_list.pop() {
-            if epoch_shared.epoch_data.lock().unwrap().ensemble.states[leaf].lower_visit == visit {
+            let lock = epoch_shared.epoch_data.lock().unwrap();
+            if lock.ensemble.states[leaf].lower_visit == visit {
+                drop(lock);
                 continue
             }
+            drop(lock);
             let mut path: Vec<(usize, PState)> = vec![(0, leaf)];
             loop {
                 let (i, p_state) = path[path.len() - 1];
-                let state = &epoch_shared.epoch_data.lock().unwrap().ensemble.states[p_state];
+                let mut lock = epoch_shared.epoch_data.lock().unwrap();
+                let state = &lock.ensemble.states[p_state];
                 let ops = state.op.operands();
                 if ops.is_empty() {
                     // reached a root
@@ -223,9 +241,32 @@ impl Ensemble {
                     path.last_mut().unwrap().0 += 1;
                 } else if i >= ops.len() {
                     // checked all sources
-                    let lock = epoch_shared.epoch_data.lock().unwrap();
                     match lock.ensemble.states[p_state].op {
-                        Copy(_) | StaticGet(..) | StaticSet(..) | StaticLut(..) | Opaque(..) => (),
+                        Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
+                        | StaticLut(..) => drop(lock),
+                        Lut([lut, inx]) => {
+                            if let Op::Literal(awi) = lock.ensemble.states[lut].op.take() {
+                                lock.ensemble.states[p_state].op = StaticLut([inx], awi);
+                                lock.ensemble.dec_rc(lut).unwrap();
+                            }
+                            drop(lock)
+                        }
+                        Get([bits, inx]) => {
+                            if let Op::Literal(lit) = lock.ensemble.states[inx].op.take() {
+                                lock.ensemble.states[p_state].op =
+                                    StaticGet([bits], lit.to_usize());
+                                lock.ensemble.dec_rc(inx).unwrap();
+                            }
+                            drop(lock)
+                        }
+                        Set([bits, inx, bit]) => {
+                            if let Op::Literal(lit) = lock.ensemble.states[inx].op.take() {
+                                lock.ensemble.states[p_state].op =
+                                    StaticSet([bits, bit], lit.to_usize());
+                                lock.ensemble.dec_rc(inx).unwrap();
+                            }
+                            drop(lock)
+                        }
                         _ => {
                             drop(lock);
                             Ensemble::lower_state(epoch_shared, p_state).unwrap();
@@ -237,16 +278,14 @@ impl Ensemble {
                     }
                 } else {
                     let p_next = ops[i];
-                    if epoch_shared.epoch_data.lock().unwrap().ensemble.states[p_next].lower_visit
-                        == visit
-                    {
+                    if lock.ensemble.states[p_next].lower_visit == visit {
                         // do not visit
                         path.last_mut().unwrap().0 += 1;
                     } else {
-                        epoch_shared.epoch_data.lock().unwrap().ensemble.states[p_next]
-                            .lower_visit = visit;
+                        lock.ensemble.states[p_next].lower_visit = visit;
                         path.push((0, p_next));
                     }
+                    drop(lock);
                 }
             }
         }

@@ -153,7 +153,10 @@ impl Evaluator {
 
     // stepping loops should request their drivers, evaluating everything requests
     // everything
-    pub fn thread_local_state_value(p_state: PState, bit_i: usize) -> Result<Value, EvalError> {
+    pub fn calculate_thread_local_state_value(
+        p_state: PState,
+        bit_i: usize,
+    ) -> Result<Value, EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         let mut lock = epoch_shared.epoch_data.lock().unwrap();
         let ensemble = &mut lock.ensemble;
@@ -327,15 +330,14 @@ impl Ensemble {
         // code.
 
         loop {
-            while let Some(p_state) = epoch_shared
-                .epoch_data
-                .lock()
-                .unwrap()
-                .ensemble
-                .states_to_lower
-                .pop()
-            {
-                Ensemble::dfs_lower(&epoch_shared, p_state).unwrap();
+            loop {
+                let mut lock = epoch_shared.epoch_data.lock().unwrap();
+                if let Some(p_state) = lock.ensemble.states_to_lower.pop() {
+                    drop(lock);
+                    Ensemble::dfs_lower(&epoch_shared, p_state).unwrap();
+                } else {
+                    break
+                }
             }
             let mut lock = epoch_shared.epoch_data.lock().unwrap();
             if lock.ensemble.evaluator.evaluations.is_empty()

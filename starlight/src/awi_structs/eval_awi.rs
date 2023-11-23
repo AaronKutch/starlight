@@ -5,10 +5,7 @@ use awint::{
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{
-    awi,
-    ensemble::{Evaluator, Value},
-};
+use crate::{awi, ensemble::Evaluator};
 
 pub struct EvalAwi {
     state: dag::Awi,
@@ -40,7 +37,7 @@ impl EvalAwi {
         let p_self = self.state();
         let mut res = awi::Awi::zero(nzbw);
         for bit_i in 0..res.bw() {
-            let val = Evaluator::thread_local_state_value(p_self, bit_i)?;
+            let val = Evaluator::calculate_thread_local_state_value(p_self, bit_i)?;
             if let Some(val) = val.known_value() {
                 res.set(bit_i, val).unwrap();
             } else {

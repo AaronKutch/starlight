@@ -10,7 +10,7 @@ use awint::{
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{awi, ensemble::Value};
+use crate::awi;
 
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
 // type
@@ -69,7 +69,7 @@ impl LazyAwi {
     /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
-    pub fn retro_(&mut self, rhs: &awi::Bits) -> Option<()> {
+    pub fn retro_(&mut self, _rhs: &awi::Bits) -> Option<()> {
         /*
         let p_lhs = self.state();
         let current = get_current_epoch().unwrap();

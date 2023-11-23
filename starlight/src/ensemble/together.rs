@@ -304,11 +304,16 @@ impl Ensemble {
         location: Option<Location>,
         keep: bool,
     ) -> PState {
+        for operand in op.operands() {
+            let state = self.states.get_mut(*operand).unwrap();
+            state.rc = state.rc.checked_add(1).unwrap();
+        }
         self.states.insert(State {
             nzbw,
             p_self_bits: SmallVec::new(),
             op,
             location,
+            rc: 0,
             lower_visit: NonZeroU64::new(1).unwrap(),
             keep,
             lowered: false,
@@ -467,12 +472,51 @@ impl Ensemble {
         Some(())
     }
 
-    pub fn remove_state(&mut self, p_state: PState) -> Option<State> {
-        let mut state = self.states.remove(p_state)?;
-        for p_self_state in state.p_self_bits.drain(..) {
-            self.backrefs.remove_key(p_self_state).unwrap();
+    /// Removes the state (it does not necessarily need to still be contained)
+    /// and removes its source tree of states with resulting zero reference
+    /// count and `!state.keep`
+    pub fn remove_state(&mut self, p_state: PState) -> Result<(), EvalError> {
+        let mut pstate_stack = vec![p_state];
+        while let Some(p) = pstate_stack.pop() {
+            let mut delete = false;
+            if let Some(state) = self.states.get(p) {
+                if (state.rc == 0) && !state.keep {
+                    delete = true;
+                }
+            }
+            if delete {
+                for i in 0..self.states[p].op.operands_len() {
+                    let op = self.states[p].op.operands()[i];
+                    self.states[op].rc = if let Some(x) = self.states[op].rc.checked_sub(1) {
+                        x
+                    } else {
+                        return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
+                    };
+                    pstate_stack.push(op);
+                }
+                let mut state = self.states.remove(p_state).unwrap();
+                for p_self_state in state.p_self_bits.drain(..) {
+                    self.backrefs.remove_key(p_self_state).unwrap();
+                }
+            }
         }
-        Some(state)
+        Ok(())
+    }
+
+    pub fn dec_rc(&mut self, p_state: PState) -> Result<(), EvalError> {
+        if let Some(state) = self.states.get_mut(p_state) {
+            state.rc = if let Some(x) = state.rc.checked_sub(1) {
+                x
+            } else {
+                return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
+            };
+            if (state.rc == 0) && (!state.keep) {
+                self.remove_state(p_state)?;
+            }
+            Ok(())
+        } else {
+            Err(EvalError::InvalidPtr)
+        }
     }
 
     pub fn drive_loops(&mut self) {
