@@ -29,12 +29,13 @@ pub struct State {
     /// The number of other `State`s, and only other `State`s, that reference
     /// this one through the `Op`s
     pub rc: usize,
-    pub lower_visit: NonZeroU64,
     pub keep: bool,
     /// If the `State` has been lowered to elementary `State`s (`Static-`
-    /// operations and roots)
+    /// operations and roots). Note that a DFS might set this before actually
+    /// being lowered.
     pub lowered_to_elementary: bool,
-    /// If the `State` has been lowered from elementary `State`s to `TNode`s
+    /// If the `State` has been lowered from elementary `State`s to `TNode`s.
+    /// Note that a DFS might set this before actually being lowered.
     pub lowered_to_tnodes: bool,
 }
 
@@ -242,87 +243,72 @@ impl Stator {
         epoch_shared: &EpochShared,
         p_state: PState,
     ) -> Result<(), EvalError> {
-        let mut state_list = vec![p_state];
         let mut lock = epoch_shared.epoch_data.lock().unwrap();
-        let visit = NonZeroU64::new(
-            lock.ensemble
-                .stator
-                .lower_visit
-                .get()
-                .checked_add(1)
-                .unwrap(),
-        )
-        .unwrap();
-        lock.ensemble.stator.lower_visit = visit;
+        if lock.ensemble.stator.states[p_state].lowered_to_elementary {
+            return Ok(())
+        }
+        lock.ensemble.stator.states[p_state].lowered_to_elementary = true;
         drop(lock);
-        while let Some(leaf) = state_list.pop() {
-            let lock = epoch_shared.epoch_data.lock().unwrap();
-            if lock.ensemble.stator.states[leaf].lower_visit == visit {
-                drop(lock);
-                continue
-            }
-            drop(lock);
-            let mut path: Vec<(usize, PState)> = vec![(0, leaf)];
-            loop {
-                let (i, p_state) = path[path.len() - 1];
-                let mut lock = epoch_shared.epoch_data.lock().unwrap();
-                let state = &lock.ensemble.stator.states[p_state];
-                let ops = state.op.operands();
-                if ops.is_empty() {
-                    // reached a root
-                    path.pop().unwrap();
-                    if path.is_empty() {
-                        break
-                    }
-                    path.last_mut().unwrap().0 += 1;
-                } else if i >= ops.len() {
-                    // checked all sources
-                    match lock.ensemble.stator.states[p_state].op {
-                        Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
-                        | StaticLut(..) => drop(lock),
-                        Lut([lut, inx]) => {
-                            if let Op::Literal(awi) = lock.ensemble.stator.states[lut].op.take() {
-                                lock.ensemble.stator.states[p_state].op = StaticLut([inx], awi);
-                                lock.ensemble.stator.dec_rc(lut).unwrap();
-                            }
-                            drop(lock)
-                        }
-                        Get([bits, inx]) => {
-                            if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
-                                lock.ensemble.stator.states[p_state].op =
-                                    StaticGet([bits], lit.to_usize());
-                                lock.ensemble.stator.dec_rc(inx).unwrap();
-                            }
-                            drop(lock)
-                        }
-                        Set([bits, inx, bit]) => {
-                            if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
-                                lock.ensemble.stator.states[p_state].op =
-                                    StaticSet([bits, bit], lit.to_usize());
-                                lock.ensemble.stator.dec_rc(inx).unwrap();
-                            }
-                            drop(lock)
-                        }
-                        _ => {
-                            drop(lock);
-                            Stator::lower_state(epoch_shared, p_state).unwrap();
-                        }
-                    }
-                    path.pop().unwrap();
-                    if path.is_empty() {
-                        break
-                    }
-                } else {
-                    let p_next = ops[i];
-                    if lock.ensemble.stator.states[p_next].lower_visit == visit {
-                        // do not visit
-                        path.last_mut().unwrap().0 += 1;
-                    } else {
-                        lock.ensemble.stator.states[p_next].lower_visit = visit;
-                        path.push((0, p_next));
-                    }
-                    drop(lock);
+        let mut path: Vec<(usize, PState)> = vec![(0, p_state)];
+        loop {
+            let (i, p_state) = path[path.len() - 1];
+            let mut lock = epoch_shared.epoch_data.lock().unwrap();
+            let state = &lock.ensemble.stator.states[p_state];
+            let ops = state.op.operands();
+            if ops.is_empty() {
+                // reached a root
+                path.pop().unwrap();
+                if path.is_empty() {
+                    break
                 }
+                path.last_mut().unwrap().0 += 1;
+            } else if i >= ops.len() {
+                // checked all sources
+                match lock.ensemble.stator.states[p_state].op {
+                    Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
+                    | StaticLut(..) => drop(lock),
+                    Lut([lut, inx]) => {
+                        if let Op::Literal(awi) = lock.ensemble.stator.states[lut].op.take() {
+                            lock.ensemble.stator.states[p_state].op = StaticLut([inx], awi);
+                            lock.ensemble.stator.dec_rc(lut).unwrap();
+                        }
+                        drop(lock)
+                    }
+                    Get([bits, inx]) => {
+                        if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
+                            lock.ensemble.stator.states[p_state].op =
+                                StaticGet([bits], lit.to_usize());
+                            lock.ensemble.stator.dec_rc(inx).unwrap();
+                        }
+                        drop(lock)
+                    }
+                    Set([bits, inx, bit]) => {
+                        if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
+                            lock.ensemble.stator.states[p_state].op =
+                                StaticSet([bits, bit], lit.to_usize());
+                            lock.ensemble.stator.dec_rc(inx).unwrap();
+                        }
+                        drop(lock)
+                    }
+                    _ => {
+                        drop(lock);
+                        Stator::lower_state(epoch_shared, p_state).unwrap();
+                    }
+                }
+                path.pop().unwrap();
+                if path.is_empty() {
+                    break
+                }
+            } else {
+                let p_next = ops[i];
+                if lock.ensemble.stator.states[p_next].lowered_to_elementary {
+                    // do not visit
+                    path.last_mut().unwrap().0 += 1;
+                } else {
+                    lock.ensemble.stator.states[p_next].lowered_to_elementary = true;
+                    path.push((0, p_next));
+                }
+                drop(lock);
             }
         }
         Ok(())
@@ -351,6 +337,7 @@ impl Ensemble {
         if self.stator.states[p_state].lowered_to_tnodes {
             return Ok(())
         }
+        self.stator.states[p_state].lowered_to_tnodes = true;
         let mut path: Vec<(usize, PState)> = vec![(0, p_state)];
         loop {
             let (i, p_state) = path[path.len() - 1];
