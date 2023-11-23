@@ -357,7 +357,8 @@ impl Ensemble {
             rc: 0,
             lower_visit: NonZeroU64::new(1).unwrap(),
             keep,
-            lowered: false,
+            lowered_to_elementary: false,
+            lowered_to_tnodes: false,
         })
     }
 
