@@ -257,36 +257,46 @@ impl Stator {
                 path.last_mut().unwrap().0 += 1;
             } else if i >= ops.len() {
                 // checked all sources
+                let needs_lower =
                 match lock.ensemble.stator.states[p_state].op {
                     Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
-                    | StaticLut(..) => drop(lock),
+                    | StaticLut(..) => false,
                     Lut([lut, inx]) => {
                         if let Op::Literal(awi) = lock.ensemble.stator.states[lut].op.take() {
                             lock.ensemble.stator.states[p_state].op = StaticLut([inx], awi);
                             lock.ensemble.stator.dec_rc(lut).unwrap();
+                            false
+                        } else {
+                            true
                         }
-                        drop(lock)
                     }
                     Get([bits, inx]) => {
                         if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
                             lock.ensemble.stator.states[p_state].op =
                                 StaticGet([bits], lit.to_usize());
                             lock.ensemble.stator.dec_rc(inx).unwrap();
+                            false
+                        } else {
+                            true
                         }
-                        drop(lock)
                     }
                     Set([bits, inx, bit]) => {
                         if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
                             lock.ensemble.stator.states[p_state].op =
                                 StaticSet([bits, bit], lit.to_usize());
                             lock.ensemble.stator.dec_rc(inx).unwrap();
+                            false
+                        } else {
+                            true
                         }
-                        drop(lock)
                     }
                     _ => {
-                        drop(lock);
-                        Stator::lower_state(epoch_shared, p_state).unwrap();
+                        true
                     }
+                };
+                drop(lock);
+                if needs_lower {
+                    Stator::lower_state(epoch_shared, p_state).unwrap();
                 }
                 path.pop().unwrap();
                 if path.is_empty() {
