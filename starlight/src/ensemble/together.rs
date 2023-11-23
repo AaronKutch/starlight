@@ -111,6 +111,36 @@ impl Ensemble {
             }
         }
         // check other kinds of self refs
+        for (p_state, state) in &self.stator.states {
+            if !state.p_self_bits.is_empty() {
+                if state.nzbw.get() != state.p_self_bits.len() {
+                    return Err(EvalError::OtherString(format!(
+                        "{state:?}.nzbw mismatch with p_self_bits.len"
+                    )))
+                }
+            }
+            for operand in state.op.operands() {
+                if !self.stator.states.contains(*operand) {
+                    return Err(EvalError::OtherString(format!(
+                        "{state:?} operand is missing"
+                    )))
+                }
+            }
+            for p_self_bit in &state.p_self_bits {
+                if let Some(Referent::ThisStateBit(p_self, _)) = self.backrefs.get_key(*p_self_bit)
+                {
+                    if p_state != *p_self {
+                        return Err(EvalError::OtherString(format!(
+                            "{state:?}.p_self_bits roundtrip fail"
+                        )))
+                    }
+                } else {
+                    return Err(EvalError::OtherString(format!(
+                        "{state:?}.p_self_bits is invalid"
+                    )))
+                }
+            }
+        }
         for (p_tnode, tnode) in &self.tnodes {
             if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get_key(tnode.p_self) {
                 if p_tnode != *p_self {
@@ -285,6 +315,21 @@ impl Ensemble {
             } else if tnode.inp.len() > 1 {
                 return Err(EvalError::OtherStr(
                     "`TNode` with no lookup table has more than one input",
+                ))
+            }
+        }
+        // state reference counts
+        let mut counts = Arena::<PState, usize>::new();
+        counts.clone_from_with(&self.stator.states, |_, _| 0);
+        for state in self.stator.states.vals() {
+            for operand in state.op.operands() {
+                counts[*operand] = counts[operand].checked_add(1).unwrap();
+            }
+        }
+        for (p_state, state) in &self.stator.states {
+            if state.rc != counts[p_state] {
+                return Err(EvalError::OtherStr(
+                    "{p_state} {state:?} reference count mismatch",
                 ))
             }
         }
