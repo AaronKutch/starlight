@@ -50,6 +50,10 @@ impl Value {
             Value::Const(_) | Value::Dynam(_) => true,
         }
     }
+
+    pub fn is_unknown(self) -> bool {
+        !self.is_known()
+    }
 }
 
 /*
@@ -109,8 +113,6 @@ pub enum Eval {
 
 #[derive(Debug, Clone)]
 pub struct Evaluator {
-    // the lists are used to avoid the O(N) penalty of advancing through an arena
-    change_list: Vec<PBack>,
     phase: EvalPhase,
     change_visit_gen: NonZeroU64,
     request_visit_gen: NonZeroU64,
@@ -120,7 +122,6 @@ pub struct Evaluator {
 impl Evaluator {
     pub fn new() -> Self {
         Self {
-            change_list: vec![],
             phase: EvalPhase::Change,
             change_visit_gen: NonZeroU64::new(2).unwrap(),
             request_visit_gen: NonZeroU64::new(2).unwrap(),
@@ -205,7 +206,7 @@ impl Evaluator {
                     .evaluator
                     .insert(Eval::Investigate0(0, equiv.p_self_equiv));
                 drop(lock);
-                Ensemble::handle_requests(&epoch_shared);
+                Ensemble::handle_requests(&epoch_shared)?;
             } else {
                 drop(lock);
             }
@@ -331,27 +332,14 @@ impl Ensemble {
                 // not allowed
                 panic!();
             }
-            if let Some(ref mut prev_val_change) = equiv.val_change {
-                // there was another change to this bit in this evaluation phase we need to
-                // overwrite so we don't have bugs where the previous runs later
-                *prev_val_change = value;
-            }
-            if equiv.val == value {
-                // this needs to be kept because of the list, this prevents the list from being
-                // able to grow indefinitely with duplicates
-                return Some(())
-            }
-            if equiv.val_change.is_none() {
-                equiv.val_change = Some(value);
-                self.evaluator.change_list.push(equiv.p_self_equiv);
-            }
+            equiv.val = value;
             Some(())
         } else {
             None
         }
     }
 
-    fn handle_requests(epoch_shared: &EpochShared) {
+    fn handle_requests(epoch_shared: &EpochShared) -> Result<(), EvalError> {
         // TODO currently, the only way of avoiding N^2 worst case scenarios where
         // different change cascades lead to large groups of nodes being evaluated
         // repeatedly, is to use the front strategy. Only a powers of two reduction tree
@@ -359,29 +347,34 @@ impl Ensemble {
         // code.
 
         loop {
+            // empty `states_to_lower`
             loop {
                 let mut lock = epoch_shared.epoch_data.lock().unwrap();
                 if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
                     drop(lock);
-                    Ensemble::dfs_lower(&epoch_shared, p_state).unwrap();
+                    Ensemble::dfs_lower(&epoch_shared, p_state)?;
                 } else {
                     break
                 }
             }
+            // break if both are empty
             let mut lock = epoch_shared.epoch_data.lock().unwrap();
             if lock.ensemble.evaluator.evaluations.is_empty()
                 && lock.ensemble.stator.states_to_lower.is_empty()
             {
                 break
             }
+            // empty `states_to_remove`
             while let Some(p_state) = lock.ensemble.stator.states_to_remove.pop() {
                 lock.ensemble.remove_state(p_state).unwrap();
             }
+            // evaluate
             if let Some(p_eval) = lock.ensemble.evaluator.evaluations.min() {
                 lock.ensemble.evaluate(p_eval);
             }
             drop(lock);
         }
+        Ok(())
     }
 
     fn evaluate(&mut self, p_eval: PEval) {

@@ -69,7 +69,7 @@ impl Mem {
                 self.v[w].push(p);
                 p
             } else {
-                let lazy = LazyAwi::zero(nzbw);
+                let lazy = LazyAwi::opaque(nzbw);
                 let p = self.a.insert(Pair {
                     awi: lit.clone(),
                     dag: dag::Awi::from(lazy.as_ref()),

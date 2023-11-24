@@ -3,7 +3,7 @@ use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi};
 #[test]
 fn invert_twice() {
     let epoch0 = Epoch::new();
-    let mut x = LazyAwi::zero(bw(1));
+    let mut x = LazyAwi::opaque(bw(1));
     let mut a = awi!(x);
     a.not_();
     let a_copy = a.clone();

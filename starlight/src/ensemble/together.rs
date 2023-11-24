@@ -24,8 +24,6 @@ pub struct Equiv {
     pub p_self_equiv: PBack,
     /// Output of the equivalence surject
     pub val: Value,
-    /// This is set inbetween changing a dynamic value and evaluation
-    pub val_change: Option<Value>,
     pub change_visit: NonZeroU64,
     pub request_visit: NonZeroU64,
 }
@@ -35,7 +33,6 @@ impl Equiv {
         Self {
             p_self_equiv,
             val,
-            val_change: None,
             change_visit: NonZeroU64::new(1).unwrap(),
             request_visit: NonZeroU64::new(1).unwrap(),
         }
@@ -354,6 +351,7 @@ impl Ensemble {
             p_self_bits: SmallVec::new(),
             op,
             location,
+            err: None,
             rc: 0,
             keep,
             lowered_to_elementary: false,
@@ -491,19 +489,27 @@ impl Ensemble {
         // TODO, not sure about these cases
         if equiv0.change_visit == self.evaluator.change_visit_gen() {
             if equiv1.change_visit == self.evaluator.change_visit_gen() {
-                if equiv0.val_change != equiv1.val_change {
+                if equiv0.val != equiv1.val {
                     // prevent what is probably some bug
                     panic!();
                 }
             } else {
-                equiv1.val_change = equiv0.val_change;
+                equiv1.val = equiv0.val;
                 equiv1.change_visit = equiv0.change_visit;
                 equiv1.val = equiv0.val;
             }
         } else if equiv1.change_visit == self.evaluator.change_visit_gen() {
-            equiv0.val_change = equiv1.val_change;
+            equiv0.val = equiv1.val;
             equiv0.change_visit = equiv1.change_visit;
             equiv0.val = equiv1.val;
+        } else if equiv0.val != equiv1.val {
+            if equiv0.val.is_unknown() {
+                equiv0.val = equiv1.val;
+            } else if equiv1.val.is_unknown() {
+                equiv1.val = equiv0.val;
+            } else {
+                panic!("inconsistent value merging");
+            }
         }
         let (removed_equiv, _) = self.backrefs.union(p_equiv0, p_equiv1).unwrap();
         // remove the extra `ThisEquiv`

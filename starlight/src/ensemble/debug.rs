@@ -34,6 +34,9 @@ impl DebugNodeTrait<PState> for State {
                     "{} {} {}",
                     this.rc, this.lowered_to_elementary, this.lowered_to_tnodes
                 ));
+                if let Some(ref e) = this.err {
+                    v.push(format!("{e:?}"));
+                }
                 v
             },
             sinks: vec![],

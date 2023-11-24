@@ -26,6 +26,7 @@ pub struct State {
     pub op: Op<PState>,
     /// Location where this state is derived from
     pub location: Option<Location>,
+    pub err: Option<EvalError>,
     /// The number of other `State`s, and only other `State`s, that reference
     /// this one through the `Op`s
     pub rc: usize,
@@ -125,7 +126,7 @@ impl Stator {
         Ok(())
     }
 
-    pub fn lower_state(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
+    pub fn lower_state(epoch_shared: &EpochShared, p_state: PState) -> Result<bool, EvalError> {
         // TODO optimization to remove unused nodes early
         //let epoch = StateEpoch::new();
         struct Tmp<'a> {
@@ -234,8 +235,7 @@ impl Stator {
         lower_state(start_op, out_w, Tmp {
             ptr: p_state,
             epoch_shared,
-        })?;
-        Ok(())
+        })
     }
 
     /// Lowers the rootward tree from `p_state` down to the elementary `Op`s
@@ -243,6 +243,7 @@ impl Stator {
         epoch_shared: &EpochShared,
         p_state: PState,
     ) -> Result<(), EvalError> {
+        let mut unimplemented = false;
         let mut lock = epoch_shared.epoch_data.lock().unwrap();
         if lock.ensemble.stator.states[p_state].lowered_to_elementary {
             return Ok(())
@@ -299,12 +300,34 @@ impl Stator {
                     _ => true,
                 };
                 drop(lock);
-                if needs_lower {
-                    Stator::lower_state(epoch_shared, p_state).unwrap();
-                }
-                path.pop().unwrap();
-                if path.is_empty() {
-                    break
+                let lowered = if needs_lower {
+                    match Stator::lower_state(epoch_shared, p_state) {
+                        Ok(lowered) => lowered,
+                        Err(EvalError::Unimplemented) => {
+                            // finish lowering as much as possible
+                            unimplemented = true;
+                            true
+                        }
+                        Err(e) => {
+                            epoch_shared
+                                .epoch_data
+                                .lock()
+                                .unwrap()
+                                .ensemble
+                                .stator
+                                .states[p_state]
+                                .err = Some(e.clone());
+                            return Err(e)
+                        }
+                    }
+                } else {
+                    true
+                };
+                if lowered {
+                    path.pop().unwrap();
+                    if path.is_empty() {
+                        break
+                    }
                 }
             } else {
                 let p_next = ops[i];
@@ -318,14 +341,19 @@ impl Stator {
                 drop(lock);
             }
         }
-        Ok(())
+
+        if unimplemented {
+            Err(EvalError::Unimplemented)
+        } else {
+            Ok(())
+        }
     }
 }
 
 impl Ensemble {
     /// Lowers the rootward tree from `p_state` down to `TNode`s
     pub fn dfs_lower(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
-        Stator::dfs_lower_states_to_elementary(epoch_shared, p_state).unwrap();
+        Stator::dfs_lower_states_to_elementary(epoch_shared, p_state)?;
         let res = epoch_shared
             .epoch_data
             .lock()
