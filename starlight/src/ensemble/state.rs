@@ -300,9 +300,9 @@ impl Stator {
                     _ => true,
                 };
                 drop(lock);
-                let lowered = if needs_lower {
+                let lowering_done = if needs_lower {
                     match Stator::lower_state(epoch_shared, p_state) {
-                        Ok(lowered) => lowered,
+                        Ok(lowering_done) => lowering_done,
                         Err(EvalError::Unimplemented) => {
                             // finish lowering as much as possible
                             unimplemented = true;
@@ -323,18 +323,29 @@ impl Stator {
                 } else {
                     true
                 };
-                if lowered {
+                if lowering_done {
                     path.pop().unwrap();
                     if path.is_empty() {
                         break
                     }
+                } else {
+                    // else do not call `path.pop`, restart the DFS here
+                    path.last_mut().unwrap().0 = 0;
                 }
             } else {
-                let p_next = ops[i];
+                let mut p_next = ops[i];
                 if lock.ensemble.stator.states[p_next].lowered_to_elementary {
                     // do not visit
                     path.last_mut().unwrap().0 += 1;
                 } else {
+                    while let Op::Copy([a]) = lock.ensemble.stator.states[p_next].op {
+                        // special optimization case: forward Copies
+                        lock.ensemble.stator.states[p_state].op.operands_mut()[i] = a;
+                        let rc = &mut lock.ensemble.stator.states[a].rc;
+                        *rc = (*rc).checked_add(1).unwrap();
+                        lock.ensemble.stator.dec_rc(p_next).unwrap();
+                        p_next = a;
+                    }
                     lock.ensemble.stator.states[p_next].lowered_to_elementary = true;
                     path.push((0, p_next));
                 }
@@ -363,8 +374,6 @@ impl Ensemble {
         res.unwrap();
         Ok(())
     }
-
-    // TODO `lower_tree` equivalent needs to have copy forwarding optimization
 
     /// Assuming that the rootward tree from `p_state` is lowered down to the
     /// elementary `Op`s, this will create the `TNode` network
