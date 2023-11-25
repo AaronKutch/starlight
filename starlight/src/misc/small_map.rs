@@ -41,3 +41,9 @@ impl<K: Ord, V> SmallMap<K, V> {
         None
     }*/
 }
+
+impl<K, V> Default for SmallMap<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

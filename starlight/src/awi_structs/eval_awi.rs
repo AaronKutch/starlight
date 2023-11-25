@@ -78,13 +78,13 @@ forward_debug_fmt!(EvalAwi);
 
 impl From<&dag::Bits> for EvalAwi {
     fn from(bits: &dag::Bits) -> EvalAwi {
-        Self::from_bits(&bits)
+        Self::from_bits(bits)
     }
 }
 
 impl From<&dag::Awi> for EvalAwi {
     fn from(bits: &dag::Awi) -> EvalAwi {
-        Self::from_bits(&bits)
+        Self::from_bits(bits)
     }
 }
 

@@ -50,7 +50,7 @@ impl TNode {
         let mut to = 0;
         while to < next_bw {
             next_lut
-                .field(to, &lut, if bit { from + w } else { from }, w)
+                .field(to, lut, if bit { from + w } else { from }, w)
                 .unwrap();
             from += 2 * w;
             to += w;
@@ -71,7 +71,7 @@ impl TNode {
         let mut from = 0;
         let mut to = 0;
         while to < next_bw {
-            tmp0.field(to, &lut, from, w).unwrap();
+            tmp0.field(to, lut, from, w).unwrap();
             from += 2 * w;
             to += w;
         }
@@ -79,7 +79,7 @@ impl TNode {
         from = w;
         to = 0;
         while to < next_bw {
-            tmp1.field(to, &lut, from, w).unwrap();
+            tmp1.field(to, lut, from, w).unwrap();
             from += 2 * w;
             to += w;
         }

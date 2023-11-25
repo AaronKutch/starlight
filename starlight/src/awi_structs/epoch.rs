@@ -1,4 +1,5 @@
-/// An epoch management struct used for tests and examples.
+#![allow(clippy::new_without_default)]
+
 use std::{
     cell::RefCell,
     mem,
@@ -210,7 +211,7 @@ fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T {
     CURRENT_EPOCH.with(|top| {
         let top = top.borrow();
         if let Some(current) = top.as_ref() {
-            f(&current)
+            f(current)
         } else {
             panic!("There needs to be an `Epoch` in scope for this to work");
         }
@@ -221,8 +222,8 @@ fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T {
 fn no_recursive_current_epoch_mut<T, F: FnMut(&mut EpochShared) -> T>(mut f: F) -> T {
     CURRENT_EPOCH.with(|top| {
         let mut top = top.borrow_mut();
-        if let Some(mut current) = top.as_mut() {
-            f(&mut current)
+        if let Some(current) = top.as_mut() {
+            f(current)
         } else {
             panic!("There needs to be an `Epoch` in scope for this to work");
         }

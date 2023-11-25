@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 mod awi_structs;
 pub mod ensemble;
 mod misc;

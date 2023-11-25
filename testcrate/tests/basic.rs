@@ -1,4 +1,41 @@
-use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi};
+use std::path::PathBuf;
+
+use starlight::{awi, awint_dag::EvalError, dag::*, Epoch, EvalAwi, LazyAwi};
+
+fn _render(epoch: &Epoch) -> awi::Result<(), EvalError> {
+    epoch.render_to_svgs_in_dir(PathBuf::from("./".to_owned()))
+}
+
+#[test]
+fn lazy_awi() -> Option<()> {
+    let epoch0 = Epoch::new();
+
+    let mut x = LazyAwi::opaque(bw(1));
+    let mut a = awi!(x);
+    a.not_();
+
+    {
+        use awi::*;
+        let mut y = EvalAwi::from(a.as_ref());
+
+        x.retro_(&awi!(0)).unwrap();
+
+        epoch0.ensemble().verify_integrity().unwrap();
+        awi::assert_eq!(y.eval().unwrap(), awi!(1));
+        epoch0.ensemble().verify_integrity().unwrap();
+
+        x.retro_(&awi!(1)).unwrap();
+
+        awi::assert_eq!(y.eval().unwrap(), awi!(0));
+        epoch0.ensemble().verify_integrity().unwrap();
+    }
+
+    // cleans up everything not still used by `LazyAwi`s, `LazyAwi`s deregister
+    // notes when dropped
+    drop(epoch0);
+
+    Some(())
+}
 
 #[test]
 fn invert_twice() {
@@ -14,7 +51,9 @@ fn invert_twice() {
         use awi::{assert_eq, *};
 
         let mut y = EvalAwi::from(a.as_ref());
+        x.retro_(&awi!(0));
         assert_eq!(y.eval().unwrap(), awi!(0));
+        epoch0.ensemble().verify_integrity().unwrap();
         x.retro_(&awi!(1));
         assert_eq!(y.eval().unwrap(), awi!(1));
     }

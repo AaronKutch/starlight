@@ -263,15 +263,16 @@ impl Ensemble {
             // then the value of this equivalence can also be fixed
             // to unknown
             for i in 0..len {
-                if fixed.get(i).unwrap() && unknown.get(i).unwrap() {
-                    if TNode::reduce_independent_lut(&lut, i).is_none() {
-                        self.evaluator.insert(Eval::Change(Change {
-                            depth,
-                            p_equiv,
-                            value: Value::Unknown,
-                        }));
-                        return vec![];
-                    }
+                if fixed.get(i).unwrap()
+                    && unknown.get(i).unwrap()
+                    && TNode::reduce_independent_lut(&lut, i).is_none()
+                {
+                    self.evaluator.insert(Eval::Change(Change {
+                        depth,
+                        p_equiv,
+                        value: Value::Unknown,
+                    }));
+                    return vec![];
                 }
             }
             // reduce the LUT based on fixed and known bits
@@ -355,7 +356,7 @@ impl Ensemble {
                     // first check that it has not already been lowered
                     if !state.lowered_to_tnodes {
                         drop(lock);
-                        Ensemble::dfs_lower(&epoch_shared, p_state)?;
+                        Ensemble::dfs_lower(epoch_shared, p_state)?;
                         let mut lock = epoch_shared.epoch_data.lock().unwrap();
                         // reinvestigate
                         let len = lock.ensemble.stator.states[p_state].p_self_bits.len();
@@ -488,7 +489,6 @@ impl Ensemble {
             if !will_lower {
                 // must be a root
                 let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
-                dbg!(&equiv);
                 let value = equiv.val;
                 equiv.change_visit = self.evaluator.change_visit_gen();
                 self.evaluator.insert(Eval::Change(Change {
@@ -501,5 +501,11 @@ impl Ensemble {
         for eval in insert_if_no_early_exit {
             self.evaluator.insert(eval);
         }
+    }
+}
+
+impl Default for Evaluator {
+    fn default() -> Self {
+        Self::new()
     }
 }

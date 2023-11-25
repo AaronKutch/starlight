@@ -543,3 +543,9 @@ impl Ensemble {
         Ok(())
     }
 }
+
+impl Default for Stator {
+    fn default() -> Self {
+        Self::new()
+    }
+}

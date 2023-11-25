@@ -109,12 +109,10 @@ impl Ensemble {
         }
         // check other kinds of self refs
         for (p_state, state) in &self.stator.states {
-            if !state.p_self_bits.is_empty() {
-                if state.nzbw.get() != state.p_self_bits.len() {
-                    return Err(EvalError::OtherString(format!(
-                        "{state:?}.nzbw mismatch with p_self_bits.len"
-                    )))
-                }
+            if (!state.p_self_bits.is_empty()) && (state.nzbw.get() != state.p_self_bits.len()) {
+                return Err(EvalError::OtherString(format!(
+                    "{state:?}.nzbw mismatch with p_self_bits.len"
+                )))
             }
             for operand in state.op.operands() {
                 if !self.stator.states.contains(*operand) {
