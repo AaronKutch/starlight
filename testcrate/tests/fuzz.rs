@@ -1,10 +1,14 @@
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, path::PathBuf};
 
 use starlight::{
     awint::{awi, awint_dag::EvalError, dag},
     triple_arena::{ptr_struct, Arena},
     Epoch, EvalAwi, LazyAwi, StarRng,
 };
+
+fn _render(epoch: &Epoch) -> awi::Result<(), EvalError> {
+    epoch.render_to_svgs_in_dir(PathBuf::from("./".to_owned()))
+}
 
 #[cfg(debug_assertions)]
 const N: (usize, usize) = (30, 100);
@@ -23,6 +27,7 @@ struct Pair {
 #[derive(Debug)]
 struct Mem {
     a: Arena<P0, Pair>,
+    // `LazyAwi`s that get need to be retro assigned
     roots: Vec<(LazyAwi, awi::Awi)>,
     // the outer Vec has all supported bitwidths plus one dummy 0 bitwidth vec, the
     // inner vecs are unsorted and used for random querying
@@ -47,6 +52,7 @@ impl Mem {
     pub fn clear(&mut self) {
         self.a.clear();
         self.v.clear();
+        self.roots.clear();
         for _ in 0..65 {
             self.v.push(vec![]);
         }
@@ -92,15 +98,17 @@ impl Mem {
 
     pub fn verify_equivalence(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
         let mut _ensemble = epoch.ensemble();
+        _render(epoch).unwrap();
 
         // the ensemble has a random mix of literals and opaques
 
         // set all lazy roots
         for (lazy, lit) in &mut self.roots {
+            //dbg!(&lazy, &lit);
             lazy.retro_(lit).unwrap();
         }
 
-        for (_, pair) in &self.a {
+        for pair in self.a.vals() {
             let mut lazy = EvalAwi::from(pair.dag.as_ref());
             assert_eq!(lazy.eval().unwrap(), pair.awi);
         }
@@ -127,10 +135,12 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
         1 => {
             let (w0, from) = m.next1_5();
             let (w1, to) = m.next1_5();
-            let b = m.a[from].awi.get((rng.next_u32() as usize) % w0).unwrap();
-            m.a[to].awi.set((rng.next_u32() as usize) % w1, b).unwrap();
-            let b = m.a[from].dag.get((rng.next_u32() as usize) % w0).unwrap();
-            m.a[to].dag.set((rng.next_u32() as usize) % w1, b).unwrap();
+            let usize_inx0 = (rng.next_u32() as usize) % w0;
+            let usize_inx1 = (rng.next_u32() as usize) % w1;
+            let b = m.a[from].awi.get(usize_inx0).unwrap();
+            m.a[to].awi.set(usize_inx1, b).unwrap();
+            let b = m.a[from].dag.get(usize_inx0).unwrap();
+            m.a[to].dag.set(usize_inx1, b).unwrap();
         }
         // Lut
         2 => {

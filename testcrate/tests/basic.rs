@@ -51,10 +51,10 @@ fn invert_twice() {
         use awi::{assert_eq, *};
 
         let mut y = EvalAwi::from(a.as_ref());
-        x.retro_(&awi!(0));
+        x.retro_(&awi!(0)).unwrap();
         assert_eq!(y.eval().unwrap(), awi!(0));
         epoch0.ensemble().verify_integrity().unwrap();
-        x.retro_(&awi!(1));
+        x.retro_(&awi!(1)).unwrap();
         assert_eq!(y.eval().unwrap(), awi!(1));
     }
     drop(epoch0);

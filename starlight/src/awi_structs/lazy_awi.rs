@@ -6,7 +6,7 @@ use std::{
 };
 
 use awint::{
-    awint_dag::{dag, Lineage, PState},
+    awint_dag::{dag, EvalError, Lineage, PState},
     awint_internals::forward_debug_fmt,
 };
 
@@ -77,10 +77,9 @@ impl LazyAwi {
     /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
-    pub fn retro_(&mut self, rhs: &awi::Bits) -> Option<()> {
+    pub fn retro_(&mut self, rhs: &awi::Bits) -> Result<(), EvalError> {
         let p_lhs = self.state();
-        Evaluator::change_thread_local_state_value(p_lhs, rhs).unwrap();
-        Some(())
+        Evaluator::change_thread_local_state_value(p_lhs, rhs)
     }
 }
 

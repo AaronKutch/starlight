@@ -261,8 +261,9 @@ impl Ensemble {
                     Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
                     | StaticLut(..) => false,
                     Lut([lut, inx]) => {
-                        if let Op::Literal(awi) = lock.ensemble.stator.states[lut].op.take() {
-                            lock.ensemble.stator.states[p_state].op = StaticLut([inx], awi);
+                        if let Op::Literal(ref lit) = lock.ensemble.stator.states[lut].op {
+                            let lit = lit.clone();
+                            lock.ensemble.stator.states[p_state].op = StaticLut([inx], lit);
                             lock.ensemble.dec_rc(lut).unwrap();
                             false
                         } else {
@@ -270,7 +271,8 @@ impl Ensemble {
                         }
                     }
                     Get([bits, inx]) => {
-                        if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
+                        if let Op::Literal(ref lit) = lock.ensemble.stator.states[inx].op {
+                            let lit = lit.clone();
                             lock.ensemble.stator.states[p_state].op =
                                 StaticGet([bits], lit.to_usize());
                             lock.ensemble.dec_rc(inx).unwrap();
@@ -280,7 +282,8 @@ impl Ensemble {
                         }
                     }
                     Set([bits, inx, bit]) => {
-                        if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
+                        if let Op::Literal(ref lit) = lock.ensemble.stator.states[inx].op {
+                            let lit = lit.clone();
                             lock.ensemble.stator.states[p_state].op =
                                 StaticSet([bits, bit], lit.to_usize());
                             lock.ensemble.dec_rc(inx).unwrap();
