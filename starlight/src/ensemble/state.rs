@@ -466,7 +466,9 @@ impl Ensemble {
                                 }
                                 val
                             };
-                            let p_equiv0 = self.make_lut(&inx_bits, &single_bit_table).unwrap();
+                            let p_equiv0 = self
+                                .make_lut(&inx_bits, &single_bit_table, Some(p_state))
+                                .unwrap();
                             let p_equiv1 = self.stator.states[p_state].p_self_bits[bit_i];
                             self.union_equiv(p_equiv0, p_equiv1).unwrap();
                         }

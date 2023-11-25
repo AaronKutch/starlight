@@ -96,6 +96,9 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     if let Some(driver) = tnode.loop_driver {
                         v.push(format!("driver: {:?}", driver));
                     }
+                    if let Some(lowered_from) = tnode.lowered_from {
+                        v.push(format!("{:?}", lowered_from));
+                    }
                     v
                 },
                 sinks: vec![],

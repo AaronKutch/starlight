@@ -402,7 +402,12 @@ impl Ensemble {
     /// Makes a single output bit lookup table `TNode` and returns a `PBack` to
     /// it. Returns `None` if the table length is incorrect or any of the
     /// `p_inxs` are invalid.
-    pub fn make_lut(&mut self, p_inxs: &[PBack], table: &Bits) -> Option<PBack> {
+    pub fn make_lut(
+        &mut self,
+        p_inxs: &[PBack],
+        table: &Bits,
+        lowered_from: Option<PState>,
+    ) -> Option<PBack> {
         let num_entries = 1 << p_inxs.len();
         if table.bw() != num_entries {
             return None
@@ -423,7 +428,7 @@ impl Ensemble {
                 .backrefs
                 .insert_key(p_equiv, Referent::ThisTNode(p_tnode))
                 .unwrap();
-            let mut tnode = TNode::new(p_self);
+            let mut tnode = TNode::new(p_self, lowered_from);
             tnode.lut = Some(Awi::from(table));
             for p_inx in p_inxs {
                 let p_back = self
@@ -456,7 +461,7 @@ impl Ensemble {
                         .backrefs
                         .insert_key(p_looper, Referent::ThisTNode(p_tnode))
                         .unwrap();
-                    TNode::new(p_back_self)
+                    TNode::new(p_back_self, None)
                 })
             }
             // we might want to support more cases in the future

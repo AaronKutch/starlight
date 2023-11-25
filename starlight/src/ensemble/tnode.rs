@@ -1,6 +1,9 @@
 use std::num::NonZeroUsize;
 
-use awint::{awint_dag::smallvec, Awi, Bits};
+use awint::{
+    awint_dag::{smallvec, PState},
+    Awi, Bits,
+};
 use smallvec::SmallVec;
 
 use super::PBack;
@@ -22,15 +25,17 @@ pub struct TNode {
     //pub is_permanent: bool,
     /// If the value is temporally driven by a `Loop`
     pub loop_driver: Option<PBack>,
+    pub lowered_from: Option<PState>,
 }
 
 impl TNode {
-    pub fn new(p_self: PBack) -> Self {
+    pub fn new(p_self: PBack, lowered_from: Option<PState>) -> Self {
         Self {
             p_self,
             inp: SmallVec::new(),
             lut: None,
             loop_driver: None,
+            lowered_from,
         }
     }
 
