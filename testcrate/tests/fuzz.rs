@@ -97,21 +97,18 @@ impl Mem {
     }
 
     pub fn verify_equivalence(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
-        let mut _ensemble = epoch.ensemble();
-        _render(epoch).unwrap();
-
-        // the ensemble has a random mix of literals and opaques
-
         // set all lazy roots
         for (lazy, lit) in &mut self.roots {
-            //dbg!(&lazy, &lit);
             lazy.retro_(lit).unwrap();
         }
 
+        // evaluate all
         for pair in self.a.vals() {
             let mut lazy = EvalAwi::from(pair.dag.as_ref());
             assert_eq!(lazy.eval().unwrap(), pair.awi);
         }
+
+        epoch.ensemble().verify_integrity().unwrap();
         Ok(())
     }
 }
