@@ -299,7 +299,10 @@ impl Ensemble {
                 };
                 drop(lock);
                 let lowering_done = if needs_lower {
-                    match Ensemble::lower_state(epoch_shared, p_state) {
+                    // this is used to be able to remove ultimately unused temporaries
+                    let mut temporary = EpochShared::shared_with(epoch_shared);
+                    temporary.set_as_current();
+                    let lowering_done = match Ensemble::lower_state(&temporary, p_state) {
                         Ok(lowering_done) => lowering_done,
                         Err(EvalError::Unimplemented) => {
                             // finish lowering as much as possible
@@ -307,12 +310,25 @@ impl Ensemble {
                             true
                         }
                         Err(e) => {
+                            temporary.remove_as_current();
                             let mut lock = epoch_shared.epoch_data.lock().unwrap();
                             lock.ensemble.stator.states[p_state].err = Some(e.clone());
                             lock.keep_flag = true;
                             return Err(e)
                         }
+                    };
+                    // shouldn't be adding additional assertions
+                    assert!(temporary.assertions_empty());
+                    let states = temporary.take_states_added();
+                    temporary.remove_as_current();
+                    let mut lock = epoch_shared.epoch_data.lock().unwrap();
+                    for p_state in states {
+                        let state = &lock.ensemble.stator.states[p_state];
+                        if (!state.keep) && (state.rc == 0) {
+                            lock.ensemble.remove_state(p_state).unwrap();
+                        }
                     }
+                    lowering_done
                 } else {
                     true
                 };

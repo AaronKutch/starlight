@@ -1,6 +1,7 @@
 /// An epoch management struct used for tests and examples.
 use std::{
     cell::RefCell,
+    mem,
     num::NonZeroUsize,
     sync::{Arc, Mutex},
     thread::panicking,
@@ -112,8 +113,20 @@ impl EpochShared {
         self.epoch_data.lock().unwrap().ensemble.clone()
     }
 
+    pub fn assertions_empty(&self) -> bool {
+        let epoch_data = self.epoch_data.lock().unwrap();
+        let ours = epoch_data.responsible_for.get(self.p_self).unwrap();
+        ours.assertions.bits.is_empty()
+    }
+
+    pub fn take_states_added(&mut self) -> Vec<PState> {
+        let mut epoch_data = self.epoch_data.lock().unwrap();
+        let ours = epoch_data.responsible_for.get_mut(self.p_self).unwrap();
+        mem::take(&mut ours.states_inserted)
+    }
+
     /// Removes associated states and assertions
-    pub fn remove_associated(self) {
+    pub fn remove_associated(&self) {
         let mut epoch_data = self.epoch_data.lock().unwrap();
         let ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
         for p_state in ours.states_inserted {
@@ -122,6 +135,57 @@ impl EpochShared {
         for p_state in ours.assertions.bits {
             let _ = epoch_data.ensemble.remove_state(p_state);
         }
+    }
+
+    pub fn set_as_current(&self) {
+        CURRENT_EPOCH.with(|top| {
+            let mut current = top.borrow_mut();
+            if let Some(current) = current.take() {
+                EPOCH_STACK.with(|top| {
+                    let mut stack = top.borrow_mut();
+                    stack.push(current);
+                })
+            }
+            *current = Some(self.clone());
+        });
+    }
+
+    pub fn remove_as_current(&self) {
+        EPOCH_STACK.with(|top| {
+            let mut stack = top.borrow_mut();
+            if let Some(next_current) = stack.pop() {
+                CURRENT_EPOCH.with(|top| {
+                    let mut current = top.borrow_mut();
+                    if let Some(to_drop) = current.take() {
+                        if to_drop.p_self != self.p_self {
+                            panic!(
+                                "tried to drop an `Epoch` out of stacklike order before dropping \
+                                 the current one"
+                            );
+                        }
+                        *current = Some(next_current);
+                    } else {
+                        // there should be something current if the `Epoch` still exists
+                        unreachable!()
+                    }
+                });
+            } else {
+                CURRENT_EPOCH.with(|top| {
+                    let mut current = top.borrow_mut();
+                    if let Some(to_drop) = current.take() {
+                        if to_drop.p_self != self.p_self {
+                            panic!(
+                                "tried to drop an `Epoch` out of stacklike order before dropping \
+                                 the current one"
+                            );
+                        }
+                    } else {
+                        // there should be something current if the `Epoch` still exists
+                        unreachable!()
+                    }
+                });
+            }
+        });
     }
 }
 
@@ -242,31 +306,8 @@ impl Drop for Epoch {
     fn drop(&mut self) {
         // prevent invoking recursive panics and a buffer overrun
         if !panicking() {
-            EPOCH_STACK.with(|top| {
-                let mut stack = top.borrow_mut();
-                if let Some(next_current) = stack.pop() {
-                    CURRENT_EPOCH.with(|top| {
-                        let mut current = top.borrow_mut();
-                        if let Some(to_drop) = current.take() {
-                            to_drop.remove_associated();
-                            *current = Some(next_current);
-                        } else {
-                            // there should be something current if the `Epoch` still exists
-                            unreachable!()
-                        }
-                    });
-                } else {
-                    CURRENT_EPOCH.with(|top| {
-                        let mut current = top.borrow_mut();
-                        if let Some(to_drop) = current.take() {
-                            to_drop.remove_associated();
-                        } else {
-                            // there should be something current if the `Epoch` still exists
-                            unreachable!()
-                        }
-                    });
-                }
-            });
+            self.shared.remove_associated();
+            self.shared.remove_as_current();
         }
     }
 }
@@ -275,31 +316,13 @@ impl Epoch {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let new = EpochShared::new();
-        CURRENT_EPOCH.with(|top| {
-            let mut current = top.borrow_mut();
-            if let Some(current) = current.take() {
-                EPOCH_STACK.with(|top| {
-                    let mut stack = top.borrow_mut();
-                    stack.push(current);
-                })
-            }
-            *current = Some(new.clone());
-        });
+        new.set_as_current();
         Self { shared: new }
     }
 
     pub fn shared_with(other: &Epoch) -> Self {
         let shared = EpochShared::shared_with(&other.shared);
-        CURRENT_EPOCH.with(|top| {
-            let mut current = top.borrow_mut();
-            if let Some(current) = current.take() {
-                EPOCH_STACK.with(|top| {
-                    let mut stack = top.borrow_mut();
-                    stack.push(current);
-                })
-            }
-            *current = Some(shared.clone());
-        });
+        shared.set_as_current();
         Self { shared }
     }
 
