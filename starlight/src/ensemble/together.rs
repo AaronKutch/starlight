@@ -486,8 +486,8 @@ impl Ensemble {
         Some(p_back_new)
     }
 
-    pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Option<()> {
-        let (equiv0, equiv1) = self.backrefs.get2_val_mut(p_equiv0, p_equiv1)?;
+    pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), EvalError> {
+        let (equiv0, equiv1) = self.backrefs.get2_val_mut(p_equiv0, p_equiv1).unwrap();
         if (equiv0.val.is_const() && equiv1.val.is_const()) && (equiv0.val != equiv1.val) {
             panic!("tried to merge two const equivalences with differing values");
         }
@@ -513,7 +513,9 @@ impl Ensemble {
             } else if equiv1.val.is_unknown() {
                 equiv1.val = equiv0.val;
             } else {
-                panic!("inconsistent value merging");
+                return Err(EvalError::OtherString(format!(
+                    "inconsistent value merging:\n{equiv0:?}\n{equiv1:?}"
+                )));
             }
         }
         let (removed_equiv, _) = self.backrefs.union(p_equiv0, p_equiv1).unwrap();
@@ -521,7 +523,7 @@ impl Ensemble {
         self.backrefs
             .remove_key(removed_equiv.p_self_equiv)
             .unwrap();
-        Some(())
+        Ok(())
     }
 
     /// Removes the state (it does not necessarily need to still be contained)
