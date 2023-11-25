@@ -460,10 +460,10 @@ impl Ensemble {
                     ));
                 }
             }
-            Optimization::InvestigateEquiv0(p_back) => {
-                if !self.backrefs.contains(p_back) {
+            Optimization::InvestigateEquiv0(_p_back) => {
+                /*if !self.backrefs.contains(p_back) {
                     return
-                };
+                };*/
                 // TODO compare TNodes
                 // TODO compress inverters by inverting inx table
                 // TODO fusion of structures like

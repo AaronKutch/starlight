@@ -28,3 +28,11 @@ fn state_epoch_fail() {
     drop(epoch0);
     drop(epoch1);
 }
+
+#[test]
+fn state_epoch_shared() {
+    let epoch0 = Epoch::new();
+    let epoch1 = Epoch::shared_with(&epoch0);
+    drop(epoch0);
+    drop(epoch1);
+}

@@ -160,7 +160,7 @@ impl Evaluator {
         bits: &awi::Bits,
     ) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
-        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
         let state = ensemble.stator.states.get(p_state).unwrap();
         if state.nzbw != bits.nzbw() {
@@ -188,7 +188,7 @@ impl Evaluator {
         bit_i: usize,
     ) -> Result<Value, EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
-        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
         ensemble.initialize_state_bits_if_needed(p_state).unwrap();
         let state = ensemble.stator.states.get(p_state).unwrap();
@@ -212,8 +212,7 @@ impl Evaluator {
             }
             Ok(epoch_shared
                 .epoch_data
-                .lock()
-                .unwrap()
+                .borrow()
                 .ensemble
                 .backrefs
                 .get_val(p_back)
@@ -350,14 +349,14 @@ impl Ensemble {
         loop {
             // empty `states_to_lower`
             loop {
-                let mut lock = epoch_shared.epoch_data.lock().unwrap();
+                let mut lock = epoch_shared.epoch_data.borrow_mut();
                 if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
                     let state = &lock.ensemble.stator.states[p_state];
                     // first check that it has not already been lowered
                     if !state.lowered_to_tnodes {
                         drop(lock);
                         Ensemble::dfs_lower(epoch_shared, p_state)?;
-                        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+                        let mut lock = epoch_shared.epoch_data.borrow_mut();
                         // reinvestigate
                         let len = lock.ensemble.stator.states[p_state].p_self_bits.len();
                         for i in 0..len {
@@ -371,7 +370,7 @@ impl Ensemble {
                 }
             }
             // break if both are empty
-            let mut lock = epoch_shared.epoch_data.lock().unwrap();
+            let mut lock = epoch_shared.epoch_data.borrow_mut();
             if lock.ensemble.evaluator.evaluations.is_empty()
                 && lock.ensemble.stator.states_to_lower.is_empty()
             {

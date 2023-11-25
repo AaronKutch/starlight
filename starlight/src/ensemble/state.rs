@@ -134,8 +134,7 @@ impl Ensemble {
             fn graft(&mut self, operands: &[PState]) {
                 self.epoch_shared
                     .epoch_data
-                    .lock()
-                    .unwrap()
+                    .borrow_mut()
                     .ensemble
                     .graft(self.ptr, operands)
                     .unwrap();
@@ -144,8 +143,7 @@ impl Ensemble {
             fn get_nzbw(&self, p: PState) -> NonZeroUsize {
                 self.epoch_shared
                     .epoch_data
-                    .lock()
-                    .unwrap()
+                    .borrow()
                     .ensemble
                     .stator
                     .states
@@ -157,8 +155,7 @@ impl Ensemble {
             fn is_literal(&self, p: PState) -> bool {
                 self.epoch_shared
                     .epoch_data
-                    .lock()
-                    .unwrap()
+                    .borrow()
                     .ensemble
                     .stator
                     .states
@@ -172,8 +169,7 @@ impl Ensemble {
                 if let Op::Literal(ref lit) = self
                     .epoch_shared
                     .epoch_data
-                    .lock()
-                    .unwrap()
+                    .borrow()
                     .ensemble
                     .stator
                     .states
@@ -194,8 +190,7 @@ impl Ensemble {
                 if let Op::Literal(ref lit) = self
                     .epoch_shared
                     .epoch_data
-                    .lock()
-                    .unwrap()
+                    .borrow()
                     .ensemble
                     .stator
                     .states
@@ -215,14 +210,13 @@ impl Ensemble {
             fn dec_rc(&mut self, p: PState) {
                 self.epoch_shared
                     .epoch_data
-                    .lock()
-                    .unwrap()
+                    .borrow_mut()
                     .ensemble
                     .dec_rc(p)
                     .unwrap()
             }
         }
-        let lock = epoch_shared.epoch_data.lock().unwrap();
+        let lock = epoch_shared.epoch_data.borrow();
         let state = lock.ensemble.stator.states.get(p_state).unwrap();
         let start_op = state.op.clone();
         let out_w = state.nzbw;
@@ -239,7 +233,7 @@ impl Ensemble {
         p_state: PState,
     ) -> Result<(), EvalError> {
         let mut unimplemented = false;
-        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
         if lock.ensemble.stator.states[p_state].lowered_to_elementary {
             return Ok(())
         }
@@ -251,7 +245,7 @@ impl Ensemble {
         let mut path: Vec<(usize, PState)> = vec![(0, p_state)];
         loop {
             let (i, p_state) = path[path.len() - 1];
-            let mut lock = epoch_shared.epoch_data.lock().unwrap();
+            let mut lock = epoch_shared.epoch_data.borrow_mut();
             let state = &lock.ensemble.stator.states[p_state];
             let ops = state.op.operands();
             if ops.is_empty() {
@@ -311,7 +305,7 @@ impl Ensemble {
                         }
                         Err(e) => {
                             temporary.remove_as_current();
-                            let mut lock = epoch_shared.epoch_data.lock().unwrap();
+                            let mut lock = epoch_shared.epoch_data.borrow_mut();
                             lock.ensemble.stator.states[p_state].err = Some(e.clone());
                             lock.keep_flag = true;
                             return Err(e)
@@ -321,7 +315,7 @@ impl Ensemble {
                     assert!(temporary.assertions_empty());
                     let states = temporary.take_states_added();
                     temporary.remove_as_current();
-                    let mut lock = epoch_shared.epoch_data.lock().unwrap();
+                    let mut lock = epoch_shared.epoch_data.borrow_mut();
                     for p_state in states {
                         let state = &lock.ensemble.stator.states[p_state];
                         if (!state.keep) && (state.rc == 0) {
@@ -362,7 +356,7 @@ impl Ensemble {
             }
         }
 
-        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
         lock.keep_flag = true;
 
         if unimplemented {
@@ -535,8 +529,7 @@ impl Ensemble {
         Ensemble::dfs_lower_states_to_elementary(epoch_shared, p_state)?;
         let res = epoch_shared
             .epoch_data
-            .lock()
-            .unwrap()
+            .borrow_mut()
             .ensemble
             .dfs_lower_elementary_to_tnodes(p_state);
         res.unwrap();

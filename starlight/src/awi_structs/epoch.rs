@@ -1,12 +1,6 @@
 #![allow(clippy::new_without_default)]
 
-use std::{
-    cell::RefCell,
-    mem,
-    num::NonZeroUsize,
-    sync::{Arc, Mutex},
-    thread::panicking,
-};
+use std::{cell::RefCell, mem, num::NonZeroUsize, rc::Rc, thread::panicking};
 
 use awint::{
     awint_dag::{
@@ -62,7 +56,7 @@ pub struct EpochData {
 
 #[derive(Clone)]
 pub struct EpochShared {
-    pub epoch_data: Arc<Mutex<EpochData>>,
+    pub epoch_data: Rc<RefCell<EpochData>>,
     pub p_self: PEpochShared,
 }
 
@@ -77,7 +71,7 @@ impl EpochShared {
         };
         let p_self = epoch_data.responsible_for.insert(PerEpochShared::new());
         Self {
-            epoch_data: Arc::new(Mutex::new(epoch_data)),
+            epoch_data: Rc::new(RefCell::new(epoch_data)),
             p_self,
         }
     }
@@ -86,12 +80,11 @@ impl EpochShared {
     pub fn shared_with(other: &Self) -> Self {
         let p_self = other
             .epoch_data
-            .lock()
-            .unwrap()
+            .borrow_mut()
             .responsible_for
             .insert(PerEpochShared::new());
         Self {
-            epoch_data: Arc::clone(&other.epoch_data),
+            epoch_data: Rc::clone(&other.epoch_data),
             p_self,
         }
     }
@@ -100,8 +93,7 @@ impl EpochShared {
     pub fn assertions(&self) -> Assertions {
         let p_self = self.p_self;
         self.epoch_data
-            .lock()
-            .unwrap()
+            .borrow()
             .responsible_for
             .get(p_self)
             .unwrap()
@@ -111,24 +103,24 @@ impl EpochShared {
 
     /// Returns a clone of the ensemble
     pub fn ensemble(&self) -> Ensemble {
-        self.epoch_data.lock().unwrap().ensemble.clone()
+        self.epoch_data.borrow().ensemble.clone()
     }
 
     pub fn assertions_empty(&self) -> bool {
-        let epoch_data = self.epoch_data.lock().unwrap();
+        let epoch_data = self.epoch_data.borrow();
         let ours = epoch_data.responsible_for.get(self.p_self).unwrap();
         ours.assertions.bits.is_empty()
     }
 
     pub fn take_states_added(&mut self) -> Vec<PState> {
-        let mut epoch_data = self.epoch_data.lock().unwrap();
+        let mut epoch_data = self.epoch_data.borrow_mut();
         let ours = epoch_data.responsible_for.get_mut(self.p_self).unwrap();
         mem::take(&mut ours.states_inserted)
     }
 
     /// Removes associated states and assertions
     pub fn remove_associated(&self) {
-        let mut epoch_data = self.epoch_data.lock().unwrap();
+        let mut epoch_data = self.epoch_data.borrow_mut();
         let ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
         for p_state in ours.states_inserted {
             let _ = epoch_data.ensemble.remove_state(p_state);
@@ -158,7 +150,7 @@ impl EpochShared {
                 CURRENT_EPOCH.with(|top| {
                     let mut current = top.borrow_mut();
                     if let Some(to_drop) = current.take() {
-                        if to_drop.p_self != self.p_self {
+                        if !Rc::ptr_eq(&to_drop.epoch_data, &self.epoch_data) {
                             panic!(
                                 "tried to drop an `Epoch` out of stacklike order before dropping \
                                  the current one"
@@ -174,7 +166,7 @@ impl EpochShared {
                 CURRENT_EPOCH.with(|top| {
                     let mut current = top.borrow_mut();
                     if let Some(to_drop) = current.take() {
-                        if to_drop.p_self != self.p_self {
+                        if !Rc::ptr_eq(&to_drop.epoch_data, &self.epoch_data) {
                             panic!(
                                 "tried to drop an `Epoch` out of stacklike order before dropping \
                                  the current one"
@@ -234,7 +226,7 @@ fn no_recursive_current_epoch_mut<T, F: FnMut(&mut EpochShared) -> T>(mut f: F) 
 pub fn _callback() -> EpochCallback {
     fn new_pstate(nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PState {
         no_recursive_current_epoch_mut(|current| {
-            let mut epoch_data = current.epoch_data.lock().unwrap();
+            let mut epoch_data = current.epoch_data.borrow_mut();
             let keep = epoch_data.keep_flag;
             let p_state = epoch_data
                 .ensemble
@@ -252,7 +244,7 @@ pub fn _callback() -> EpochCallback {
         // need a new bit to attach location data to
         let new_bit = new_pstate(bw(1), Op::Copy([bit.state()]), Some(location));
         no_recursive_current_epoch_mut(|current| {
-            let mut epoch_data = current.epoch_data.lock().unwrap();
+            let mut epoch_data = current.epoch_data.borrow_mut();
             epoch_data
                 .responsible_for
                 .get_mut(current.p_self)
@@ -266,8 +258,7 @@ pub fn _callback() -> EpochCallback {
         no_recursive_current_epoch(|current| {
             current
                 .epoch_data
-                .lock()
-                .unwrap()
+                .borrow()
                 .ensemble
                 .stator
                 .states
@@ -280,8 +271,7 @@ pub fn _callback() -> EpochCallback {
         no_recursive_current_epoch(|current| {
             current
                 .epoch_data
-                .lock()
-                .unwrap()
+                .borrow()
                 .ensemble
                 .stator
                 .states
@@ -321,6 +311,8 @@ impl Epoch {
         Self { shared: new }
     }
 
+    /// The epoch from this can be dropped out of order from `other`,
+    /// but must be dropped before others that aren't also shared
     pub fn shared_with(other: &Epoch) -> Self {
         let shared = EpochShared::shared_with(&other.shared);
         shared.set_as_current();

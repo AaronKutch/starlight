@@ -97,7 +97,7 @@ impl Mem {
 
         // set all lazy roots
         for (lazy, lit) in &mut self.roots {
-            lazy.retro_(&lit).unwrap();
+            lazy.retro_(lit).unwrap();
         }
 
         for (_, pair) in &self.a {
