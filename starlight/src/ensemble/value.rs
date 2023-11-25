@@ -351,8 +351,20 @@ impl Ensemble {
             loop {
                 let mut lock = epoch_shared.epoch_data.lock().unwrap();
                 if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
-                    drop(lock);
-                    Ensemble::dfs_lower(&epoch_shared, p_state)?;
+                    let state = &lock.ensemble.stator.states[p_state];
+                    // first check that it has not already been lowered
+                    if !state.lowered_to_tnodes {
+                        drop(lock);
+                        Ensemble::dfs_lower(&epoch_shared, p_state)?;
+                        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+                        // reinvestigate
+                        let len = lock.ensemble.stator.states[p_state].p_self_bits.len();
+                        for i in 0..len {
+                            let p_bit = lock.ensemble.stator.states[p_state].p_self_bits[i];
+                            lock.ensemble.evaluator.insert(Eval::Investigate0(0, p_bit));
+                        }
+                        drop(lock);
+                    }
                 } else {
                     break
                 }
@@ -385,6 +397,7 @@ impl Ensemble {
             Eval::Change(change) => {
                 let equiv = self.backrefs.get_val_mut(change.p_equiv).unwrap();
                 equiv.change_visit = self.evaluator.change_visit_gen();
+                equiv.val = change.value;
                 let mut adv = self.backrefs.advancer_surject(change.p_equiv);
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     let referent = *self.backrefs.get_key(p_back).unwrap();
@@ -397,7 +410,7 @@ impl Ensemble {
                             let p_self = tnode.p_self;
                             let equiv = self.backrefs.get_val(p_self).unwrap();
                             if (equiv.request_visit == self.evaluator.request_visit_gen())
-                                && (equiv.change_visit == self.evaluator.change_visit_gen())
+                                && (equiv.change_visit != self.evaluator.change_visit_gen())
                             {
                                 // only go leafward to the given input if it was in the request
                                 // front and it hasn't been updated by some other route
@@ -427,7 +440,8 @@ impl Ensemble {
     }
 
     fn eval_investigate0(&mut self, p_equiv: PBack, depth: i64) {
-        let equiv = self.backrefs.get_val(p_equiv).unwrap();
+        let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
+        equiv.request_visit = self.evaluator.request_visit_gen();
         if matches!(equiv.val, Value::Const(_))
             || (equiv.change_visit == self.evaluator.change_visit_gen())
         {
@@ -464,8 +478,24 @@ impl Ensemble {
             }
         }
         if !saw_tnode {
+            let mut will_lower = false;
             if let Some(p_state) = saw_state {
-                self.stator.states_to_lower.push(p_state);
+                if !self.stator.states[p_state].lowered_to_tnodes {
+                    will_lower = true;
+                    self.stator.states_to_lower.push(p_state);
+                }
+            }
+            if !will_lower {
+                // must be a root
+                let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
+                dbg!(&equiv);
+                let value = equiv.val;
+                equiv.change_visit = self.evaluator.change_visit_gen();
+                self.evaluator.insert(Eval::Change(Change {
+                    depth,
+                    p_equiv,
+                    value,
+                }));
             }
         }
         for eval in insert_if_no_early_exit {
