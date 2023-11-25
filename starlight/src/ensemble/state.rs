@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use awint::awint_dag::{
     lowering::{lower_state, LowerManagement},
     smallvec::SmallVec,
-    triple_arena::Arena,
+    triple_arena::{Advancer, Arena},
     EvalError, Location,
     Op::{self, *},
     PState,
@@ -387,7 +387,7 @@ impl Ensemble {
                 match self.stator.states[p_state].op {
                     Literal(ref lit) => {
                         assert_eq!(lit.nzbw(), nzbw);
-                        self.initialize_state_bits_if_needed(p_state);
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
                     }
                     Opaque(_, name) => {
                         if let Some(name) = name {
@@ -395,7 +395,7 @@ impl Ensemble {
                                 "cannot lower root opaque with name {name}"
                             )))
                         }
-                        self.initialize_state_bits_if_needed(p_state);
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
                     }
                     ref op => return Err(EvalError::OtherString(format!("cannot lower {op:?}"))),
                 }
@@ -410,7 +410,7 @@ impl Ensemble {
                     Copy([x]) => {
                         // this is the only foolproof way of doing this, at least without more
                         // branches
-                        self.initialize_state_bits_if_needed(p_state);
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
                         let len = self.stator.states[p_state].p_self_bits.len();
                         assert_eq!(len, self.stator.states[x].p_self_bits.len());
                         for i in 0..len {
@@ -420,7 +420,7 @@ impl Ensemble {
                         }
                     }
                     StaticGet([bits], inx) => {
-                        self.initialize_state_bits_if_needed(p_state);
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
                         let p_self_bits = &self.stator.states[p_state].p_self_bits;
                         assert_eq!(p_self_bits.len(), 1);
                         let p_equiv0 = p_self_bits[0];
@@ -428,7 +428,7 @@ impl Ensemble {
                         self.union_equiv(p_equiv0, p_equiv1).unwrap();
                     }
                     StaticSet([bits, bit], inx) => {
-                        self.initialize_state_bits_if_needed(p_state);
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
                         let len = self.stator.states[p_state].p_self_bits.len();
                         assert_eq!(len, self.stator.states[bits].p_self_bits.len());
                         assert!(inx < len);
@@ -447,7 +447,7 @@ impl Ensemble {
                     }
                     StaticLut([inx], ref table) => {
                         let table = table.clone();
-                        self.initialize_state_bits_if_needed(p_state);
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
                         let inx_bits = self.stator.states[inx].p_self_bits.clone();
                         let inx_len = inx_bits.len();
                         let out_bw = self.stator.states[p_state].p_self_bits.len();
@@ -536,6 +536,23 @@ impl Ensemble {
             .ensemble
             .dfs_lower_elementary_to_tnodes(p_state);
         res.unwrap();
+        Ok(())
+    }
+
+    pub fn lower_all(epoch_shared: &EpochShared) -> Result<(), EvalError> {
+        let lock = epoch_shared.epoch_data.borrow();
+        let mut adv = lock.ensemble.stator.states.advancer();
+        drop(lock);
+        loop {
+            let lock = epoch_shared.epoch_data.borrow();
+            if let Some(p_state) = adv.advance(&lock.ensemble.stator.states) {
+                drop(lock);
+                Ensemble::dfs_lower(epoch_shared, p_state)?;
+            } else {
+                break
+            }
+        }
+
         Ok(())
     }
 }

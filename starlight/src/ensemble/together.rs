@@ -360,6 +360,7 @@ impl Ensemble {
     /// If `p_state_bits.is_empty`, this will create new equivalences and
     /// `Referent::ThisStateBits`s needed for every self bit. Sets the values to
     /// a constant if the `Op` is a `Literal`, otherwise sets to unknown.
+    #[must_use]
     pub fn initialize_state_bits_if_needed(&mut self, p_state: PState) -> Option<()> {
         let state = self.stator.states.get(p_state)?;
         if !state.p_self_bits.is_empty() {
@@ -400,6 +401,7 @@ impl Ensemble {
     /// Makes a single output bit lookup table `TNode` and returns a `PBack` to
     /// it. Returns `None` if the table length is incorrect or any of the
     /// `p_inxs` are invalid.
+    #[must_use]
     pub fn make_lut(
         &mut self,
         p_inxs: &[PBack],
@@ -441,6 +443,7 @@ impl Ensemble {
     }
 
     /// Sets up a loop from the loop source `p_looper` and driver `p_driver`
+    #[must_use]
     pub fn make_loop(&mut self, p_looper: PBack, p_driver: PBack, init_val: Value) -> Option<()> {
         let looper_equiv = self.backrefs.get_val_mut(p_looper)?;
         match looper_equiv.val {
@@ -472,16 +475,6 @@ impl Ensemble {
         let tnode = self.tnodes.get_mut(p_looper_tnode).unwrap();
         tnode.loop_driver = Some(p_back_driver);
         Some(())
-    }
-
-    /// Sets up an extra reference to `p_refer`
-    pub fn make_note(&mut self, p_note: PNote, p_refer: PBack) -> Option<PBack> {
-        let p_equiv = self.backrefs.get_val(p_refer)?.p_self_equiv;
-        let p_back_new = self
-            .backrefs
-            .insert_key(p_equiv, Referent::Note(p_note))
-            .unwrap();
-        Some(p_back_new)
     }
 
     pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), EvalError> {
@@ -567,51 +560,6 @@ impl Ensemble {
                 looper_equiv.val = val;
             }
         }
-    }
-
-    pub fn get_val(&self, p_back: PBack) -> Option<Value> {
-        Some(self.backrefs.get_val(p_back)?.val)
-    }
-
-    pub fn get_noted_as_extawi(&self, p_note: PNote) -> Result<Awi, EvalError> {
-        if let Some(note) = self.notes.get(p_note) {
-            // avoid partially setting by prechecking validity of all bits
-            for p_bit in &note.bits {
-                if let Some(equiv) = self.backrefs.get_val(*p_bit) {
-                    match equiv.val {
-                        Value::Unknown => return Err(EvalError::Unevaluatable),
-                        Value::Const(_) => (),
-                        Value::Dynam(..) => (),
-                    }
-                } else {
-                    return Err(EvalError::OtherStr("broken note"))
-                }
-            }
-            let mut x = Awi::zero(NonZeroUsize::new(note.bits.len()).unwrap());
-            for (i, p_bit) in note.bits.iter().enumerate() {
-                let equiv = self.backrefs.get_val(*p_bit).unwrap();
-                let val = match equiv.val {
-                    Value::Unknown => unreachable!(),
-                    Value::Const(val) => val,
-                    Value::Dynam(val) => val,
-                };
-                x.set(i, val).unwrap();
-            }
-            Ok(x)
-        } else {
-            Err(EvalError::InvalidPtr)
-        }
-    }
-
-    #[track_caller]
-    pub fn set_noted(&mut self, p_note: PNote, val: &Bits) -> Option<()> {
-        let note = self.notes.get(p_note)?;
-        assert_eq!(note.bits.len(), val.bw());
-        for (i, bit) in note.bits.iter().enumerate() {
-            let equiv = self.backrefs.get_val_mut(*bit)?;
-            equiv.val = Value::Dynam(val.get(i).unwrap());
-        }
-        Some(())
     }
 }
 

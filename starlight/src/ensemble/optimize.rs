@@ -295,6 +295,8 @@ impl Ensemble {
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     match self.backrefs.get_key(p_back).unwrap() {
                         Referent::ThisEquiv => (),
+                        // TODO source of bugs
+                        Referent::ThisStateBit(..) => (),
                         Referent::ThisTNode(p_tnode) => {
                             self.remove_tnode_not_p_self(*p_tnode);
                         }

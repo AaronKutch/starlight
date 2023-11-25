@@ -27,7 +27,6 @@ impl Value {
         if let Some(lit) = lit {
             Value::Const(lit)
         } else {
-            // TODO how to handle `Opaque`s?
             Value::Unknown
         }
     }
@@ -174,9 +173,7 @@ impl Evaluator {
         ensemble.initialize_state_bits_if_needed(p_state).unwrap();
         for bit_i in 0..bits.bw() {
             let p_bit = ensemble.stator.states.get(p_state).unwrap().p_self_bits[bit_i];
-            ensemble
-                .change_value(p_bit, Value::Dynam(bits.get(bit_i).unwrap()))
-                .unwrap();
+            let _ = ensemble.change_value(p_bit, Value::Dynam(bits.get(bit_i).unwrap()));
         }
         Ok(())
     }
@@ -322,6 +319,7 @@ impl Ensemble {
         res
     }
 
+    /// Returns `None` only if `p_back` does not exist or was removed
     pub fn change_value(&mut self, p_back: PBack, value: Value) -> Option<()> {
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
             if self.evaluator.phase != EvalPhase::Change {

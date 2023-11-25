@@ -6,7 +6,7 @@ use awint::{
     awint_dag::{
         epoch::{EpochCallback, EpochKey},
         triple_arena::{ptr_struct, Arena},
-        Lineage, Location, Op, PState,
+        EvalError, Lineage, Location, Op, PState,
     },
     bw, dag,
 };
@@ -191,6 +191,7 @@ thread_local!(
     static EPOCH_STACK: RefCell<Vec<EpochShared>> = RefCell::new(vec![]);
 );
 
+#[must_use]
 pub fn get_current_epoch() -> Option<EpochShared> {
     CURRENT_EPOCH.with(|top| {
         let top = top.borrow();
@@ -328,5 +329,16 @@ impl Epoch {
 
     pub fn ensemble(&self) -> Ensemble {
         self.shared.ensemble()
+    }
+
+    pub fn optimize(&self) -> Result<(), EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
+            return Err(EvalError::OtherStr("epoch is not the current epoch"))
+        }
+        Ensemble::lower_all(&epoch_shared)?;
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        lock.ensemble.optimize_all();
+        Ok(())
     }
 }

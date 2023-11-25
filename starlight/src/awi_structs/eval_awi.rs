@@ -1,15 +1,18 @@
 use std::{fmt, num::NonZeroUsize};
 
 use awint::{
-    awint_dag::{dag, EvalError, Lineage, PState},
+    awint_dag::{dag, EvalError, Lineage, PNote, PState},
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{awi, ensemble::Evaluator};
+use crate::{awi, ensemble::Evaluator, epoch::get_current_epoch};
 
 pub struct EvalAwi {
     state: dag::Awi,
+    p_note: PNote,
 }
+
+// TODO impl drop to remove note
 
 impl Lineage for EvalAwi {
     fn state(&self) -> PState {
@@ -26,10 +29,20 @@ impl EvalAwi {
         self.nzbw().get()
     }
 
+    pub fn p_note(&self) -> PNote {
+        self.p_note
+    }
+
     pub fn from_bits(bits: &dag::Bits) -> Self {
-        Self {
-            state: dag::Awi::from_bits(bits),
-        }
+        let state = dag::Awi::from_bits(bits);
+        let p_note = get_current_epoch()
+            .unwrap()
+            .epoch_data
+            .borrow_mut()
+            .ensemble
+            .note_pstate(state.state())
+            .unwrap();
+        Self { state, p_note }
     }
 
     pub fn eval(&mut self) -> Result<awi::Awi, EvalError> {

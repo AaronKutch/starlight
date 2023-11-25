@@ -1,6 +1,11 @@
 use std::path::PathBuf;
 
-use starlight::{awi, awint_dag::EvalError, dag::*, Epoch, EvalAwi, LazyAwi};
+use starlight::{
+    awi,
+    awint_dag::EvalError,
+    dag::{self, *},
+    Epoch, EvalAwi, LazyAwi, StarRng,
+};
 
 fn _render(epoch: &Epoch) -> awi::Result<(), EvalError> {
     epoch.render_to_svgs_in_dir(PathBuf::from("./".to_owned()))
@@ -162,6 +167,7 @@ fn multiplier() {
         std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), awi!(770u32));
     }
 }
+*/
 
 // test LUT simplifications
 #[test]
@@ -171,17 +177,17 @@ fn luts() {
     for input_w in 1usize..=8 {
         let lut_w = 1 << input_w;
         for _ in 0..100 {
-            let epoch0 = StateEpoch::new();
+            let epoch0 = Epoch::new();
             let mut test_input = awi::Awi::zero(bw(input_w));
             rng.next_bits(&mut test_input);
             let original_input = test_input.clone();
-            let mut input = Awi::opaque(bw(input_w));
-            let input_state = input.state();
+            let mut input = LazyAwi::opaque(bw(input_w));
+            let mut lut_input = dag::Awi::from(input.as_ref());
             let mut opaque_set = awi::Awi::umax(bw(input_w));
             for i in 0..input_w {
                 // randomly set some bits to a constant and leave some as opaque
                 if rng.next_bool() {
-                    input.set(i, test_input.get(i).unwrap()).unwrap();
+                    lut_input.set(i, test_input.get(i).unwrap()).unwrap();
                     opaque_set.set(i, false).unwrap();
                 }
             }
@@ -191,8 +197,8 @@ fn luts() {
                     let inx1 = (rng.next_u8() % (input_w as awi::u8)) as awi::usize;
                     if opaque_set.get(inx0).unwrap() && opaque_set.get(inx1).unwrap() {
                         // randomly make some inputs duplicates from the same source
-                        let tmp = input.get(inx0).unwrap();
-                        input.set(inx1, tmp).unwrap();
+                        let tmp = lut_input.get(inx0).unwrap();
+                        lut_input.set(inx1, tmp).unwrap();
                         let tmp = test_input.get(inx0).unwrap();
                         test_input.set(inx1, tmp).unwrap();
                     }
@@ -200,41 +206,22 @@ fn luts() {
             }
             let mut lut = awi::Awi::zero(bw(lut_w));
             rng.next_bits(&mut lut);
-            let mut x = Awi::zero(bw(1));
-            x.lut_(&Awi::from(&lut), &input).unwrap();
-
-            let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
-            res.unwrap();
-
-            let p_x = op_dag.note_pstate(&epoch0, x.state()).unwrap();
-            let p_input = op_dag.note_pstate(&epoch0, input_state).unwrap();
-
-            op_dag.lower_all().unwrap();
-
-            let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
-            res.unwrap();
-
-            t_dag.optimize_basic();
+            let mut x = awi!(0);
+            x.lut_(&Awi::from(&lut), &lut_input).unwrap();
 
             {
                 use awi::{assert, assert_eq, *};
-                // assert that there is at most one TNode with constant inputs optimized away
-                let mut tnodes = t_dag.tnodes.vals();
-                if let Some(tnode) = tnodes.next() {
-                    inp_bits += tnode.inp.len();
-                    assert!(tnode.inp.len() <= opaque_set.count_ones());
-                    assert!(tnodes.next().is_none());
-                }
 
-                t_dag.set_noted(p_input, &original_input).unwrap();
+                let mut opt_res = EvalAwi::from(&x);
 
-                t_dag.eval_all().unwrap();
+                epoch0.optimize().unwrap();
+
+                input.retro_(&original_input).unwrap();
 
                 // check that the value is correct
-                let opt_res = t_dag.get_noted_as_extawi(p_x).unwrap();
-                assert_eq!(opt_res.bw(), 1);
-                let opt_res = opt_res.to_bool();
+                let opt_res = opt_res.eval().unwrap();
                 let res = lut.get(test_input.to_usize()).unwrap();
+                let res = Awi::from_bool(res);
                 if opt_res != res {
                     /*
                     println!("{:0b}", &opaque_set);
@@ -244,6 +231,17 @@ fn luts() {
                     */
                 }
                 assert_eq!(opt_res, res);
+
+                let ensemble = epoch0.ensemble();
+
+                // assert that there is at most one TNode with constant inputs optimized away
+                let mut tnodes = ensemble.tnodes.vals();
+                if let Some(tnode) = tnodes.next() {
+                    inp_bits += tnode.inp.len();
+                    assert!(tnode.inp.len() <= opaque_set.count_ones());
+                    assert!(tnodes.next().is_none());
+                }
+                assert!(tnodes.next().is_none());
             }
         }
     }
@@ -252,4 +250,3 @@ fn luts() {
         assert_eq!(inp_bits, 1386);
     }
 }
-*/

@@ -161,6 +161,7 @@ impl StarRng {
         }
     }
 
+    #[must_use]
     pub fn index<'a, T>(&mut self, slice: &'a [T]) -> Option<&'a T> {
         let len = slice.len();
         if len == 0 {

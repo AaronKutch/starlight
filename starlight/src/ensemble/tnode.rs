@@ -60,6 +60,7 @@ impl TNode {
 
     /// Returns an equivalent reduced LUT (with the `i`th index removed) if the
     /// LUT output is independent with respect to the `i`th bit
+    #[must_use]
     pub fn reduce_independent_lut(lut: &Bits, i: usize) -> Option<Awi> {
         let nzbw = lut.nzbw();
         assert!(nzbw.get().is_power_of_two());
