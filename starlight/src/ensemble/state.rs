@@ -434,16 +434,18 @@ impl Ensemble {
                         self.initialize_state_bits_if_needed(p_state);
                         let len = self.stator.states[p_state].p_self_bits.len();
                         assert_eq!(len, self.stator.states[bits].p_self_bits.len());
+                        assert!(inx < len);
                         for i in 0..len {
-                            let p_equiv0 = self.stator.states[p_state].p_self_bits[i];
                             let p_equiv1 = self.stator.states[bits].p_self_bits[i];
+                            let p_equiv0 = if i == inx {
+                                let p_bit = &self.stator.states[bit].p_self_bits;
+                                assert_eq!(p_bit.len(), 1);
+                                p_bit[0]
+                            } else {
+                                self.stator.states[p_state].p_self_bits[i]
+                            };
                             self.union_equiv(p_equiv0, p_equiv1).unwrap();
                         }
-                        let p_self_bits = &self.stator.states[bit].p_self_bits;
-                        assert_eq!(p_self_bits.len(), 1);
-                        let p_equiv0 = p_self_bits[0];
-                        let p_equiv1 = self.stator.states[p_state].p_self_bits[inx];
-                        self.union_equiv(p_equiv0, p_equiv1).unwrap();
                     }
                     StaticLut([inx], ref table) => {
                         let table = table.clone();
