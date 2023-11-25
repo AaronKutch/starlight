@@ -173,7 +173,9 @@ impl Evaluator {
         ensemble.initialize_state_bits_if_needed(p_state).unwrap();
         for bit_i in 0..bits.bw() {
             let p_bit = ensemble.stator.states.get(p_state).unwrap().p_self_bits[bit_i];
-            let _ = ensemble.change_value(p_bit, Value::Dynam(bits.get(bit_i).unwrap()));
+            if let Some(p_bit) = p_bit {
+                let _ = ensemble.change_value(p_bit, Value::Dynam(bits.get(bit_i).unwrap()));
+            }
         }
         Ok(())
     }
@@ -190,6 +192,13 @@ impl Evaluator {
         ensemble.initialize_state_bits_if_needed(p_state).unwrap();
         let state = ensemble.stator.states.get(p_state).unwrap();
         let p_back = *state.p_self_bits.get(bit_i).unwrap();
+        let p_back = if let Some(p) = p_back {
+            p
+        } else {
+            return Err(EvalError::OtherString(format!(
+                "state {p_state} bit {bit_i} has been removed, something was not noted correctly"
+            )));
+        };
         if let Some(equiv) = ensemble.backrefs.get_val_mut(p_back) {
             // switch to request phase
             if ensemble.evaluator.phase != EvalPhase::Request {
@@ -359,7 +368,9 @@ impl Ensemble {
                         let len = lock.ensemble.stator.states[p_state].p_self_bits.len();
                         for i in 0..len {
                             let p_bit = lock.ensemble.stator.states[p_state].p_self_bits[i];
-                            lock.ensemble.evaluator.insert(Eval::Investigate0(0, p_bit));
+                            if let Some(p_bit) = p_bit {
+                                lock.ensemble.evaluator.insert(Eval::Investigate0(0, p_bit));
+                            }
                         }
                         drop(lock);
                     }

@@ -174,7 +174,7 @@ impl Ensemble {
                         let note = self.notes.get(*p_note).unwrap();
                         let mut inx = u64::MAX;
                         for (i, bit) in note.bits.iter().enumerate() {
-                            if *bit == p_self {
+                            if *bit == Some(p_self) {
                                 inx = u64::try_from(i).unwrap();
                             }
                         }

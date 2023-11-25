@@ -5,7 +5,7 @@ use crate::ensemble::PBack;
 
 #[derive(Debug, Clone)]
 pub struct Note {
-    pub bits: Vec<PBack>,
+    pub bits: Vec<Option<PBack>>,
 }
 
 impl Note {
@@ -33,8 +33,12 @@ impl Ensemble {
         let len = self.stator.states[p_state].p_self_bits.len();
         for i in 0..len {
             let p_bit = self.stator.states[p_state].p_self_bits[i];
-            let p_back = self.make_note(p_note, p_bit).unwrap();
-            self.notes[p_note].bits.push(p_back);
+            if let Some(p_bit) = p_bit {
+                let p_back = self.make_note(p_note, p_bit).unwrap();
+                self.notes[p_note].bits.push(Some(p_back));
+            } else {
+                self.notes[p_note].bits.push(None);
+            }
         }
         Some(p_note)
     }

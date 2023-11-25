@@ -4,6 +4,7 @@ use awint::{
     awint_dag::{
         smallvec::SmallVec,
         triple_arena::{Advancer, Ptr},
+        PState,
     },
     Awi, InlAwi,
 };
@@ -242,7 +243,26 @@ impl Ensemble {
     }
 
     /// Does not perform the final step
-    /// `t_dag.backrefs.remove(tnode.p_self).unwrap()` which is important for
+    /// `ensemble.backrefs.remove(tnode.p_self).unwrap()` which is important for
+    /// `Advancer`s.
+    pub fn remove_state_bit_not_p_self(&mut self, p_state: PState, i_bit: usize) {
+        let p_bit = self
+            .stator
+            .states
+            .get_mut(p_state)
+            .unwrap()
+            .p_self_bits
+            .get_mut(i_bit)
+            .unwrap()
+            .take()
+            .unwrap();
+        let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
+        self.optimizer
+            .insert(Optimization::InvestigateUsed(p_equiv));
+    }
+
+    /// Does not perform the final step
+    /// `ensemble.backrefs.remove(tnode.p_self).unwrap()` which is important for
     /// `Advancer`s.
     pub fn remove_tnode_not_p_self(&mut self, p_tnode: PTNode) {
         let tnode = self.tnodes.remove(p_tnode).unwrap();
@@ -295,8 +315,9 @@ impl Ensemble {
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     match self.backrefs.get_key(p_back).unwrap() {
                         Referent::ThisEquiv => (),
-                        // TODO source of bugs
-                        Referent::ThisStateBit(..) => (),
+                        Referent::ThisStateBit(p_state, bit_i) => {
+                            self.remove_state_bit_not_p_self(*p_state, *bit_i);
+                        }
                         Referent::ThisTNode(p_tnode) => {
                             self.remove_tnode_not_p_self(*p_tnode);
                         }
@@ -364,14 +385,16 @@ impl Ensemble {
                             let note = self.notes.get_mut(p_note).unwrap();
                             let mut found = false;
                             for bit in &mut note.bits {
-                                if *bit == p_back {
-                                    let p_back_new = self
-                                        .backrefs
-                                        .insert_key(p_source, Referent::Note(p_note))
-                                        .unwrap();
-                                    *bit = p_back_new;
-                                    found = true;
-                                    break
+                                if let Some(bit) = bit {
+                                    if *bit == p_back {
+                                        let p_back_new = self
+                                            .backrefs
+                                            .insert_key(p_source, Referent::Note(p_note))
+                                            .unwrap();
+                                        *bit = p_back_new;
+                                        found = true;
+                                        break
+                                    }
                                 }
                             }
                             assert!(found);

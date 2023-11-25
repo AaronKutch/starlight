@@ -21,7 +21,7 @@ use crate::{
 pub struct State {
     pub nzbw: NonZeroUsize,
     /// This either has zero length or has a length equal to `nzbw`
-    pub p_self_bits: SmallVec<[PBack; 4]>,
+    pub p_self_bits: SmallVec<[Option<PBack>; 4]>,
     /// Operation
     pub op: Op<PState>,
     /// Location where this state is derived from
@@ -414,8 +414,8 @@ impl Ensemble {
                         let len = self.stator.states[p_state].p_self_bits.len();
                         assert_eq!(len, self.stator.states[x].p_self_bits.len());
                         for i in 0..len {
-                            let p_equiv0 = self.stator.states[p_state].p_self_bits[i];
-                            let p_equiv1 = self.stator.states[x].p_self_bits[i];
+                            let p_equiv0 = self.stator.states[p_state].p_self_bits[i].unwrap();
+                            let p_equiv1 = self.stator.states[x].p_self_bits[i].unwrap();
                             self.union_equiv(p_equiv0, p_equiv1).unwrap();
                         }
                     }
@@ -423,8 +423,8 @@ impl Ensemble {
                         self.initialize_state_bits_if_needed(p_state).unwrap();
                         let p_self_bits = &self.stator.states[p_state].p_self_bits;
                         assert_eq!(p_self_bits.len(), 1);
-                        let p_equiv0 = p_self_bits[0];
-                        let p_equiv1 = self.stator.states[bits].p_self_bits[inx];
+                        let p_equiv0 = p_self_bits[0].unwrap();
+                        let p_equiv1 = self.stator.states[bits].p_self_bits[inx].unwrap();
                         self.union_equiv(p_equiv0, p_equiv1).unwrap();
                     }
                     StaticSet([bits, bit], inx) => {
@@ -433,14 +433,14 @@ impl Ensemble {
                         assert_eq!(len, self.stator.states[bits].p_self_bits.len());
                         assert!(inx < len);
                         for i in 0..len {
-                            let p_equiv0 = self.stator.states[p_state].p_self_bits[i];
+                            let p_equiv0 = self.stator.states[p_state].p_self_bits[i].unwrap();
                             if i == inx {
                                 let p_bit = &self.stator.states[bit].p_self_bits;
                                 assert_eq!(p_bit.len(), 1);
-                                let p_equiv1 = p_bit[0];
+                                let p_equiv1 = p_bit[0].unwrap();
                                 self.union_equiv(p_equiv0, p_equiv1).unwrap();
                             } else {
-                                let p_equiv1 = self.stator.states[bits].p_self_bits[i];
+                                let p_equiv1 = self.stator.states[bits].p_self_bits[i].unwrap();
                                 self.union_equiv(p_equiv0, p_equiv1).unwrap();
                             };
                         }
@@ -469,7 +469,7 @@ impl Ensemble {
                             let p_equiv0 = self
                                 .make_lut(&inx_bits, &single_bit_table, Some(p_state))
                                 .unwrap();
-                            let p_equiv1 = self.stator.states[p_state].p_self_bits[bit_i];
+                            let p_equiv1 = self.stator.states[p_state].p_self_bits[bit_i].unwrap();
                             self.union_equiv(p_equiv0, p_equiv1).unwrap();
                         }
                     }
@@ -494,8 +494,8 @@ impl Ensemble {
                             // LoopHandle Opaque references the first with `p_looper` and
                             // supplies a driver.
                             for i in 0..w {
-                                let p_looper = self.stator.states[v0].p_self_bits[i];
-                                let p_driver = self.stator.states[v1].p_self_bits[i];
+                                let p_looper = self.stator.states[v0].p_self_bits[i].unwrap();
+                                let p_driver = self.stator.states[v1].p_self_bits[i].unwrap();
                                 self.make_loop(p_looper, p_driver, Value::Dynam(false))
                                     .unwrap();
                             }

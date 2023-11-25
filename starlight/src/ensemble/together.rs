@@ -121,18 +121,21 @@ impl Ensemble {
                     )))
                 }
             }
-            for p_self_bit in &state.p_self_bits {
-                if let Some(Referent::ThisStateBit(p_self, _)) = self.backrefs.get_key(*p_self_bit)
-                {
-                    if p_state != *p_self {
+            for (inx, p_self_bit) in state.p_self_bits.iter().enumerate() {
+                if let Some(p_self_bit) = p_self_bit {
+                    if let Some(Referent::ThisStateBit(p_self, inx_self)) =
+                        self.backrefs.get_key(*p_self_bit)
+                    {
+                        if (p_state != *p_self) || (inx != *inx_self) {
+                            return Err(EvalError::OtherString(format!(
+                                "{state:?}.p_self_bits roundtrip fail"
+                            )))
+                        }
+                    } else {
                         return Err(EvalError::OtherString(format!(
-                            "{state:?}.p_self_bits roundtrip fail"
+                            "{state:?}.p_self_bits is invalid"
                         )))
                     }
-                } else {
-                    return Err(EvalError::OtherString(format!(
-                        "{state:?}.p_self_bits is invalid"
-                    )))
                 }
             }
         }
@@ -147,23 +150,6 @@ impl Ensemble {
                 return Err(EvalError::OtherString(format!(
                     "{tnode:?}.p_self is invalid"
                 )))
-            }
-        }
-        for (p_state, state) in &self.stator.states {
-            for (inx, p_self_bit) in state.p_self_bits.iter().enumerate() {
-                if let Some(Referent::ThisStateBit(p_self, inx_self)) =
-                    self.backrefs.get_key(*p_self_bit)
-                {
-                    if (p_state != *p_self) || (inx != *inx_self) {
-                        return Err(EvalError::OtherString(format!(
-                            "{state:?}.p_self_bits roundtrip fail"
-                        )))
-                    }
-                } else {
-                    return Err(EvalError::OtherString(format!(
-                        "{state:?}.p_self_bits is invalid"
-                    )))
-                }
             }
         }
         // check other referent validities
@@ -226,20 +212,22 @@ impl Ensemble {
         }
         for note in self.notes.vals() {
             for p_back in &note.bits {
-                if let Some(referent) = self.backrefs.get_key(*p_back) {
-                    if let Referent::Note(p_note) = referent {
-                        if !self.notes.contains(*p_note) {
+                if let Some(p_back) = p_back {
+                    if let Some(referent) = self.backrefs.get_key(*p_back) {
+                        if let Referent::Note(p_note) = referent {
+                            if !self.notes.contains(*p_note) {
+                                return Err(EvalError::OtherString(format!(
+                                    "{note:?} backref {p_note} is invalid"
+                                )))
+                            }
+                        } else {
                             return Err(EvalError::OtherString(format!(
-                                "{note:?} backref {p_note} is invalid"
+                                "{note:?} backref {p_back} has incorrect referrent"
                             )))
                         }
                     } else {
-                        return Err(EvalError::OtherString(format!(
-                            "{note:?} backref {p_back} has incorrect referrent"
-                        )))
+                        return Err(EvalError::OtherString(format!("note {p_back} is invalid")))
                     }
-                } else {
-                    return Err(EvalError::OtherString(format!("note {p_back} is invalid")))
                 }
             }
         }
@@ -256,7 +244,11 @@ impl Ensemble {
                 Referent::ThisStateBit(p_state, inx) => {
                     let state = self.stator.states.get(*p_state).unwrap();
                     let p_bit = state.p_self_bits.get(*inx).unwrap();
-                    *p_bit != p_back
+                    if let Some(p_bit) = p_bit {
+                        *p_bit != p_back
+                    } else {
+                        true
+                    }
                 }
                 Referent::Input(p_input) => {
                     let tnode1 = self.tnodes.get(*p_input).unwrap();
@@ -277,7 +269,7 @@ impl Ensemble {
                     let note = self.notes.get(*p_note).unwrap();
                     let mut found = false;
                     for bit in &note.bits {
-                        if *bit == p_back {
+                        if *bit == Some(p_back) {
                             found = true;
                             break
                         }
@@ -377,11 +369,11 @@ impl Ensemble {
                     }),
                 )
             });
-            bits.push(
+            bits.push(Some(
                 self.backrefs
                     .insert_key(p_equiv, Referent::ThisStateBit(p_state, i))
                     .unwrap(),
-            );
+            ));
         }
         let state = self.stator.states.get_mut(p_state).unwrap();
         state.p_self_bits = bits;
@@ -404,7 +396,7 @@ impl Ensemble {
     #[must_use]
     pub fn make_lut(
         &mut self,
-        p_inxs: &[PBack],
+        p_inxs: &[Option<PBack>],
         table: &Bits,
         lowered_from: Option<PState>,
     ) -> Option<PBack> {
@@ -413,8 +405,10 @@ impl Ensemble {
             return None
         }
         for p_inx in p_inxs {
-            if !self.backrefs.contains(*p_inx) {
-                return None
+            if let Some(p_inx) = p_inx {
+                if !self.backrefs.contains(*p_inx) {
+                    return None
+                }
             }
         }
         let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
@@ -433,7 +427,7 @@ impl Ensemble {
             for p_inx in p_inxs {
                 let p_back = self
                     .backrefs
-                    .insert_key(*p_inx, Referent::Input(p_tnode))
+                    .insert_key(p_inx.unwrap(), Referent::Input(p_tnode))
                     .unwrap();
                 tnode.inp.push(p_back);
             }
@@ -542,7 +536,9 @@ impl Ensemble {
                 }
                 let mut state = self.stator.states.remove(p_state).unwrap();
                 for p_self_state in state.p_self_bits.drain(..) {
-                    self.backrefs.remove_key(p_self_state).unwrap();
+                    if let Some(p_self_state) = p_self_state {
+                        self.backrefs.remove_key(p_self_state).unwrap();
+                    }
                 }
             }
         }
