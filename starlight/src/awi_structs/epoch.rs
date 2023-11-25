@@ -55,6 +55,7 @@ pub struct EpochData {
     pub epoch_key: EpochKey,
     pub ensemble: Ensemble,
     pub responsible_for: Arena<PEpochShared, PerEpochShared>,
+    pub keep_flag: bool,
 }
 
 #[derive(Clone)]
@@ -70,6 +71,7 @@ impl EpochShared {
             epoch_key: _callback().push_on_epoch_stack(),
             ensemble: Ensemble::new(),
             responsible_for: Arena::new(),
+            keep_flag: true,
         };
         let p_self = epoch_data.responsible_for.insert(PerEpochShared::new());
         Self {
@@ -168,9 +170,10 @@ pub fn _callback() -> EpochCallback {
     fn new_pstate(nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PState {
         no_recursive_current_epoch_mut(|current| {
             let mut epoch_data = current.epoch_data.lock().unwrap();
+            let keep = epoch_data.keep_flag;
             let p_state = epoch_data
                 .ensemble
-                .make_state(nzbw, op.clone(), location, true);
+                .make_state(nzbw, op.clone(), location, keep);
             epoch_data
                 .responsible_for
                 .get_mut(current.p_self)

@@ -1,4 +1,4 @@
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use awint::awint_dag::{
     lowering::{lower_state, LowerManagement},
@@ -43,30 +43,28 @@ pub struct State {
 #[derive(Debug, Clone)]
 pub struct Stator {
     pub states: Arena<PState, State>,
-    pub states_to_remove: Vec<PState>,
     pub states_to_lower: Vec<PState>,
-    pub lower_visit: NonZeroU64,
 }
 
 impl Stator {
     pub fn new() -> Self {
         Self {
             states: Arena::new(),
-            states_to_remove: vec![],
             states_to_lower: vec![],
-            lower_visit: NonZeroU64::new(2).unwrap(),
         }
     }
+}
 
+impl Ensemble {
     pub fn dec_rc(&mut self, p_state: PState) -> Result<(), EvalError> {
-        if let Some(state) = self.states.get_mut(p_state) {
+        if let Some(state) = self.stator.states.get_mut(p_state) {
             state.rc = if let Some(x) = state.rc.checked_sub(1) {
                 x
             } else {
                 return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
             };
             if (state.rc == 0) && (!state.keep) {
-                self.states_to_remove.push(p_state);
+                self.remove_state(p_state)?;
             }
             Ok(())
         } else {
@@ -79,24 +77,24 @@ impl Stator {
     pub fn graft(&mut self, p_state: PState, operands: &[PState]) -> Result<(), EvalError> {
         #[cfg(debug_assertions)]
         {
-            if (self.states[p_state].op.operands_len() + 1) != operands.len() {
+            if (self.stator.states[p_state].op.operands_len() + 1) != operands.len() {
                 return Err(EvalError::WrongNumberOfOperands)
             }
-            for (i, op) in self.states[p_state].op.operands().iter().enumerate() {
-                let current_nzbw = self.states[operands[i + 1]].nzbw;
-                let current_is_opaque = self.states[operands[i + 1]].op.is_opaque();
-                if self.states[op].nzbw != current_nzbw {
+            for (i, op) in self.stator.states[p_state].op.operands().iter().enumerate() {
+                let current_nzbw = self.stator.states[operands[i + 1]].nzbw;
+                let current_is_opaque = self.stator.states[operands[i + 1]].op.is_opaque();
+                if self.stator.states[op].nzbw != current_nzbw {
                     return Err(EvalError::OtherString(format!(
                         "operand {}: a bitwidth of {:?} is trying to be grafted to a bitwidth of \
                          {:?}",
-                        i, current_nzbw, self.states[op].nzbw
+                        i, current_nzbw, self.stator.states[op].nzbw
                     )))
                 }
                 if !current_is_opaque {
                     return Err(EvalError::ExpectedOpaque)
                 }
             }
-            if self.states[p_state].nzbw != self.states[operands[0]].nzbw {
+            if self.stator.states[p_state].nzbw != self.stator.states[operands[0]].nzbw {
                 return Err(EvalError::WrongBitwidth)
             }
         }
@@ -105,8 +103,8 @@ impl Stator {
         // graft input
         for i in 1..operands.len() {
             let grafted = operands[i];
-            let graftee = self.states.get(p_state).unwrap().op.operands()[i - 1];
-            if let Some(grafted) = self.states.get_mut(grafted) {
+            let graftee = self.stator.states.get(p_state).unwrap().op.operands()[i - 1];
+            if let Some(grafted) = self.stator.states.get_mut(grafted) {
                 // change the grafted `Opaque` into a `Copy` that routes to the graftee instead
                 // of needing to change all the operands of potentially many nodes
                 grafted.op = Copy([graftee]);
@@ -119,9 +117,8 @@ impl Stator {
 
         // graft output
         let grafted = operands[0];
-        self.states.get_mut(p_state).unwrap().op = Copy([grafted]);
-        self.states[grafted].rc = self.states[grafted].rc.checked_add(1).unwrap();
-        // TODO there are decrements I am missing dec grafted rc?
+        self.stator.states.get_mut(p_state).unwrap().op = Copy([grafted]);
+        self.stator.states[grafted].rc = self.stator.states[grafted].rc.checked_add(1).unwrap();
 
         Ok(())
     }
@@ -140,7 +137,6 @@ impl Stator {
                     .lock()
                     .unwrap()
                     .ensemble
-                    .stator
                     .graft(self.ptr, operands)
                     .unwrap();
             }
@@ -222,7 +218,6 @@ impl Stator {
                     .lock()
                     .unwrap()
                     .ensemble
-                    .stator
                     .dec_rc(p)
                     .unwrap()
             }
@@ -249,6 +244,9 @@ impl Stator {
             return Ok(())
         }
         lock.ensemble.stator.states[p_state].lowered_to_elementary = true;
+
+        // NOTE be sure to reset this before returning from the function
+        lock.keep_flag = false;
         drop(lock);
         let mut path: Vec<(usize, PState)> = vec![(0, p_state)];
         loop {
@@ -271,7 +269,7 @@ impl Stator {
                     Lut([lut, inx]) => {
                         if let Op::Literal(awi) = lock.ensemble.stator.states[lut].op.take() {
                             lock.ensemble.stator.states[p_state].op = StaticLut([inx], awi);
-                            lock.ensemble.stator.dec_rc(lut).unwrap();
+                            lock.ensemble.dec_rc(lut).unwrap();
                             false
                         } else {
                             true
@@ -281,7 +279,7 @@ impl Stator {
                         if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
                             lock.ensemble.stator.states[p_state].op =
                                 StaticGet([bits], lit.to_usize());
-                            lock.ensemble.stator.dec_rc(inx).unwrap();
+                            lock.ensemble.dec_rc(inx).unwrap();
                             false
                         } else {
                             true
@@ -291,7 +289,7 @@ impl Stator {
                         if let Op::Literal(lit) = lock.ensemble.stator.states[inx].op.take() {
                             lock.ensemble.stator.states[p_state].op =
                                 StaticSet([bits, bit], lit.to_usize());
-                            lock.ensemble.stator.dec_rc(inx).unwrap();
+                            lock.ensemble.dec_rc(inx).unwrap();
                             false
                         } else {
                             true
@@ -301,7 +299,7 @@ impl Stator {
                 };
                 drop(lock);
                 let lowering_done = if needs_lower {
-                    match Stator::lower_state(epoch_shared, p_state) {
+                    match Ensemble::lower_state(epoch_shared, p_state) {
                         Ok(lowering_done) => lowering_done,
                         Err(EvalError::Unimplemented) => {
                             // finish lowering as much as possible
@@ -309,14 +307,9 @@ impl Stator {
                             true
                         }
                         Err(e) => {
-                            epoch_shared
-                                .epoch_data
-                                .lock()
-                                .unwrap()
-                                .ensemble
-                                .stator
-                                .states[p_state]
-                                .err = Some(e.clone());
+                            let mut lock = epoch_shared.epoch_data.lock().unwrap();
+                            lock.ensemble.stator.states[p_state].err = Some(e.clone());
+                            lock.keep_flag = true;
                             return Err(e)
                         }
                     }
@@ -343,7 +336,7 @@ impl Stator {
                         lock.ensemble.stator.states[p_state].op.operands_mut()[i] = a;
                         let rc = &mut lock.ensemble.stator.states[a].rc;
                         *rc = (*rc).checked_add(1).unwrap();
-                        lock.ensemble.stator.dec_rc(p_next).unwrap();
+                        lock.ensemble.dec_rc(p_next).unwrap();
                         p_next = a;
                     }
                     lock.ensemble.stator.states[p_next].lowered_to_elementary = true;
@@ -353,26 +346,14 @@ impl Stator {
             }
         }
 
+        let mut lock = epoch_shared.epoch_data.lock().unwrap();
+        lock.keep_flag = true;
+
         if unimplemented {
             Err(EvalError::Unimplemented)
         } else {
             Ok(())
         }
-    }
-}
-
-impl Ensemble {
-    /// Lowers the rootward tree from `p_state` down to `TNode`s
-    pub fn dfs_lower(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
-        Stator::dfs_lower_states_to_elementary(epoch_shared, p_state)?;
-        let res = epoch_shared
-            .epoch_data
-            .lock()
-            .unwrap()
-            .ensemble
-            .dfs_lower_elementary_to_tnodes(p_state);
-        res.unwrap();
-        Ok(())
     }
 
     /// Assuming that the rootward tree from `p_state` is lowered down to the
@@ -525,6 +506,19 @@ impl Ensemble {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Lowers the rootward tree from `p_state` down to `TNode`s
+    pub fn dfs_lower(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
+        Ensemble::dfs_lower_states_to_elementary(epoch_shared, p_state)?;
+        let res = epoch_shared
+            .epoch_data
+            .lock()
+            .unwrap()
+            .ensemble
+            .dfs_lower_elementary_to_tnodes(p_state);
+        res.unwrap();
         Ok(())
     }
 }

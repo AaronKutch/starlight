@@ -364,10 +364,6 @@ impl Ensemble {
             {
                 break
             }
-            // empty `states_to_remove`
-            while let Some(p_state) = lock.ensemble.stator.states_to_remove.pop() {
-                lock.ensemble.remove_state(p_state).unwrap();
-            }
             // evaluate
             if let Some(p_eval) = lock.ensemble.evaluator.evaluations.min() {
                 lock.ensemble.evaluate(p_eval);

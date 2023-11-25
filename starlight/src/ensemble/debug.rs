@@ -30,9 +30,19 @@ impl DebugNodeTrait<PState> for State {
                 } else {
                     v.push(format!("{} {}", this.nzbw, this.op.operation_name()));
                 }
+                fn short(b: bool) -> &'static str {
+                    if b {
+                        "t"
+                    } else {
+                        "f"
+                    }
+                }
                 v.push(format!(
-                    "{} {} {}",
-                    this.rc, this.lowered_to_elementary, this.lowered_to_tnodes
+                    "{} {} {} {}",
+                    this.rc,
+                    short(this.keep),
+                    short(this.lowered_to_elementary),
+                    short(this.lowered_to_tnodes)
                 ));
                 if let Some(ref e) = this.err {
                     v.push(format!("{e:?}"));
