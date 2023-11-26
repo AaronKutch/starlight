@@ -96,7 +96,7 @@ impl Mem {
         self.a[inx].clone()
     }
 
-    pub fn verify_equivalence(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
+    pub fn verify_equivalence(&mut self, _epoch: &Epoch) -> Result<(), EvalError> {
         // set all lazy roots
         for (lazy, lit) in &mut self.roots {
             lazy.retro_(lit).unwrap();
@@ -107,8 +107,6 @@ impl Mem {
             let mut lazy = EvalAwi::from(pair.dag.as_ref());
             assert_eq!(lazy.eval().unwrap(), pair.awi);
         }
-
-        epoch.ensemble().verify_integrity().unwrap();
         Ok(())
     }
 }
@@ -163,11 +161,13 @@ fn fuzz_lower_and_eval() {
         for _ in 0..N.0 {
             operation(&mut rng, &mut m)
         }
+        epoch.ensemble().verify_integrity().unwrap();
+        let res = m.verify_equivalence(&epoch);
+        res.unwrap();
+        epoch.optimize().unwrap();
         let res = m.verify_equivalence(&epoch);
         res.unwrap();
         // TODO verify stable optimization
-        //let res = m.verify_equivalence(|ensemble| ensemble.optimize_basic(), &epoch);
-        //res.unwrap();
         drop(epoch);
         m.clear();
     }

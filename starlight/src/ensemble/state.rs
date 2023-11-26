@@ -315,7 +315,9 @@ impl Ensemble {
                         }
                     };
                     // shouldn't be adding additional assertions
-                    assert!(temporary.assertions_empty());
+                    // TODO after migrating the old lowering tests to a starlight-like system, make
+                    // sure there are none using assertions assert!(temporary.
+                    // assertions_empty());
                     let states = temporary.take_states_added();
                     temporary.remove_as_current();
                     let mut lock = epoch_shared.epoch_data.borrow_mut();

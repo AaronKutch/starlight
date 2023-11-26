@@ -65,109 +65,29 @@ fn invert_twice() {
     drop(epoch0);
 }
 
-// TODO should loop be a capability of LazyAwi or something? Have an enum on the
-// inside?
-/*
-#[test]
-fn invert_in_loop() {
-    let epoch0 = Epoch::new();
-    let looper = Loop::zero(bw(1));
-    let mut x = awi!(looper);
-    let x_copy = x.clone();
-    x.lut_(&inlawi!(10), &x_copy).unwrap();
-    x.not_();
-    let x_copy = x.clone();
-    x.lut_(&inlawi!(10), &x_copy).unwrap();
-    looper.drive(&x).unwrap();
-
-    {
-        use awi::{assert_eq, *};
-
-        t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), awi!(1));
-        t_dag.drive_loops();
-        t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), awi!(0));
-        t_dag.drive_loops();
-        t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), awi!(1));
-    }
-}
-
-// tests an incrementing counter
-#[test]
-fn incrementer() {
-    let epoch0 = StateEpoch::new();
-    let looper = Loop::zero(bw(4));
-    let val = Awi::from(looper.as_ref());
-    let mut tmp = Awi::from(looper.as_ref());
-    tmp.inc_(true);
-    looper.drive(&tmp).unwrap();
-
-    let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
-    res.unwrap();
-
-    let p_val = op_dag.note_pstate(&epoch0, val.state()).unwrap();
-
-    op_dag.lower_all().unwrap();
-
-    let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
-    res.unwrap();
-
-    t_dag.verify_integrity().unwrap();
-
-    t_dag.eval_all().unwrap();
-
-    t_dag.optimize_basic();
-
-    for i in 0..16 {
-        std::assert_eq!(i, t_dag.get_noted_as_extawi(p_val).unwrap().to_usize());
-
-        t_dag.drive_loops();
-        t_dag.eval_all().unwrap();
-    }
-}
-
-// tests getting and setting outputs
 #[test]
 fn multiplier() {
-    let epoch0 = StateEpoch::new();
-    let input_a = inlawi!(opaque: ..16);
-    let input_b = inlawi!(opaque: ..16);
+    let epoch0 = Epoch::new();
+    let mut input_a = LazyAwi::opaque(bw(16));
+    let mut input_b = LazyAwi::opaque(bw(16));
     let mut output = inlawi!(zero: ..32);
     output.arb_umul_add_(&input_a, &input_b);
 
-    let (mut op_dag, res) = OpDag::from_epoch(&epoch0);
-    res.unwrap();
-
-    let output = op_dag.note_pstate(&epoch0, output.state()).unwrap();
-    let input_a = op_dag.note_pstate(&epoch0, input_a.state()).unwrap();
-    let input_b = op_dag.note_pstate(&epoch0, input_b.state()).unwrap();
-
-    op_dag.lower_all().unwrap();
-
-    let (mut t_dag, res) = TDag::from_op_dag(&mut op_dag);
-    res.unwrap();
-
-    t_dag.verify_integrity().unwrap();
-
-    t_dag.eval_all().unwrap();
-
-    t_dag.optimize_basic();
-
     {
         use awi::*;
-        t_dag.set_noted(input_a, inlawi!(123u16).as_ref());
-        t_dag.set_noted(input_b, inlawi!(77u16).as_ref());
-        t_dag.eval_all().unwrap();
-        std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), awi!(9471u32));
 
-        t_dag.set_noted(input_a, inlawi!(10u16).as_ref());
-        t_dag.eval_all().unwrap();
-        std::assert_eq!(t_dag.get_noted_as_extawi(output).unwrap(), awi!(770u32));
+        let mut output = EvalAwi::from(output.as_ref());
+        input_a.retro_(&awi!(123u16)).unwrap();
+        input_b.retro_(&awi!(77u16)).unwrap();
+        std::assert_eq!(output.eval().unwrap(), awi!(9471u32));
+
+        epoch0.optimize().unwrap();
+
+        input_a.retro_(&awi!(10u16)).unwrap();
+        std::assert_eq!(output.eval().unwrap(), awi!(770u32));
     }
+    drop(epoch0);
 }
-*/
 
 // test LUT simplifications
 #[test]
