@@ -324,6 +324,30 @@ impl Ensemble {
                     });
                 }
             }
+        } else {
+            // TNode without LUT
+            let p_inp = tnode.inp[0];
+            let equiv = self.backrefs.get_val(p_inp).unwrap();
+            if let Value::Const(val) = equiv.val {
+                self.evaluator.insert(Eval::Change(Change {
+                    depth,
+                    p_equiv,
+                    value: Value::Const(val),
+                }));
+            } else if equiv.change_visit == self.evaluator.change_visit_gen() {
+                // fixed
+                self.evaluator.insert(Eval::Change(Change {
+                    depth,
+                    p_equiv,
+                    value: equiv.val,
+                }));
+            } else {
+                res.push(RequestTNode {
+                    depth: depth - 1,
+                    number_a: 0,
+                    p_back_tnode: tnode.inp[0],
+                });
+            }
         }
         res
     }

@@ -299,9 +299,9 @@ impl Ensemble {
                         "number of inputs does not correspond to lookup table size",
                     ))
                 }
-            } else if tnode.inp.len() > 1 {
+            } else if tnode.inp.len() != 1 {
                 return Err(EvalError::OtherStr(
-                    "`TNode` with no lookup table has more than one input",
+                    "`TNode` with no lookup table has more or less than one input",
                 ))
             }
         }
