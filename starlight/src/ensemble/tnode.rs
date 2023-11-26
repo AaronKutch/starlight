@@ -65,8 +65,9 @@ impl TNode {
         let nzbw = lut.nzbw();
         assert!(nzbw.get().is_power_of_two());
         let next_bw = nzbw.get() / 2;
-        let mut tmp0 = Awi::zero(nzbw);
-        let mut tmp1 = Awi::zero(nzbw);
+        let next_nzbw = NonZeroUsize::new(next_bw).unwrap();
+        let mut tmp0 = Awi::zero(next_nzbw);
+        let mut tmp1 = Awi::zero(next_nzbw);
         let w = 1 << i;
         // LUT if the `i`th bit were 0
         let mut from = 0;

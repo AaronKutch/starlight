@@ -215,7 +215,12 @@ impl Ensemble {
                         is_const = true;
                     }
                 }
-                Referent::ThisStateBit(..) => (),
+                Referent::ThisStateBit(p_state, bit_i) => {
+                    let state = &self.stator.states[p_state];
+                    if state.keep {
+                        non_self_rc += 1;
+                    }
+                }
                 Referent::Input(_) => non_self_rc += 1,
                 Referent::LoopDriver(p_driver) => {
                     // the way `LoopDriver` networks with no real dependencies will work, is
@@ -453,7 +458,12 @@ impl Ensemble {
                     match referent {
                         Referent::ThisEquiv => (),
                         Referent::ThisTNode(_) => (),
-                        Referent::ThisStateBit(..) => (),
+                        Referent::ThisStateBit(p_state, _) => {
+                            let state = &self.stator.states[p_state];
+                            if state.keep {
+                                found_use = true;
+                            }
+                        }
                         Referent::Input(_) => {
                             found_use = true;
                             break
