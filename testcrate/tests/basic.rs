@@ -227,7 +227,6 @@ fn luts() {
                     println!("{:0b}", &opaque_set);
                     println!("{:0b}", &test_input);
                     println!("{:0b}", &lut);
-                    t_dag.render_to_svg_file(PathBuf::from("./rendered0.svg".to_owned())).unwrap();
                     */
                 }
                 assert_eq!(opt_res, res);
@@ -247,6 +246,7 @@ fn luts() {
     }
     {
         use awi::assert_eq;
+        // this should only decrease from future optimizations
         assert_eq!(inp_bits, 1386);
     }
 }

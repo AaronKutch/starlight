@@ -150,7 +150,6 @@ impl Ensemble {
                     }
                 }
             }
-
             // sort inputs so that `TNode`s can be compared later
             // TODO?
 
@@ -215,7 +214,7 @@ impl Ensemble {
                         is_const = true;
                     }
                 }
-                Referent::ThisStateBit(p_state, bit_i) => {
+                Referent::ThisStateBit(p_state, _) => {
                     let state = &self.stator.states[p_state];
                     if state.keep {
                         non_self_rc += 1;
@@ -357,8 +356,15 @@ impl Ensemble {
                         Referent::ThisTNode(p_tnode) => {
                             self.remove_tnode_not_p_self(p_tnode);
                         }
-                        Referent::ThisStateBit(..) => {
-                            todo!()
+                        Referent::ThisStateBit(p_state, i_bit) => {
+                            let p_bit = self.stator.states[p_state].p_self_bits[i_bit]
+                                .as_mut()
+                                .unwrap();
+                            let p_back_new = self
+                                .backrefs
+                                .insert_key(p_source, Referent::ThisStateBit(p_state, i_bit))
+                                .unwrap();
+                            *p_bit = p_back_new;
                         }
                         Referent::Input(p_input) => {
                             let tnode = self.tnodes.get_mut(p_input).unwrap();
@@ -425,7 +431,7 @@ impl Ensemble {
                             self.remove_tnode_not_p_self(*p_tnode);
                             remove.push(p_back);
                         }
-                        Referent::ThisStateBit(..) => todo!(),
+                        Referent::ThisStateBit(..) => (),
                         Referent::Input(p_inp) => {
                             self.optimizer
                                 .insert(Optimization::InvestigateConst(*p_inp));
