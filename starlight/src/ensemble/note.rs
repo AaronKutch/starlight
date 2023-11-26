@@ -43,3 +43,9 @@ impl Ensemble {
         Some(p_note)
     }
 }
+
+impl Default for Note {
+    fn default() -> Self {
+        Self::new()
+    }
+}

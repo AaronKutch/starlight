@@ -331,7 +331,8 @@ impl Epoch {
         self.shared.ensemble()
     }
 
-    /// Lowers all states. This is not needed in most circumstances, `EvalAwi` and optimization functions do this on demand.
+    /// Lowers all states. This is not needed in most circumstances, `EvalAwi`
+    /// and optimization functions do this on demand.
     pub fn lower(&self) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
