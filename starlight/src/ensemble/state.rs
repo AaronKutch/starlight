@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 
 use awint::awint_dag::{
     lowering::{lower_state, LowerManagement},
-    smallvec::SmallVec,
+    smallvec::{smallvec, SmallVec},
     triple_arena::{Advancer, Arena},
     EvalError, Location,
     Op::{self, *},
@@ -16,7 +16,11 @@ use crate::{
     epoch::EpochShared,
 };
 
-/// Represents the state resulting from a mimicking operation
+/// Represents a single state that `awint_dag::mimick::Bits` is in at one point
+/// in evaluation. The operands point to other `State`s. `Bits` and `*Awi` use
+/// `Ptr`s to `States` in a thread local arena, so that they can change their
+/// state without borrowing issues or mutating `States` (which could be used as
+/// operands by other `States` and in `Copy` types).
 #[derive(Debug, Clone)]
 pub struct State {
     pub nzbw: NonZeroUsize,
@@ -166,7 +170,7 @@ impl Ensemble {
             }
 
             fn usize(&self, p: PState) -> usize {
-                if let Op::Literal(ref lit) = self
+                if let Literal(ref lit) = self
                     .epoch_shared
                     .epoch_data
                     .borrow()
@@ -187,7 +191,7 @@ impl Ensemble {
             }
 
             fn bool(&self, p: PState) -> bool {
-                if let Op::Literal(ref lit) = self
+                if let Literal(ref lit) = self
                     .epoch_shared
                     .epoch_data
                     .borrow()
@@ -261,9 +265,27 @@ impl Ensemble {
                     Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
                     | StaticLut(..) => false,
                     Lut([lut, inx]) => {
-                        if let Op::Literal(ref lit) = lock.ensemble.stator.states[lut].op {
+                        if let Literal(ref lit) = lock.ensemble.stator.states[lut].op {
                             let lit = lit.clone();
-                            lock.ensemble.stator.states[p_state].op = StaticLut([inx], lit);
+                            let out_w = lock.ensemble.stator.states[p_state].nzbw.get();
+                            let inx_w = lock.ensemble.stator.states[inx].nzbw.get();
+                            let no_op = if let Ok(inx_w) = u32::try_from(inx_w) {
+                                if let Some(num_entries) = 1usize.checked_shl(inx_w) {
+                                    (out_w * num_entries) != lit.bw()
+                                } else {
+                                    true
+                                }
+                            } else {
+                                true
+                            };
+                            if no_op {
+                                // TODO should I add the extra arg to `Lut` to fix this edge case?
+                                lock.ensemble.stator.states[p_state].op =
+                                    Opaque(smallvec![], None);
+                                lock.ensemble.dec_rc(inx).unwrap();
+                            } else {
+                                lock.ensemble.stator.states[p_state].op = StaticLut([inx], lit);
+                            }
                             lock.ensemble.dec_rc(lut).unwrap();
                             false
                         } else {
@@ -271,10 +293,20 @@ impl Ensemble {
                         }
                     }
                     Get([bits, inx]) => {
-                        if let Op::Literal(ref lit) = lock.ensemble.stator.states[inx].op {
+                        if let Literal(ref lit) = lock.ensemble.stator.states[inx].op {
                             let lit = lit.clone();
-                            lock.ensemble.stator.states[p_state].op =
-                                StaticGet([bits], lit.to_usize());
+                            let lit_u = lit.to_usize();
+                            if lit_u >= lock.ensemble.stator.states[bits].nzbw.get() {
+                                // TODO I realize now that no-op `get` specifically is fundamentally
+                                // ill-defined to some extend because it returns `Option<bool>`, it
+                                // must be asserted against, this
+                                // provides the next best thing
+                                lock.ensemble.stator.states[p_state].op =
+                                    Opaque(smallvec![], None);
+                                lock.ensemble.dec_rc(bits).unwrap();
+                            } else {
+                                lock.ensemble.stator.states[p_state].op = StaticGet([bits], lit_u);
+                            }
                             lock.ensemble.dec_rc(inx).unwrap();
                             false
                         } else {
@@ -282,10 +314,17 @@ impl Ensemble {
                         }
                     }
                     Set([bits, inx, bit]) => {
-                        if let Op::Literal(ref lit) = lock.ensemble.stator.states[inx].op {
+                        if let Literal(ref lit) = lock.ensemble.stator.states[inx].op {
                             let lit = lit.clone();
-                            lock.ensemble.stator.states[p_state].op =
-                                StaticSet([bits, bit], lit.to_usize());
+                            let lit_u = lit.to_usize();
+                            if lit_u >= lock.ensemble.stator.states[bits].nzbw.get() {
+                                // no-op
+                                lock.ensemble.stator.states[p_state].op = Copy([bits]);
+                                lock.ensemble.dec_rc(bit).unwrap();
+                            } else {
+                                lock.ensemble.stator.states[p_state].op =
+                                    StaticSet([bits, bit], lit.to_usize());
+                            }
                             lock.ensemble.dec_rc(inx).unwrap();
                             false
                         } else {
@@ -346,7 +385,7 @@ impl Ensemble {
                     // do not visit
                     path.last_mut().unwrap().0 += 1;
                 } else {
-                    while let Op::Copy([a]) = lock.ensemble.stator.states[p_next].op {
+                    while let Copy([a]) = lock.ensemble.stator.states[p_next].op {
                         // special optimization case: forward Copies
                         lock.ensemble.stator.states[p_state].op.operands_mut()[i] = a;
                         let rc = &mut lock.ensemble.stator.states[a].rc;
@@ -423,6 +462,8 @@ impl Ensemble {
                     }
                     StaticGet([bits], inx) => {
                         self.initialize_state_bits_if_needed(p_state).unwrap();
+                        let len = self.stator.states[bits].p_self_bits.len();
+                        assert!(inx < len);
                         let p_self_bits = &self.stator.states[p_state].p_self_bits;
                         assert_eq!(p_self_bits.len(), 1);
                         let p_equiv0 = p_self_bits[0].unwrap();
@@ -433,6 +474,7 @@ impl Ensemble {
                         self.initialize_state_bits_if_needed(p_state).unwrap();
                         let len = self.stator.states[p_state].p_self_bits.len();
                         assert_eq!(len, self.stator.states[bits].p_self_bits.len());
+                        // this must be handled upstream
                         assert!(inx < len);
                         for i in 0..len {
                             let p_equiv0 = self.stator.states[p_state].p_self_bits[i].unwrap();
@@ -453,7 +495,9 @@ impl Ensemble {
                         let inx_bits = self.stator.states[inx].p_self_bits.clone();
                         let inx_len = inx_bits.len();
                         let out_bw = self.stator.states[p_state].p_self_bits.len();
-                        let num_entries = 1 << inx_len;
+                        let num_entries =
+                            1usize.checked_shl(u32::try_from(inx_len).unwrap()).unwrap();
+                        // this must be handled upstream
                         assert_eq!(out_bw * num_entries, table.bw());
                         // convert from multiple out to single out bit lut
                         for bit_i in 0..out_bw {
@@ -548,8 +592,14 @@ impl Ensemble {
         loop {
             let lock = epoch_shared.epoch_data.borrow();
             if let Some(p_state) = adv.advance(&lock.ensemble.stator.states) {
-                drop(lock);
-                Ensemble::dfs_lower(epoch_shared, p_state)?;
+                // only do this to roots
+                let state = &lock.ensemble.stator.states[p_state];
+                if state.rc == 0 {
+                    drop(lock);
+                    Ensemble::dfs_lower(epoch_shared, p_state)?;
+                } else {
+                    drop(lock);
+                }
             } else {
                 break
             }

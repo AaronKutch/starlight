@@ -1,28 +1,52 @@
 use std::{fmt, num::NonZeroUsize};
 
 use awint::{
-    awint_dag::{dag, EvalError, Lineage, PNote, PState},
+    awint_dag::{dag, epoch, EvalError, Lineage, PNote, PState},
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{awi, ensemble::Evaluator, epoch::get_current_epoch};
+use crate::{
+    awi,
+    ensemble::{Evaluator, Value},
+    epoch::get_current_epoch,
+};
 
+/// # Custom Drop
+///
+/// TODO
 pub struct EvalAwi {
-    state: dag::Awi,
-    p_note: PNote,
+    pub(crate) p_state: PState,
+    pub(crate) p_note: PNote,
 }
 
 // TODO impl drop to remove note
 
 impl Lineage for EvalAwi {
     fn state(&self) -> PState {
-        self.state.state()
+        self.p_state
+    }
+}
+
+impl Clone for EvalAwi {
+    /// This makes another note to the same state that `self` pointed to.
+    fn clone(&self) -> Self {
+        let p_note = get_current_epoch()
+            .unwrap()
+            .epoch_data
+            .borrow_mut()
+            .ensemble
+            .note_pstate(self.p_state)
+            .unwrap();
+        Self {
+            p_state: self.p_state,
+            p_note,
+        }
     }
 }
 
 impl EvalAwi {
     pub fn nzbw(&self) -> NonZeroUsize {
-        self.state.nzbw()
+        epoch::get_nzbw_from_current_epoch(self.p_state)
     }
 
     pub fn bw(&self) -> usize {
@@ -33,16 +57,19 @@ impl EvalAwi {
         self.p_note
     }
 
-    pub fn from_bits(bits: &dag::Bits) -> Self {
-        let state = dag::Awi::from_bits(bits);
+    pub(crate) fn from_state(p_state: PState) -> Self {
         let p_note = get_current_epoch()
             .unwrap()
             .epoch_data
             .borrow_mut()
             .ensemble
-            .note_pstate(state.state())
+            .note_pstate(p_state)
             .unwrap();
-        Self { state, p_note }
+        Self { p_state, p_note }
+    }
+
+    pub fn from_bits(bits: &dag::Bits) -> Self {
+        Self::from_state(bits.state())
     }
 
     pub fn eval(&mut self) -> Result<awi::Awi, EvalError> {
@@ -58,6 +85,13 @@ impl EvalAwi {
             }
         }
         Ok(res)
+    }
+
+    /// Assumes `self` is a single bit
+    pub(crate) fn eval_bit(&mut self) -> Result<Value, EvalError> {
+        let p_self = self.state();
+        assert_eq!(self.bw(), 1);
+        Evaluator::calculate_thread_local_state_value(p_self, 0)
     }
 
     pub fn zero(w: NonZeroUsize) -> Self {

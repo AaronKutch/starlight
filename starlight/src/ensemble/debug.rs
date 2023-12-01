@@ -25,10 +25,22 @@ impl DebugNodeTrait<PState> for State {
             },
             center: {
                 let mut v = vec![format!("{:?}", p_this)];
-                if let Op::Literal(ref lit) = this.op {
-                    v.push(format!("{} {}", this.nzbw, lit));
-                } else {
-                    v.push(format!("{} {}", this.nzbw, this.op.operation_name()));
+                match this.op {
+                    Op::Literal(ref lit) => {
+                        v.push(format!("{}", lit));
+                    }
+                    Op::StaticGet(_, inx) => {
+                        v.push(format!("{} get({})", this.nzbw, inx));
+                    }
+                    Op::StaticSet(_, inx) => {
+                        v.push(format!("{} set({})", this.nzbw, inx));
+                    }
+                    Op::StaticLut(_, ref lut) => {
+                        v.push(format!("{} lut({})", this.nzbw, lut));
+                    }
+                    _ => {
+                        v.push(format!("{} {}", this.nzbw, this.op.operation_name()));
+                    }
                 }
                 fn short(b: bool) -> &'static str {
                     if b {

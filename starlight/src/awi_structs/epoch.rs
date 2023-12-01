@@ -11,11 +11,11 @@ use awint::{
     bw, dag,
 };
 
-use crate::ensemble::Ensemble;
+use crate::{ensemble::Ensemble, EvalAwi};
 
 #[derive(Debug, Clone)]
 pub struct Assertions {
-    pub bits: Vec<PState>,
+    pub bits: Vec<EvalAwi>,
 }
 
 impl Assertions {
@@ -47,6 +47,10 @@ impl PerEpochShared {
     }
 }
 
+/// # Custom Drop
+///
+/// This deregisters the `awint_dag::epoch::EpochKey` upon being dropped
+#[derive(Debug)]
 pub struct EpochData {
     pub epoch_key: EpochKey,
     pub ensemble: Ensemble,
@@ -54,6 +58,17 @@ pub struct EpochData {
     pub keep_flag: bool,
 }
 
+impl Drop for EpochData {
+    fn drop(&mut self) {
+        // prevent invoking recursive panics and a buffer overrun
+        if !panicking() {
+            self.epoch_key.pop_off_epoch_stack();
+        }
+    }
+}
+
+// `awint_dag::epoch` has a stack system which this uses, but this can have its
+// own stack on top of that.
 #[derive(Clone)]
 pub struct EpochShared {
     pub epoch_data: Rc<RefCell<EpochData>>,
@@ -92,13 +107,24 @@ impl EpochShared {
     /// Returns a clone of the assertions currently associated with `self`
     pub fn assertions(&self) -> Assertions {
         let p_self = self.p_self;
-        self.epoch_data
-            .borrow()
+        // need to indirectly clone
+        let epoch_data = self.epoch_data.borrow();
+        let bits = &epoch_data
             .responsible_for
             .get(p_self)
             .unwrap()
             .assertions
-            .clone()
+            .bits;
+        let mut states = vec![];
+        for bit in bits {
+            states.push(bit.state())
+        }
+        drop(epoch_data);
+        let mut cloned = vec![];
+        for p_state in states {
+            cloned.push(EvalAwi::from_state(p_state))
+        }
+        Assertions { bits: cloned }
     }
 
     /// Returns a clone of the ensemble
@@ -121,13 +147,11 @@ impl EpochShared {
     /// Removes associated states and assertions
     pub fn remove_associated(&self) {
         let mut epoch_data = self.epoch_data.borrow_mut();
-        let ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
+        let mut ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
         for p_state in ours.states_inserted {
             let _ = epoch_data.ensemble.remove_state(p_state);
         }
-        for p_state in ours.assertions.bits {
-            let _ = epoch_data.ensemble.remove_state(p_state);
-        }
+        ours.assertions.bits.clear();
     }
 
     pub fn set_as_current(&self) {
@@ -200,7 +224,7 @@ pub fn get_current_epoch() -> Option<EpochShared> {
 }
 
 /// Do no call recursively.
-fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T {
+pub fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T {
     CURRENT_EPOCH.with(|top| {
         let top = top.borrow();
         if let Some(current) = top.as_ref() {
@@ -212,7 +236,7 @@ fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T {
 }
 
 /// Do no call recursively.
-fn no_recursive_current_epoch_mut<T, F: FnMut(&mut EpochShared) -> T>(mut f: F) -> T {
+pub fn no_recursive_current_epoch_mut<T, F: FnMut(&mut EpochShared) -> T>(mut f: F) -> T {
     CURRENT_EPOCH.with(|top| {
         let mut top = top.borrow_mut();
         if let Some(current) = top.as_mut() {
@@ -242,17 +266,23 @@ pub fn _callback() -> EpochCallback {
         })
     }
     fn register_assertion_bit(bit: dag::bool, location: Location) {
-        // need a new bit to attach location data to
+        // need a new bit to attach new location data to
         let new_bit = new_pstate(bw(1), Op::Copy([bit.state()]), Some(location));
         no_recursive_current_epoch_mut(|current| {
             let mut epoch_data = current.epoch_data.borrow_mut();
+            // need to manually construct to get around closure issues
+            let p_note = epoch_data.ensemble.note_pstate(new_bit).unwrap();
+            let eval_awi = EvalAwi {
+                p_state: new_bit,
+                p_note,
+            };
             epoch_data
                 .responsible_for
                 .get_mut(current.p_self)
                 .unwrap()
                 .assertions
                 .bits
-                .push(new_bit);
+                .push(eval_awi);
         })
     }
     fn get_nzbw(p_state: PState) -> NonZeroUsize {
@@ -290,6 +320,30 @@ pub fn _callback() -> EpochCallback {
     }
 }
 
+/// Manages the lifetimes and assertions of `State`s created by mimicking types.
+///
+/// During the lifetime of a `Epoch` struct, all thread local `State`s
+/// created will be kept until the struct is dropped, in which case the capacity
+/// for those states are reclaimed and their `PState`s are invalidated.
+///
+/// Additionally, assertion bits from [crate::mimick::assert],
+/// [crate::mimick::assert_eq], [crate::mimick::Option::unwrap], etc are
+/// associated with the top level `Epoch` alive at the time they are
+/// created. Use [Epoch::assertions] to acquire these.
+///
+/// The internal `Ensemble` can be freed from any non-`Send`, non-`Sync`, and
+/// other thread local restrictions once all states have been lowered.
+/// [Epoch::ensemble] can be called to get it.
+///
+/// # Panics
+///
+/// The lifetimes of `Epoch` structs should be stacklike, such that a
+/// `Epoch` created during the lifetime of another `Epoch` should be
+/// dropped before the older `Epoch` is dropped, otherwise a panic occurs.
+///
+/// Using `mem::forget` or similar on a `Epoch` will leak `State`s and
+/// cause them to not be cleaned up, and will also likely cause panics because
+/// of the stack requirement.
 pub struct Epoch {
     shared: EpochShared,
 }
@@ -320,11 +374,43 @@ impl Epoch {
         Self { shared }
     }
 
+    /// Intended primarily for developer use
+    pub fn internal_epoch_shared(&self) -> &EpochShared {
+        &self.shared
+    }
+
     /// Gets the assertions associated with this Epoch (not including assertions
     /// from when sub-epochs are alive or from before the this Epoch was
     /// created)
     pub fn assertions(&self) -> Assertions {
         self.shared.assertions()
+    }
+
+    /// If any assertion bit evaluates to false, this returns an error. If there
+    /// were no known false assertions but some are `Value::Unknown`, this
+    /// returns a specific error for it.
+    // TODO fix the enum situation
+    pub fn assert_assertions(&self) -> Result<(), EvalError> {
+        let bits = self.shared.assertions().bits;
+        let mut unknown = false;
+        for mut eval_awi in bits {
+            let val = eval_awi.eval_bit()?;
+            if let Some(val) = val.known_value() {
+                if !val {
+                    return Err(EvalError::OtherString(format!(
+                        "assertion bits are not all true, failed on bit {eval_awi}"
+                    )))
+                    // TODO also return location
+                }
+            } else {
+                unknown = true;
+            }
+        }
+        if unknown {
+            Err(EvalError::OtherStr("could not eval bit to known value"))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn ensemble(&self) -> Ensemble {
