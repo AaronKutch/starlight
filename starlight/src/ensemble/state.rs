@@ -1,10 +1,10 @@
-use std::num::NonZeroUsize;
+use std::{fmt::Write, num::NonZeroUsize};
 
 use awint::awint_dag::{
     lowering::{lower_state, LowerManagement},
     smallvec::{smallvec, SmallVec},
     triple_arena::{Advancer, Arena},
-    EvalError, Location,
+    EAwi, EvalError, EvalResult, Location,
     Op::{self, *},
     PState,
 };
@@ -73,6 +73,70 @@ impl Ensemble {
             Ok(())
         } else {
             Err(EvalError::InvalidPtr)
+        }
+    }
+
+    pub fn eval_state(&mut self, p_state: PState) -> Result<(), EvalError> {
+        let state = &self.stator.states[p_state];
+        let self_w = state.nzbw;
+        let lit_op: Op<EAwi> = Op::translate(&state.op, |lhs: &mut [EAwi], rhs: &[PState]| {
+            for (lhs, rhs) in lhs.iter_mut().zip(rhs.iter()) {
+                let rhs = &self.stator.states[rhs];
+                if let Op::Literal(ref lit) = rhs.op {
+                    *lhs = EAwi::KnownAwi(lit.to_owned());
+                } else {
+                    *lhs = EAwi::Bitwidth(rhs.nzbw);
+                }
+            }
+        });
+        match lit_op.eval(self_w) {
+            EvalResult::Valid(x) | EvalResult::Pass(x) => {
+                let len = state.op.operands_len();
+                for i in 0..len {
+                    let source = self.stator.states[p_state].op.operands()[i];
+                    self.dec_rc(source).unwrap();
+                }
+                self.stator.states[p_state].op = Literal(x);
+                Ok(())
+            }
+            EvalResult::Noop => {
+                let operands = state.op.operands();
+                let mut s = String::new();
+                for op in operands {
+                    writeln!(s, "{:#?},", self.stator.states[op]).unwrap();
+                }
+                Err(EvalError::OtherString(format!(
+                    "`EvalResult::Noop` evaluation failure on state {} {:#?}\narguments: (\n{})",
+                    p_state, state, s
+                )))
+            }
+            EvalResult::Unevaluatable | EvalResult::PassUnevaluatable => {
+                Err(EvalError::Unevaluatable)
+            }
+            EvalResult::AssertionSuccess => {
+                if let Assert([a]) = state.op {
+                    self.dec_rc(a).unwrap();
+                    Ok(())
+                } else {
+                    unreachable!()
+                }
+            }
+            EvalResult::AssertionFailure => Err(EvalError::OtherString(format!(
+                "`EvalResult::AssertionFailure` when evaluating state {} {:?}",
+                p_state, state
+            ))),
+            EvalResult::Error(e) => {
+                let operands = state.op.operands();
+                let mut s = String::new();
+                for op in operands {
+                    writeln!(s, "{:?},", self.stator.states[op]).unwrap();
+                }
+                Err(EvalError::OtherString(format!(
+                    "`EvalResult::Error` evaluation failure (\n{:#?}\n) on state {} \
+                     {:#?}\narguments: (\n{})",
+                    e, p_state, state, s
+                )))
+            }
         }
     }
 
@@ -260,7 +324,24 @@ impl Ensemble {
                 }
                 path.last_mut().unwrap().0 += 1;
             } else if i >= ops.len() {
-                // checked all sources
+                // checked all sources, attempt evaluation first, this is crucial in preventing
+                // wasted work in multiple layer lowerings
+                match lock.ensemble.eval_state(p_state) {
+                    Ok(()) => {
+                        path.pop().unwrap();
+                        if path.is_empty() {
+                            break
+                        } else {
+                            continue
+                        }
+                    }
+                    // Continue on to lowering
+                    Err(EvalError::Unevaluatable) => (),
+                    Err(e) => {
+                        lock.ensemble.stator.states[p_state].err = Some(e.clone());
+                        return Err(e)
+                    }
+                }
                 let needs_lower = match lock.ensemble.stator.states[p_state].op {
                     Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
                     | StaticLut(..) => false,
@@ -280,8 +361,7 @@ impl Ensemble {
                             };
                             if no_op {
                                 // TODO should I add the extra arg to `Lut` to fix this edge case?
-                                lock.ensemble.stator.states[p_state].op =
-                                    Opaque(smallvec![], None);
+                                lock.ensemble.stator.states[p_state].op = Opaque(smallvec![], None);
                                 lock.ensemble.dec_rc(inx).unwrap();
                             } else {
                                 lock.ensemble.stator.states[p_state].op = StaticLut([inx], lit);
@@ -301,8 +381,7 @@ impl Ensemble {
                                 // ill-defined to some extend because it returns `Option<bool>`, it
                                 // must be asserted against, this
                                 // provides the next best thing
-                                lock.ensemble.stator.states[p_state].op =
-                                    Opaque(smallvec![], None);
+                                lock.ensemble.stator.states[p_state].op = Opaque(smallvec![], None);
                                 lock.ensemble.dec_rc(bits).unwrap();
                             } else {
                                 lock.ensemble.stator.states[p_state].op = StaticGet([bits], lit_u);

@@ -57,7 +57,10 @@ impl DebugNodeTrait<PState> for State {
                     short(this.lowered_to_tnodes)
                 ));
                 if let Some(ref e) = this.err {
-                    v.push(format!("{e:?}"));
+                    let s = format!("{e}");
+                    for line in s.lines() {
+                        v.push(line.to_owned());
+                    }
                 }
                 v
             },
