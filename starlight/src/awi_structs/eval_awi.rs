@@ -72,7 +72,7 @@ impl EvalAwi {
         Self::from_state(bits.state())
     }
 
-    pub fn eval(&mut self) -> Result<awi::Awi, EvalError> {
+    pub fn eval(&self) -> Result<awi::Awi, EvalError> {
         let nzbw = self.nzbw();
         let p_self = self.state();
         let mut res = awi::Awi::zero(nzbw);
@@ -88,7 +88,7 @@ impl EvalAwi {
     }
 
     /// Assumes `self` is a single bit
-    pub(crate) fn eval_bit(&mut self) -> Result<Value, EvalError> {
+    pub(crate) fn eval_bit(&self) -> Result<Value, EvalError> {
         let p_self = self.state();
         assert_eq!(self.bw(), 1);
         Evaluator::calculate_thread_local_state_value(p_self, 0)
@@ -123,20 +123,8 @@ impl fmt::Debug for EvalAwi {
 
 forward_debug_fmt!(EvalAwi);
 
-impl From<&dag::Bits> for EvalAwi {
-    fn from(bits: &dag::Bits) -> EvalAwi {
-        Self::from_bits(bits)
-    }
-}
-
-impl From<&dag::Awi> for EvalAwi {
-    fn from(bits: &dag::Awi) -> EvalAwi {
-        Self::from_bits(bits)
-    }
-}
-
-impl From<dag::Awi> for EvalAwi {
-    fn from(bits: dag::Awi) -> EvalAwi {
-        Self::from_bits(&bits)
+impl<B: AsRef<dag::Bits>> From<B> for EvalAwi {
+    fn from(b: B) -> Self {
+        Self::from_bits(b.as_ref())
     }
 }

@@ -15,14 +15,15 @@ fn _render(epoch: &Epoch) -> awi::Result<(), EvalError> {
 fn lazy_awi() -> Option<()> {
     let epoch0 = Epoch::new();
 
-    let mut x = LazyAwi::opaque(bw(1));
+    let x = LazyAwi::opaque(bw(1));
     let mut a = awi!(x);
     a.not_();
+    let y = EvalAwi::from(a);
 
     {
         use awi::*;
-        let mut y = EvalAwi::from(a.as_ref());
 
+        // TODO the solution is to use the `bits` macro in these places
         x.retro_(&awi!(0)).unwrap();
 
         epoch0.ensemble().verify_integrity().unwrap();
@@ -45,17 +46,17 @@ fn lazy_awi() -> Option<()> {
 #[test]
 fn invert_twice() {
     let epoch0 = Epoch::new();
-    let mut x = LazyAwi::opaque(bw(1));
+    let x = LazyAwi::opaque(bw(1));
     let mut a = awi!(x);
     a.not_();
     let a_copy = a.clone();
     a.lut_(&inlawi!(10), &a_copy).unwrap();
     a.not_();
+    let y = EvalAwi::from(a);
 
     {
         use awi::{assert_eq, *};
 
-        let mut y = EvalAwi::from(a.as_ref());
         x.retro_(&awi!(0)).unwrap();
         assert_eq!(y.eval().unwrap(), awi!(0));
         epoch0.ensemble().verify_integrity().unwrap();
@@ -68,15 +69,15 @@ fn invert_twice() {
 #[test]
 fn multiplier() {
     let epoch0 = Epoch::new();
-    let mut input_a = LazyAwi::opaque(bw(16));
-    let mut input_b = LazyAwi::opaque(bw(16));
+    let input_a = LazyAwi::opaque(bw(16));
+    let input_b = LazyAwi::opaque(bw(16));
     let mut output = inlawi!(zero: ..32);
     output.arb_umul_add_(&input_a, &input_b);
+    let output = EvalAwi::from(output);
 
     {
         use awi::*;
 
-        let mut output = EvalAwi::from(output.as_ref());
         input_a.retro_(&awi!(123u16)).unwrap();
         input_b.retro_(&awi!(77u16)).unwrap();
         std::assert_eq!(output.eval().unwrap(), awi!(9471u32));
@@ -101,7 +102,7 @@ fn luts() {
             let mut test_input = awi::Awi::zero(bw(input_w));
             rng.next_bits(&mut test_input);
             let original_input = test_input.clone();
-            let mut input = LazyAwi::opaque(bw(input_w));
+            let input = LazyAwi::opaque(bw(input_w));
             let mut lut_input = dag::Awi::from(input.as_ref());
             let mut opaque_set = awi::Awi::umax(bw(input_w));
             for i in 0..input_w {
@@ -132,7 +133,7 @@ fn luts() {
             {
                 use awi::{assert, assert_eq, *};
 
-                let mut opt_res = EvalAwi::from(&x);
+                let opt_res = EvalAwi::from(&x);
 
                 epoch0.optimize().unwrap();
 

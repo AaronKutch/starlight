@@ -393,7 +393,7 @@ impl Epoch {
     pub fn assert_assertions(&self) -> Result<(), EvalError> {
         let bits = self.shared.assertions().bits;
         let mut unknown = false;
-        for mut eval_awi in bits {
+        for eval_awi in bits {
             let val = eval_awi.eval_bit()?;
             if let Some(val) = val.known_value() {
                 if !val {

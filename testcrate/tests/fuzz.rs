@@ -104,7 +104,7 @@ impl Mem {
 
         // evaluate all
         for pair in self.a.vals() {
-            let mut lazy = EvalAwi::from(pair.dag.as_ref());
+            let lazy = EvalAwi::from(&pair.dag);
             assert_eq!(lazy.eval().unwrap(), pair.awi);
         }
         Ok(())

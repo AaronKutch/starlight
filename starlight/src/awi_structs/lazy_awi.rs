@@ -45,7 +45,8 @@ impl LazyAwi {
         }
     }
 
-    // TODO it probably does need to be an extra `Awi` in the `Opaque` variant
+    // TODO it probably does need to be an extra `Awi` in the `Opaque` variant,
+    // or does this make sense at all?
     /*pub fn from_bits(bits: &awi::Bits) -> Self {
         Self { opaque: dag::Awi::opaque(bits.nzbw()), lazy_value: Some(awi::Awi::from_bits(bits)) }
     }*/
@@ -77,7 +78,7 @@ impl LazyAwi {
     /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
-    pub fn retro_(&mut self, rhs: &awi::Bits) -> Result<(), EvalError> {
+    pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
         let p_lhs = self.state();
         Evaluator::change_thread_local_state_value(p_lhs, rhs)
     }
@@ -118,21 +119,3 @@ impl fmt::Debug for LazyAwi {
 }
 
 forward_debug_fmt!(LazyAwi);
-
-/*impl From<&awi::Bits> for LazyAwi {
-    fn from(bits: &awi::Bits) -> LazyAwi {
-        Self::from_bits(&bits)
-    }
-}
-
-impl From<&awi::Awi> for LazyAwi {
-    fn from(bits: &awi::Awi) -> LazyAwi {
-        Self::from_bits(&bits)
-    }
-}
-
-impl From<awi::Awi> for LazyAwi {
-    fn from(bits: awi::Awi) -> LazyAwi {
-        Self::from_bits(&bits)
-    }
-}*/
