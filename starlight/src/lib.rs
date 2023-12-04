@@ -1,4 +1,4 @@
-//! This is a WIP Hardware design language that works as a Rust program.
+//! This is a WIP Hardware design language that is coded as an ordinary Rust program.
 //! Currently, just combinational logic is well supported. The temporal structs
 //! need more development.
 //!
