@@ -22,6 +22,7 @@ ptr_struct!(P0);
 struct Pair {
     awi: awi::Awi,
     dag: dag::Awi,
+    eval: Option<EvalAwi>,
 }
 
 #[derive(Debug)]
@@ -71,6 +72,7 @@ impl Mem {
                 let p = self.a.insert(Pair {
                     awi: lit.clone(),
                     dag: dag::Awi::from(&lit),
+                    eval: None,
                 });
                 self.v[w].push(p);
                 p
@@ -79,6 +81,7 @@ impl Mem {
                 let p = self.a.insert(Pair {
                     awi: lit.clone(),
                     dag: dag::Awi::from(lazy.as_ref()),
+                    eval: None,
                 });
                 self.roots.push((lazy, lit));
                 self.v[w].push(p);
@@ -96,6 +99,14 @@ impl Mem {
         self.a[inx].clone()
     }
 
+    pub fn finish(&mut self, epoch: &Epoch) {
+        for pair in self.a.vals_mut() {
+            pair.eval = Some(EvalAwi::from(&pair.dag))
+        }
+        // then pruning can be done safely
+        epoch.prune().unwrap();
+    }
+
     pub fn verify_equivalence(&mut self, _epoch: &Epoch) -> Result<(), EvalError> {
         // set all lazy roots
         for (lazy, lit) in &mut self.roots {
@@ -104,8 +115,7 @@ impl Mem {
 
         // evaluate all
         for pair in self.a.vals() {
-            let lazy = EvalAwi::from(&pair.dag);
-            assert_eq!(lazy.eval().unwrap(), pair.awi);
+            assert_eq!(pair.eval.as_ref().unwrap().eval().unwrap(), pair.awi);
         }
         Ok(())
     }
@@ -161,6 +171,7 @@ fn fuzz_lower_and_eval() {
         for _ in 0..N.0 {
             operation(&mut rng, &mut m)
         }
+        m.finish(&epoch);
         epoch.ensemble().verify_integrity().unwrap();
         let res = m.verify_equivalence(&epoch);
         res.unwrap();

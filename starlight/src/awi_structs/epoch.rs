@@ -122,7 +122,9 @@ impl EpochShared {
         drop(epoch_data);
         let mut cloned = vec![];
         for p_state in states {
-            cloned.push(EvalAwi::from_state(p_state))
+            if let Some(eval) = EvalAwi::from_state(p_state) {
+                cloned.push(eval)
+            }
         }
         Assertions { bits: cloned }
     }

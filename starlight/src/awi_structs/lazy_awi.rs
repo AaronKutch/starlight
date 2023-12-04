@@ -18,6 +18,9 @@ use crate::{awi, ensemble::Evaluator};
 pub struct LazyAwi {
     // this must remain the same opaque and noted in order for `retro_` to work
     opaque: dag::Awi,
+    // needs to be kept in case the `LazyAwi` is optimized away, but we still need bitwidth
+    // comparisons
+    nzbw: NonZeroUsize,
 }
 
 impl Lineage for LazyAwi {
@@ -32,16 +35,17 @@ impl LazyAwi {
     }
 
     pub fn nzbw(&self) -> NonZeroUsize {
-        self.opaque.nzbw()
+        self.nzbw
     }
 
     pub fn bw(&self) -> usize {
-        self.nzbw().get()
+        self.nzbw.get()
     }
 
     pub fn opaque(w: NonZeroUsize) -> Self {
         Self {
             opaque: dag::Awi::opaque(w),
+            nzbw: w,
         }
     }
 
@@ -79,6 +83,12 @@ impl LazyAwi {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
+        if self.nzbw != rhs.nzbw() {
+            // `change_thread_local_state_value` will return without error if it does not
+            // find the state, but we need to return an error if there is a bitwidth
+            // mismatch
+            return Err(EvalError::WrongBitwidth)
+        }
         let p_lhs = self.state();
         Evaluator::change_thread_local_state_value(p_lhs, rhs)
     }
@@ -170,6 +180,12 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
+        if BW != rhs.bw() {
+            // `change_thread_local_state_value` will return without error if it does not
+            // find the state, but we need to return an error if there is a bitwidth
+            // mismatch
+            return Err(EvalError::WrongBitwidth)
+        }
         let p_lhs = self.state();
         Evaluator::change_thread_local_state_value(p_lhs, rhs)
     }

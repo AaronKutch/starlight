@@ -57,18 +57,18 @@ impl EvalAwi {
         self.p_note
     }
 
-    pub(crate) fn from_state(p_state: PState) -> Self {
+    pub(crate) fn from_state(p_state: PState) -> Option<Self> {
         let p_note = get_current_epoch()
             .unwrap()
             .epoch_data
             .borrow_mut()
             .ensemble
-            .note_pstate(p_state)
-            .unwrap();
-        Self { p_state, p_note }
+            .note_pstate(p_state)?;
+        Some(Self { p_state, p_note })
     }
 
-    pub fn from_bits(bits: &dag::Bits) -> Self {
+    /// Can return `None` if the state has been pruned
+    pub fn from_bits(bits: &dag::Bits) -> Option<Self> {
         Self::from_state(bits.state())
     }
 
@@ -104,23 +104,23 @@ impl EvalAwi {
     }
 
     pub fn zero(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::zero(w))
+        Self::from_bits(&dag::Awi::zero(w)).unwrap()
     }
 
     pub fn umax(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::umax(w))
+        Self::from_bits(&dag::Awi::umax(w)).unwrap()
     }
 
     pub fn imax(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::imax(w))
+        Self::from_bits(&dag::Awi::imax(w)).unwrap()
     }
 
     pub fn imin(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::imin(w))
+        Self::from_bits(&dag::Awi::imin(w)).unwrap()
     }
 
     pub fn uone(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::uone(w))
+        Self::from_bits(&dag::Awi::uone(w)).unwrap()
     }
 }
 
@@ -133,7 +133,8 @@ impl fmt::Debug for EvalAwi {
 forward_debug_fmt!(EvalAwi);
 
 impl<B: AsRef<dag::Bits>> From<B> for EvalAwi {
+    #[track_caller]
     fn from(b: B) -> Self {
-        Self::from_bits(b.as_ref())
+        Self::from_bits(b.as_ref()).unwrap()
     }
 }

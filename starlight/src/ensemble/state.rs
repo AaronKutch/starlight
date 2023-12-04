@@ -149,6 +149,11 @@ impl Ensemble {
             }
             EvalResult::AssertionSuccess => {
                 if let Assert([_]) = state.op {
+                    // this can be done because `Assert` is a sink that should not be used by
+                    // anything
+                    let state = self.stator.states.get_mut(p_state).unwrap();
+                    assert_eq!(state.rc, 0);
+                    state.keep = false;
                     self.remove_state(p_state).unwrap();
                     Ok(())
                 } else {
@@ -336,8 +341,12 @@ impl Ensemble {
     ) -> Result<(), EvalError> {
         let mut unimplemented = false;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        if lock.ensemble.stator.states[p_state].lowered_to_elementary {
-            return Ok(())
+        if let Some(state) = lock.ensemble.stator.states.get(p_state) {
+            if state.lowered_to_elementary {
+                return Ok(())
+            }
+        } else {
+            return Err(EvalError::InvalidPtr)
         }
         lock.ensemble.stator.states[p_state].lowered_to_elementary = true;
 
@@ -526,8 +535,12 @@ impl Ensemble {
     /// Assuming that the rootward tree from `p_state` is lowered down to the
     /// elementary `Op`s, this will create the `TNode` network
     pub fn dfs_lower_elementary_to_tnodes(&mut self, p_state: PState) -> Result<(), EvalError> {
-        if self.stator.states[p_state].lowered_to_tnodes {
-            return Ok(())
+        if let Some(state) = self.stator.states.get(p_state) {
+            if state.lowered_to_tnodes {
+                return Ok(())
+            }
+        } else {
+            return Err(EvalError::InvalidPtr)
         }
         self.stator.states[p_state].lowered_to_tnodes = true;
         let mut path: Vec<(usize, PState)> = vec![(0, p_state)];
@@ -701,12 +714,12 @@ impl Ensemble {
     /// Lowers the rootward tree from `p_state` down to `TNode`s
     pub fn dfs_lower(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
         Ensemble::dfs_lower_states_to_elementary(epoch_shared, p_state)?;
-        let res = epoch_shared
-            .epoch_data
-            .borrow_mut()
-            .ensemble
-            .dfs_lower_elementary_to_tnodes(p_state);
-        res.unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        // the state can get removed by the above step
+        if lock.ensemble.stator.states.contains(p_state) {
+            let res = lock.ensemble.dfs_lower_elementary_to_tnodes(p_state);
+            res.unwrap();
+        }
         Ok(())
     }
 
