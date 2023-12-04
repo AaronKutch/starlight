@@ -100,6 +100,49 @@
 //! }
 //! drop(epoch0);
 //! ```
+//!
+//! ```
+//! use starlight::{dag, awi, Epoch, EvalAwi};
+//! use dag::*;
+//!
+//! let epoch0 = Epoch::new();
+//!
+//! let mut lhs = inlawi!(zero: ..8);
+//! let rhs = inlawi!(umax: ..8);
+//! let x = inlawi!(10101010);
+//! let y = InlAwi::from_u64(4);
+//!
+//! let mut output = inlawi!(0xffu8);
+//!
+//! // error: expected `bool`, found struct `bool`
+//! //if lhs.ult(&rhs).unwrap() {
+//! //    output.xor_(&x).unwrap();
+//! //} else {
+//! //    output.lshr_(y.to_usize()).unwrap();
+//! //};
+//!
+//! // A little more cumbersome, but we get to use all the features of
+//! // normal Rust in metaprogramming and don't have to support an entire DSL.
+//! // In the future we will have more macros to help with this.
+//!
+//! let lt = lhs.ult(&rhs).unwrap();
+//!
+//! let mut tmp0 = output;
+//! tmp0.xor_(&x).unwrap();
+//! output.mux_(&tmp0, lt).unwrap();
+//!
+//! let mut tmp1 = output;
+//! tmp1.lshr_(y.to_usize()).unwrap();
+//! output.mux_(&tmp1, !lt).unwrap();
+//!
+//! let output_eval = EvalAwi::from(&output);
+//!
+//! {
+//!     use awi::*;
+//!     awi::assert_eq!(output_eval.eval().unwrap(), awi!(01010101));
+//! }
+//! drop(epoch0);
+//! ```
 
 #![allow(clippy::needless_range_loop)]
 #![allow(clippy::manual_flatten)]
