@@ -455,6 +455,16 @@ impl Epoch {
         self.shared.ensemble()
     }
 
+    /// Removes all non-noted states
+    pub fn prune(&self) -> Result<(), EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
+            return Err(EvalError::OtherStr("epoch is not the current epoch"))
+        }
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        lock.ensemble.prune_unnoted_states()
+    }
+
     /// Lowers all states. This is not needed in most circumstances, `EvalAwi`
     /// and optimization functions do this on demand.
     pub fn lower(&self) -> Result<(), EvalError> {

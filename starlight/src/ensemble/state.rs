@@ -9,7 +9,7 @@ use awint::awint_dag::{
     PState,
 };
 
-use super::Value;
+use super::{Referent, Value};
 use crate::{
     awi,
     ensemble::{Ensemble, PBack},
@@ -83,6 +83,33 @@ impl Ensemble {
         }
     }
 
+    // TODO need to slightly rethink the PState/PNode system.
+    // For now, we just prune states if any of their bits shares a surject with a
+    // note.
+    pub fn prune_unnoted_states(&mut self) -> Result<(), EvalError> {
+        let mut adv = self.stator.states.advancer();
+        while let Some(p_state) = adv.advance(&self.stator.states) {
+            let state = &self.stator.states[p_state];
+            let mut remove = true;
+            'outer: for p_bit in &state.p_self_bits {
+                if let Some(p_bit) = p_bit {
+                    let mut equiv_adv = self.backrefs.advancer_surject(*p_bit);
+                    while let Some(p_back) = equiv_adv.advance(&self.backrefs) {
+                        if let Referent::Note(_) = self.backrefs.get_key(p_back).unwrap() {
+                            remove = false;
+                            break 'outer
+                        }
+                    }
+                }
+            }
+            if remove {
+                self.stator.states.get_mut(p_state).unwrap().keep = false;
+                self.remove_state(p_state).unwrap();
+            }
+        }
+        Ok(())
+    }
+
     pub fn eval_state(&mut self, p_state: PState) -> Result<(), EvalError> {
         let state = &self.stator.states[p_state];
         let self_w = state.nzbw;
@@ -121,8 +148,8 @@ impl Ensemble {
                 Err(EvalError::Unevaluatable)
             }
             EvalResult::AssertionSuccess => {
-                if let Assert([a]) = state.op {
-                    self.dec_rc(a).unwrap();
+                if let Assert([_]) = state.op {
+                    self.remove_state(p_state).unwrap();
                     Ok(())
                 } else {
                     unreachable!()

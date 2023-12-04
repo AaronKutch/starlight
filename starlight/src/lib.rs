@@ -74,6 +74,14 @@
 //!     // switch back to normal structs
 //!     use awi::*;
 //!
+//!     // discard all unused mimicking states so the render is cleaner
+//!     epoch0.prune().unwrap();
+//!
+//!     // See the mimicking state graph befor it is lowered
+//!     epoch0
+//!         .render_to_svgs_in_dir(std::path::PathBuf::from("./".to_owned()))
+//!         .unwrap();
+//!
 //!     // lower into purely static bit movements and lookup tables.
 //!     epoch0.lower().unwrap();
 //!     epoch0.optimize().unwrap();
