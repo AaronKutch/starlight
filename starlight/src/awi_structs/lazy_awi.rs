@@ -119,3 +119,106 @@ impl fmt::Debug for LazyAwi {
 }
 
 forward_debug_fmt!(LazyAwi);
+
+/// The same as [LazyAwi](crate::LazyAwi), except that it allows for checking
+/// bitwidths at compile time.
+#[derive(Clone, Copy)]
+pub struct LazyInlAwi<const BW: usize, const LEN: usize> {
+    opaque: dag::InlAwi<BW, LEN>,
+}
+
+#[macro_export]
+macro_rules! lazy_inlawi_ty {
+    ($w:expr) => {
+        LazyInlAwi::<
+            { $w },
+            {
+                {
+                    Bits::unstable_raw_digits({ $w })
+                }
+            },
+        >
+    };
+}
+
+impl<const BW: usize, const LEN: usize> Lineage for LazyInlAwi<BW, LEN> {
+    fn state(&self) -> PState {
+        self.opaque.state()
+    }
+}
+
+impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
+    fn internal_as_ref(&self) -> &dag::InlAwi<BW, LEN> {
+        &self.opaque
+    }
+
+    pub fn nzbw(&self) -> NonZeroUsize {
+        self.opaque.nzbw()
+    }
+
+    pub fn bw(&self) -> usize {
+        self.nzbw().get()
+    }
+
+    pub fn opaque() -> Self {
+        Self {
+            opaque: dag::InlAwi::opaque(),
+        }
+    }
+
+    /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
+    /// if this is being called after the corresponding Epoch is dropped and
+    /// states have been pruned.
+    pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
+        let p_lhs = self.state();
+        Evaluator::change_thread_local_state_value(p_lhs, rhs)
+    }
+}
+
+impl<const BW: usize, const LEN: usize> Deref for LazyInlAwi<BW, LEN> {
+    type Target = dag::InlAwi<BW, LEN>;
+
+    fn deref(&self) -> &Self::Target {
+        self.internal_as_ref()
+    }
+}
+
+impl<const BW: usize, const LEN: usize> Index<RangeFull> for LazyInlAwi<BW, LEN> {
+    type Output = dag::InlAwi<BW, LEN>;
+
+    fn index(&self, _i: RangeFull) -> &dag::InlAwi<BW, LEN> {
+        self
+    }
+}
+
+impl<const BW: usize, const LEN: usize> Borrow<dag::InlAwi<BW, LEN>> for LazyInlAwi<BW, LEN> {
+    fn borrow(&self) -> &dag::InlAwi<BW, LEN> {
+        self
+    }
+}
+
+impl<const BW: usize, const LEN: usize> AsRef<dag::InlAwi<BW, LEN>> for LazyInlAwi<BW, LEN> {
+    fn as_ref(&self) -> &dag::InlAwi<BW, LEN> {
+        self
+    }
+}
+
+impl<const BW: usize, const LEN: usize> fmt::Debug for LazyInlAwi<BW, LEN> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LazyAwi({:?})", self.state())
+    }
+}
+
+macro_rules! forward_lazyinlawi_fmt {
+    ($($name:ident)*) => {
+        $(
+            impl<const BW: usize, const LEN: usize> fmt::$name for LazyInlAwi<BW, LEN> {
+                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    fmt::Debug::fmt(self, f)
+                }
+            }
+        )*
+    };
+}
+
+forward_lazyinlawi_fmt!(Display LowerHex UpperHex Octal Binary);

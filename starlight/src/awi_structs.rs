@@ -5,5 +5,5 @@ mod temporal;
 
 pub use epoch::{Assertions, Epoch};
 pub use eval_awi::EvalAwi;
-pub use lazy_awi::LazyAwi;
+pub use lazy_awi::{LazyAwi, LazyInlAwi};
 pub use temporal::{Loop, LoopHandle, Net};

@@ -267,7 +267,7 @@ pub fn _callback() -> EpochCallback {
     }
     fn register_assertion_bit(bit: dag::bool, location: Location) {
         // need a new bit to attach new location data to
-        let new_bit = new_pstate(bw(1), Op::Copy([bit.state()]), Some(location));
+        let new_bit = new_pstate(bw(1), Op::Assert([bit.state()]), Some(location));
         no_recursive_current_epoch_mut(|current| {
             let mut epoch_data = current.epoch_data.borrow_mut();
             // need to manually construct to get around closure issues
@@ -326,8 +326,8 @@ pub fn _callback() -> EpochCallback {
 /// created will be kept until the struct is dropped, in which case the capacity
 /// for those states are reclaimed and their `PState`s are invalidated.
 ///
-/// Additionally, assertion bits from [crate::mimick::assert],
-/// [crate::mimick::assert_eq], [crate::mimick::Option::unwrap], etc are
+/// Additionally, assertion bits from [crate::dag::assert],
+/// [crate::dag::assert_eq], [crate::dag::Option::unwrap], etc are
 /// associated with the top level `Epoch` alive at the time they are
 /// created. Use [Epoch::assertions] to acquire these.
 ///
@@ -386,28 +386,66 @@ impl Epoch {
         self.shared.assertions()
     }
 
-    /// If any assertion bit evaluates to false, this returns an error. If there
-    /// were no known false assertions but some are `Value::Unknown`, this
-    /// returns a specific error for it.
+    /// If any assertion bit evaluates to false, this returns an error.
     // TODO fix the enum situation
     pub fn assert_assertions(&self) -> Result<(), EvalError> {
         let bits = self.shared.assertions().bits;
-        let mut unknown = false;
         for eval_awi in bits {
             let val = eval_awi.eval_bit()?;
             if let Some(val) = val.known_value() {
                 if !val {
                     return Err(EvalError::OtherString(format!(
-                        "assertion bits are not all true, failed on bit {eval_awi}"
+                        "an assertion bit evaluated to false, failed on {}",
+                        self.shared
+                            .epoch_data
+                            .borrow()
+                            .ensemble
+                            .get_state_debug(eval_awi.state())
+                            .unwrap()
                     )))
-                    // TODO also return location
                 }
-            } else {
-                unknown = true;
             }
         }
-        if unknown {
-            Err(EvalError::OtherStr("could not eval bit to known value"))
+        Ok(())
+    }
+
+    /// If any assertion bit evaluates to false, this returns an error. If there
+    /// were no known false assertions but some are `Value::Unknown`, this
+    /// returns a specific error for it.
+    // TODO fix the enum situation
+    pub fn assert_assertions_strict(&self) -> Result<(), EvalError> {
+        let bits = self.shared.assertions().bits;
+        let mut unknown = None;
+        for eval_awi in bits {
+            let val = eval_awi.eval_bit()?;
+            if let Some(val) = val.known_value() {
+                if !val {
+                    return Err(EvalError::OtherString(format!(
+                        "assertion bits are not all true, failed on {}",
+                        self.shared
+                            .epoch_data
+                            .borrow()
+                            .ensemble
+                            .get_state_debug(eval_awi.state())
+                            .unwrap()
+                    )))
+                }
+            } else if unknown.is_none() {
+                // get the earliest failure to evaluate wait for all bits to be checked for
+                // falsity
+                unknown = Some(eval_awi.p_state);
+            }
+        }
+        if let Some(p_state) = unknown {
+            Err(EvalError::OtherString(format!(
+                "an assertion bit could not be evaluated to a known value, failed on {}",
+                self.shared
+                    .epoch_data
+                    .borrow()
+                    .ensemble
+                    .get_state_debug(p_state)
+                    .unwrap()
+            )))
         } else {
             Ok(())
         }

@@ -81,7 +81,16 @@ impl EvalAwi {
             if let Some(val) = val.known_value() {
                 res.set(bit_i, val).unwrap();
             } else {
-                return Err(EvalError::OtherStr("could not eval bit to known value"))
+                return Err(EvalError::OtherString(format!(
+                    "could not eval bit {bit_i} to known value, the state is {}",
+                    get_current_epoch()
+                        .unwrap()
+                        .epoch_data
+                        .borrow()
+                        .ensemble
+                        .get_state_debug(p_self)
+                        .unwrap()
+                )))
             }
         }
         Ok(res)

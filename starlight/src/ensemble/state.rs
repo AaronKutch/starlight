@@ -60,6 +60,13 @@ impl Stator {
 }
 
 impl Ensemble {
+    pub fn get_state_debug(&self, p_state: PState) -> Option<String> {
+        self.stator
+            .states
+            .get(p_state)
+            .map(|state| format!("{p_state} {state:#?}"))
+    }
+
     pub fn dec_rc(&mut self, p_state: PState) -> Result<(), EvalError> {
         if let Some(state) = self.stator.states.get_mut(p_state) {
             state.rc = if let Some(x) = state.rc.checked_sub(1) {
@@ -343,8 +350,8 @@ impl Ensemble {
                     }
                 }
                 let needs_lower = match lock.ensemble.stator.states[p_state].op {
-                    Opaque(..) | Literal(_) | Copy(_) | StaticGet(..) | StaticSet(..)
-                    | StaticLut(..) => false,
+                    Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..)
+                    | StaticSet(..) | StaticLut(..) => false,
                     Lut([lut, inx]) => {
                         if let Literal(ref lit) = lock.ensemble.stator.states[lut].op {
                             let lit = lit.clone();
@@ -527,6 +534,18 @@ impl Ensemble {
             } else if i >= ops.len() {
                 // checked all sources
                 match self.stator.states[p_state].op {
+                    Assert([x]) => {
+                        // this is the only foolproof way of doing this, at least without more
+                        // branches
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
+                        let len = self.stator.states[p_state].p_self_bits.len();
+                        assert_eq!(len, self.stator.states[x].p_self_bits.len());
+                        for i in 0..len {
+                            let p_equiv0 = self.stator.states[p_state].p_self_bits[i].unwrap();
+                            let p_equiv1 = self.stator.states[x].p_self_bits[i].unwrap();
+                            self.union_equiv(p_equiv0, p_equiv1).unwrap();
+                        }
+                    }
                     Copy([x]) => {
                         // this is the only foolproof way of doing this, at least without more
                         // branches
