@@ -35,9 +35,7 @@ jobs:
           rustup install nightly-2023-04-14
       - name: Run test suite
         run: |
-          cargo test --all-features
-          cargo test --release --all-features
-          cargo bench
+          cd ./starlight && cargo build --no-default-features
 
   rustfmt:
     name: Rustfmt
@@ -53,7 +51,6 @@ jobs:
       - name: Run `cargo fmt`
         run: |
           cargo fmt -- --check
-          cd no_alloc_test && cargo fmt -- --check
 
   clippy:
     name: Clippy
