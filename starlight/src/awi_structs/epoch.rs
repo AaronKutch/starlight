@@ -1,3 +1,6 @@
+//! Internals used for epoch management (most users should just be interacting
+//! with `Epoch` and `Assertions`)
+
 #![allow(clippy::new_without_default)]
 
 use std::{cell::RefCell, mem, num::NonZeroUsize, rc::Rc, thread::panicking};

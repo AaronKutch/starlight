@@ -17,6 +17,7 @@ pub struct StarRng {
 macro_rules! next {
     ($($name:ident $x:ident $from:ident $to:ident),*,) => {
         $(
+            /// Returns an output with all bits being randomized
             pub fn $name(&mut self) -> $x {
                 let mut res = InlAwi::$from(0);
                 let mut processed = 0;
@@ -100,12 +101,14 @@ impl StarRng {
     // note: do not implement `next_usize`, if it exists then there will be
     // arch-dependent rng code in a lot of places
 
+    /// Creates a new `StarRng` with the given seed
     pub fn new(seed: u64) -> Self {
         let mut rng = Xoshiro128StarStar::seed_from_u64(seed);
         let buf = InlAwi::from_u64(rng.next_u64());
         Self { rng, buf, used: 0 }
     }
 
+    /// Returns a random boolean
     pub fn next_bool(&mut self) -> bool {
         let res = self.buf.get(usize::from(self.used)).unwrap();
         self.used += 1;
@@ -161,6 +164,7 @@ impl StarRng {
         }
     }
 
+    /// Takes a random index of a slice. Returns `None` if `slice.is_empty()`.
     #[must_use]
     pub fn index<'a, T>(&mut self, slice: &'a [T]) -> Option<&'a T> {
         let len = slice.len();

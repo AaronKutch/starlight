@@ -1,9 +1,13 @@
-//! This is a WIP Hardware design language that is coded as an ordinary Rust
-//! program. Currently, just combinational logic is well supported. The temporal
-//! structs need more development.
+//! This is a RTL (Register Transfer Level) description library. Instead of the
+//! typical DSL (Domain Specific Language) approach, this allows RTL
+//! descriptions in ordinary Rust code with all the features that Rust provides.
 //!
-//! See the documentation of `awint_dag` which is used as the backend for this
-//! for more.
+//! This crate is still a WIP, but it currently can describe most combinational
+//! logic. The temporal structs (`Loop` and `Net`) need more development before
+//! they will work properly. Many optimizations are planned in the near future.
+//!
+//! See the documentation of `awint`/`awint_dag` which is used as the backend
+//! for this.
 //!
 //! ```
 //! use std::num::NonZeroUsize;
@@ -157,6 +161,7 @@
 #![allow(clippy::comparison_chain)]
 
 mod awi_structs;
+/// Internals used by this crate to deal with states and TNode DAGs
 pub mod ensemble;
 pub(crate) mod lower;
 mod misc;

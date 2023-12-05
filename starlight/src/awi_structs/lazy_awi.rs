@@ -15,6 +15,8 @@ use crate::{awi, ensemble::Evaluator};
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
 // type
 
+/// When other mimicking types are created from a reference of this, `retro_`
+/// can later be called to retroactively change the input values of the DAG.
 pub struct LazyAwi {
     // this must remain the same opaque and noted in order for `retro_` to work
     opaque: dag::Awi,

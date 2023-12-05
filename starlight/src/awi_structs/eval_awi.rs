@@ -11,6 +11,11 @@ use crate::{
     epoch::get_current_epoch,
 };
 
+/// When created from a type implementing `AsRef<dag::Bits>`, it can later be
+/// used to evaluate its dynamic value.
+///
+/// This will keep the source tree alive in case of pruning.
+///
 /// # Custom Drop
 ///
 /// TODO
