@@ -12,7 +12,10 @@ use awint::awint_dag::{
 use super::{Referent, Value};
 use crate::{
     awi,
-    ensemble::{Ensemble, PBack},
+    ensemble::{
+        value::{Change, Eval},
+        Ensemble, PBack,
+    },
     epoch::EpochShared,
 };
 
@@ -129,6 +132,23 @@ impl Ensemble {
                 for i in 0..len {
                     let source = self.stator.states[p_state].op.operands()[i];
                     self.dec_rc(source).unwrap();
+                }
+                // if the `op` is manually replaced outside of the specially handled lowering
+                // `Copy` replacements, we need to check the values or else this change could be
+                // lost if this was done after initializing `p_self_bits`
+                let state = &mut self.stator.states[p_state];
+                if !state.p_self_bits.is_empty() {
+                    assert_eq!(state.p_self_bits.len(), x.bw());
+                    for i in 0..x.bw() {
+                        if let Some(p_bit) = state.p_self_bits[i] {
+                            let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
+                            self.evaluator.insert(Eval::Change(Change {
+                                depth: 0,
+                                p_equiv,
+                                value: Value::Const(x.get(i).unwrap()),
+                            }));
+                        }
+                    }
                 }
                 self.stator.states[p_state].op = Literal(x);
                 Ok(())

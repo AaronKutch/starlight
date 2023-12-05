@@ -1,3 +1,5 @@
+// This is copied from `fuzzing` in `awint` and should be kept up to date
+
 use std::{
     cmp::{max, min},
     num::NonZeroUsize,
@@ -16,12 +18,10 @@ use starlight::{
 };
 
 // miri is just here to check that the unsized deref hacks are working
-const N: (u32, u32) = if cfg!(miri) {
-    (1, 1)
-} else if cfg!(debug_assertions) {
-    (32, 100)
+const N: (u32, u32) = if cfg!(debug_assertions) {
+    (32, 30)
 } else {
-    (32, 1000)
+    (32, 300)
 };
 
 ptr_struct!(P0);

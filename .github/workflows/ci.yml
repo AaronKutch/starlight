@@ -22,6 +22,7 @@ jobs:
         run: |
           cargo test --all-features
           cargo test --release --all-features
+          cargo bench
 
   msrv_test_suite:
     runs-on: ubuntu-latest

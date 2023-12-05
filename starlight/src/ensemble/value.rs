@@ -88,16 +88,16 @@ pub enum EvalPhase {
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RequestTNode {
-    depth: i64,
-    number_a: u8,
-    p_back_tnode: PBack,
+    pub depth: i64,
+    pub number_a: u8,
+    pub p_back_tnode: PBack,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Change {
-    depth: i64,
-    p_equiv: PBack,
-    value: Value,
+    pub depth: i64,
+    pub p_equiv: PBack,
+    pub value: Value,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -430,7 +430,13 @@ impl Ensemble {
             Eval::Change(change) => {
                 let equiv = self.backrefs.get_val_mut(change.p_equiv).unwrap();
                 equiv.change_visit = self.evaluator.change_visit_gen();
-                equiv.val = change.value;
+                // Handles a rare case where the evaluator decides to change to a const, and
+                // something later tries to set it to an unknown. TODO not sure if this is a bug
+                // that should be resolved some other way, the relevant part is where `Change`s
+                // are pushed in `eval_state`.
+                if !equiv.val.is_const() {
+                    equiv.val = change.value;
+                }
                 let mut adv = self.backrefs.advancer_surject(change.p_equiv);
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     let referent = *self.backrefs.get_key(p_back).unwrap();
