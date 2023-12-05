@@ -1,15 +1,8 @@
-use std::path::PathBuf;
-
 use starlight::{
     awi,
-    awint_dag::EvalError,
     dag::{self, *},
     Epoch, EvalAwi, LazyAwi, StarRng,
 };
-
-fn _render(epoch: &Epoch) -> awi::Result<(), EvalError> {
-    epoch.render_to_svgs_in_dir(PathBuf::from("./".to_owned()))
-}
 
 #[test]
 fn lazy_awi() -> Option<()> {
