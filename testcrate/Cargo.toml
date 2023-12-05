@@ -1,0 +1,11 @@
+[package]
+name = "testcrate"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+starlight = { path = "../starlight", features = ["debug"] }
+
+[dev-dependencies]
+rand_xoshiro = { version = "0.6", default-features = false }
