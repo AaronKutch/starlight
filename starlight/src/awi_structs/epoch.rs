@@ -388,8 +388,9 @@ impl Epoch {
         self.shared.assertions()
     }
 
+    // TODO fix the EvalError enum situation
+
     /// If any assertion bit evaluates to false, this returns an error.
-    // TODO fix the enum situation
     pub fn assert_assertions(&self) -> Result<(), EvalError> {
         let bits = self.shared.assertions().bits;
         for eval_awi in bits {
@@ -414,7 +415,6 @@ impl Epoch {
     /// If any assertion bit evaluates to false, this returns an error. If there
     /// were no known false assertions but some are `Value::Unknown`, this
     /// returns a specific error for it.
-    // TODO fix the enum situation
     pub fn assert_assertions_strict(&self) -> Result<(), EvalError> {
         let bits = self.shared.assertions().bits;
         let mut unknown = None;
