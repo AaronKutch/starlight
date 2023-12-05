@@ -1,7 +1,6 @@
 name: Starlight CI
 
-# FIXME
-on: []
+on: [pull_request]
 
 env:
   RUST_BACKTRACE: 1
