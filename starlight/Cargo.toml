@@ -1,6 +1,6 @@
 [package]
 name = "starlight"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 authors = ["Aaron Kutch <aaronkutch@att.net>"]
 license = "MIT OR Apache-2.0"
@@ -12,7 +12,8 @@ keywords = []
 categories = []
 
 [dependencies]
-awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
+#awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
+awint = { version = "0.14", default-features = false, features = ["rand_support", "dag"] }
 rand_xoshiro = { version = "0.6", default-features = false }
 
 [features]
