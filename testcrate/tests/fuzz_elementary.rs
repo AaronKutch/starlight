@@ -162,7 +162,7 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
 }
 
 #[test]
-fn fuzz_lower_and_eval() {
+fn elementary_fuzz_lower_and_eval() {
     let mut rng = StarRng::new(0);
     let mut m = Mem::new();
 
