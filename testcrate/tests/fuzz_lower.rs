@@ -19,7 +19,7 @@ use starlight::{
 
 // miri is just here to check that the unsized deref hacks are working
 const N: (u32, u32) = if cfg!(debug_assertions) {
-    (32, 30)
+    (32, 10)
 } else {
     (32, 300)
 };
@@ -154,11 +154,23 @@ impl Mem {
         }
     }
 
-    pub fn eval_and_verify_equal(&mut self, _epoch: &Epoch) -> Result<(), EvalError> {
-        // set all lazy roots
-        for (lazy, lit) in &mut self.roots {
-            lazy.retro_(lit).unwrap();
+    pub fn eval_and_verify_equal(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
+        // set half of the roots randomly
+        let len = self.roots.len();
+        for _ in 0..(len / 2) {
+            let inx = (self.rng.next_u64() % (self.roots.len() as u64)) as usize;
+            let (lazy, lit) = self.roots.remove(inx);
+            lazy.retro_(&lit).unwrap();
         }
+
+        // lower
+        epoch.lower().unwrap();
+
+        // set remaining lazy roots
+        for (lazy, lit) in self.roots.drain(..) {
+            lazy.retro_(&lit).unwrap();
+        }
+
         // evaluate all
         for pair in self.a.vals() {
             assert_eq!(pair.eval.as_ref().unwrap().eval().unwrap(), pair.awi);
