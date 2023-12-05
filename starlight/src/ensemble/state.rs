@@ -619,6 +619,51 @@ impl Ensemble {
                             self.union_equiv(p_equiv0, p_equiv1).unwrap();
                         }
                     }
+                    Concat(ref concat) => {
+                        let concat_len = concat.len();
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
+                        let total_len = self.stator.states[p_state].p_self_bits.len();
+                        let mut to = 0;
+                        for c_i in 0..concat_len {
+                            let c = if let Concat(ref concat) = self.stator.states[p_state].op {
+                                concat.as_slice()[c_i]
+                            } else {
+                                unreachable!()
+                            };
+                            let len = self.stator.states[c].p_self_bits.len();
+                            for i in 0..len {
+                                let p_equiv0 =
+                                    self.stator.states[p_state].p_self_bits[to + i].unwrap();
+                                let p_equiv1 = self.stator.states[c].p_self_bits[i].unwrap();
+                                self.union_equiv(p_equiv0, p_equiv1).unwrap();
+                            }
+                            to += len;
+                        }
+                        assert_eq!(total_len, to);
+                    }
+                    ConcatFields(ref concat) => {
+                        let concat_len = concat.len();
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
+                        let total_len = self.stator.states[p_state].p_self_bits.len();
+                        let mut to = 0;
+                        for c_i in 0..concat_len {
+                            let (c, (from, width)) =
+                                if let ConcatFields(ref concat) = self.stator.states[p_state].op {
+                                    (concat.t_as_slice()[c_i], concat.field_as_slice()[c_i])
+                                } else {
+                                    unreachable!()
+                                };
+                            let len = width.get();
+                            for i in 0..len {
+                                let p_equiv0 =
+                                    self.stator.states[p_state].p_self_bits[to + i].unwrap();
+                                let p_equiv1 = self.stator.states[c].p_self_bits[from + i].unwrap();
+                                self.union_equiv(p_equiv0, p_equiv1).unwrap();
+                            }
+                            to += len;
+                        }
+                        assert_eq!(total_len, to);
+                    }
                     StaticGet([bits], inx) => {
                         self.initialize_state_bits_if_needed(p_state).unwrap();
                         let len = self.stator.states[bits].p_self_bits.len();
