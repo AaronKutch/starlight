@@ -1,13 +1,13 @@
 use std::{fmt, num::NonZeroUsize};
 
 use awint::{
-    awint_dag::{dag, epoch, EvalError, Lineage, PNote, PState},
+    awint_dag::{dag, epoch, EvalError, Lineage, PState},
     awint_internals::forward_debug_fmt,
 };
 
 use crate::{
     awi,
-    ensemble::{Evaluator, Value},
+    ensemble::{Evaluator, PNote, Value},
     epoch::get_current_epoch,
 };
 

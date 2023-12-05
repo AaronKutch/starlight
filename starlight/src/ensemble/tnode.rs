@@ -6,8 +6,7 @@ use awint::{
 };
 use smallvec::SmallVec;
 
-use super::PBack;
-use crate::triple_arena::ptr_struct;
+use crate::{ensemble::PBack, triple_arena::ptr_struct};
 
 // We use this because our algorithms depend on generation counters
 ptr_struct!(PTNode);

@@ -154,9 +154,11 @@
 
 #![allow(clippy::needless_range_loop)]
 #![allow(clippy::manual_flatten)]
+#![allow(clippy::comparison_chain)]
 
 mod awi_structs;
 pub mod ensemble;
+pub(crate) mod lower;
 mod misc;
 pub use awi_structs::{
     epoch, Assertions, Epoch, EvalAwi, LazyAwi, LazyInlAwi, Loop, LoopHandle, Net,

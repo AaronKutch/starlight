@@ -1,7 +1,8 @@
-use awint::awint_dag::{PNote, PState};
+use awint::awint_dag::{triple_arena::ptr_struct, PState};
 
-use super::{Ensemble, Referent};
-use crate::ensemble::PBack;
+use crate::ensemble::{Ensemble, PBack, Referent};
+
+ptr_struct!(PNote);
 
 #[derive(Debug, Clone)]
 pub struct Note {

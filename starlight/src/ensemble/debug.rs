@@ -1,13 +1,12 @@
 use std::path::PathBuf;
 
 use awint::{
-    awint_dag::{EvalError, Op, PNote, PState},
+    awint_dag::{EvalError, Op, PState},
     awint_macro_internals::triple_arena::Arena,
 };
 
-use super::State;
 use crate::{
-    ensemble::{Ensemble, Equiv, PBack, Referent, TNode},
+    ensemble::{Ensemble, Equiv, PBack, PNote, Referent, State, TNode},
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
     Epoch,

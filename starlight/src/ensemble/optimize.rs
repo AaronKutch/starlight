@@ -9,9 +9,8 @@ use awint::{
     Awi, InlAwi,
 };
 
-use super::{Ensemble, PTNode, Referent, TNode, Value};
 use crate::{
-    ensemble::PBack,
+    ensemble::{Ensemble, PBack, PTNode, Referent, TNode, Value},
     triple_arena::{ptr_struct, OrdArena},
     SmallMap,
 };

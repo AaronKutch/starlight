@@ -1,7 +1,6 @@
 use std::{fmt::Write, num::NonZeroUsize};
 
 use awint::awint_dag::{
-    lowering::{lower_state, LowerManagement},
     smallvec::{smallvec, SmallVec},
     triple_arena::{Advancer, Arena},
     EAwi, EvalError, EvalResult, Location,
@@ -9,14 +8,14 @@ use awint::awint_dag::{
     PState,
 };
 
-use super::{Referent, Value};
 use crate::{
     awi,
     ensemble::{
         value::{Change, Eval},
-        Ensemble, PBack,
+        Ensemble, PBack, Referent, Value,
     },
     epoch::EpochShared,
+    lower::{lower_state, LowerManagement},
 };
 
 /// Represents a single state that `awint_dag::mimick::Bits` is in at one point

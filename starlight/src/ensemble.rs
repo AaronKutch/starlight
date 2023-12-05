@@ -7,7 +7,7 @@ mod tnode;
 mod together;
 mod value;
 
-pub use note::Note;
+pub use note::{Note, PNote};
 pub use optimize::Optimizer;
 pub use state::{State, Stator};
 pub use tnode::{PTNode, TNode};

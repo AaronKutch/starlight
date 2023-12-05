@@ -8,10 +8,9 @@ use awint::{
     Awi,
 };
 
-use super::{PTNode, Referent, TNode};
 use crate::{
     awi,
-    ensemble::{Ensemble, PBack},
+    ensemble::{Ensemble, PBack, PTNode, Referent, TNode},
     epoch::{get_current_epoch, EpochShared},
 };
 

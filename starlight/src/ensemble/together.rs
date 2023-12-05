@@ -3,15 +3,14 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use awint::{
     awint_dag::{
         smallvec::{smallvec, SmallVec},
-        EvalError, Location, Op, PNote, PState,
+        EvalError, Location, Op, PState,
     },
     awint_macro_internals::triple_arena::Advancer,
     Awi, Bits,
 };
 
-use super::{value::Evaluator, Optimizer, Stator};
 use crate::{
-    ensemble::{Note, PTNode, State, TNode, Value},
+    ensemble::{value::Evaluator, Note, Optimizer, PNote, PTNode, State, Stator, TNode, Value},
     triple_arena::{ptr_struct, Arena, SurjectArena},
 };
 
