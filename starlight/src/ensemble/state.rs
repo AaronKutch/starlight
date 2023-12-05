@@ -172,8 +172,10 @@ impl Ensemble {
                     // anything
                     let state = self.stator.states.get_mut(p_state).unwrap();
                     assert_eq!(state.rc, 0);
-                    state.keep = false;
-                    self.remove_state(p_state).unwrap();
+                    // FIXME we definitely need to go through Notes for assertions,
+                    // doc example fails otherwise on release
+                    //state.keep = false;
+                    //self.remove_state(p_state).unwrap();
                     Ok(())
                 } else {
                     unreachable!()

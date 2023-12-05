@@ -159,6 +159,7 @@ forward_debug_fmt!(LazyAwi);
 #[derive(Clone, Copy)]
 pub struct LazyInlAwi<const BW: usize, const LEN: usize> {
     opaque: dag::InlAwi<BW, LEN>,
+    p_note: PNote,
 }
 
 #[macro_export]
@@ -194,10 +195,20 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
         self.nzbw().get()
     }
 
+    pub fn p_note(&self) -> PNote {
+        self.p_note
+    }
+
     pub fn opaque() -> Self {
-        Self {
-            opaque: dag::InlAwi::opaque(),
-        }
+        let opaque = dag::InlAwi::opaque();
+        let p_note = get_current_epoch()
+            .unwrap()
+            .epoch_data
+            .borrow_mut()
+            .ensemble
+            .note_pstate(opaque.state())
+            .unwrap();
+        Self { opaque, p_note }
     }
 
     /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
