@@ -10,10 +10,18 @@ use awint::{
     awint_internals::forward_debug_fmt,
 };
 
-use crate::{awi, ensemble::Evaluator};
+use crate::{
+    awi,
+    ensemble::{Evaluator, PNote},
+    epoch::get_current_epoch,
+};
 
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
 // type
+
+// TODO I have attached a note to `LazyAwi` because without debug assertions,
+// states could get clobbered. I suspect that it naturally requires `Note`s to
+// get involved because of the `nzbw` problem.
 
 /// When other mimicking types are created from a reference of this, `retro_`
 /// can later be called to retroactively change the input values of the DAG.
@@ -23,6 +31,7 @@ pub struct LazyAwi {
     // needs to be kept in case the `LazyAwi` is optimized away, but we still need bitwidth
     // comparisons
     nzbw: NonZeroUsize,
+    p_note: PNote,
 }
 
 impl Lineage for LazyAwi {
@@ -44,10 +53,23 @@ impl LazyAwi {
         self.nzbw.get()
     }
 
+    pub fn p_note(&self) -> PNote {
+        self.p_note
+    }
+
     pub fn opaque(w: NonZeroUsize) -> Self {
+        let opaque = dag::Awi::opaque(w);
+        let p_note = get_current_epoch()
+            .unwrap()
+            .epoch_data
+            .borrow_mut()
+            .ensemble
+            .note_pstate(opaque.state())
+            .unwrap();
         Self {
-            opaque: dag::Awi::opaque(w),
+            opaque,
             nzbw: w,
+            p_note,
         }
     }
 
