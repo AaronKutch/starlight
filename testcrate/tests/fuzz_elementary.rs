@@ -1,14 +1,10 @@
-use std::{num::NonZeroUsize, path::PathBuf};
+use std::num::NonZeroUsize;
 
 use starlight::{
     awint::{awi, awint_dag::EvalError, dag},
     triple_arena::{ptr_struct, Arena},
     Epoch, EvalAwi, LazyAwi, StarRng,
 };
-
-fn _render(epoch: &Epoch) -> awi::Result<(), EvalError> {
-    epoch.render_to_svgs_in_dir(PathBuf::from("./".to_owned()))
-}
 
 #[cfg(debug_assertions)]
 const N: (usize, usize) = (30, 100);
