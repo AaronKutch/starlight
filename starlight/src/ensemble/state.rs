@@ -310,35 +310,6 @@ impl Ensemble {
                         }
                         assert_eq!(total_len, to);
                     }
-                    StaticGet([bits], inx) => {
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let len = self.stator.states[bits].p_self_bits.len();
-                        assert!(inx < len);
-                        let p_self_bits = &self.stator.states[p_state].p_self_bits;
-                        assert_eq!(p_self_bits.len(), 1);
-                        let p_equiv0 = p_self_bits[0].unwrap();
-                        let p_equiv1 = self.stator.states[bits].p_self_bits[inx].unwrap();
-                        self.union_equiv(p_equiv0, p_equiv1).unwrap();
-                    }
-                    StaticSet([bits, bit], inx) => {
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let len = self.stator.states[p_state].p_self_bits.len();
-                        assert_eq!(len, self.stator.states[bits].p_self_bits.len());
-                        // this must be handled upstream
-                        assert!(inx < len);
-                        for i in 0..len {
-                            let p_equiv0 = self.stator.states[p_state].p_self_bits[i].unwrap();
-                            if i == inx {
-                                let p_bit = &self.stator.states[bit].p_self_bits;
-                                assert_eq!(p_bit.len(), 1);
-                                let p_equiv1 = p_bit[0].unwrap();
-                                self.union_equiv(p_equiv0, p_equiv1).unwrap();
-                            } else {
-                                let p_equiv1 = self.stator.states[bits].p_self_bits[i].unwrap();
-                                self.union_equiv(p_equiv0, p_equiv1).unwrap();
-                            };
-                        }
-                    }
                     StaticLut([inx], ref table) => {
                         let table = table.clone();
                         self.initialize_state_bits_if_needed(p_state).unwrap();

@@ -28,12 +28,6 @@ impl DebugNodeTrait<PState> for State {
                     Op::Literal(ref lit) => {
                         v.push(format!("{}", lit));
                     }
-                    Op::StaticGet(_, inx) => {
-                        v.push(format!("{} get({})", this.nzbw, inx));
-                    }
-                    Op::StaticSet(_, inx) => {
-                        v.push(format!("{} set({})", this.nzbw, inx));
-                    }
                     Op::StaticLut(_, ref lut) => {
                         v.push(format!("{} lut({})", this.nzbw, lut));
                     }
