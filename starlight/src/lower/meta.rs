@@ -4,14 +4,32 @@ use std::{cmp::min, mem, num::NonZeroUsize};
 
 use crate::{
     awi,
+    awint_dag::{ConcatType, Lineage, Op},
     dag::{awi, inlawi, inlawi_ty, Awi, Bits, InlAwi},
 };
 
 const USIZE_BITS: usize = usize::BITS as usize;
 
 // This code here is especially messy because we do not want to get into
-// infinite lowering loops. These first few functions need to use manual `get`
-// and `set` and only literal macros within loop blocks.
+// infinite lowering loops. These first few functions need to use manual
+// concatenation and only literal macros within loop blocks.
+
+// note that the $inx arguments are in order from least to most significant
+macro_rules! static_lut {
+    ($lhs:ident; $lut:expr; $($inx:expr),*) => {{
+        let nzbw = $lhs.state_nzbw();
+        let op = Op::StaticLut(
+            ConcatType::from_iter([$(
+                $inx.state(),
+            )*]),
+            {use awi::*; awi!($lut)}
+        );
+        $lhs.update_state(
+            nzbw,
+            op,
+        ).unwrap_at_runtime()
+    }};
+}
 
 /// Given `inx.bw()` bits, this returns `2^inx.bw()` signals for every possible
 /// state of `inx`. The `i`th signal is true only if `inx.to_usize() == i`.
@@ -28,19 +46,14 @@ pub fn selector(inx: &Bits, cap: Option<usize>) -> Vec<inlawi_ty!(1)> {
     }
     let lb_num = num.next_power_of_two().trailing_zeros() as usize;
     let mut signals = vec![];
-    let lut0 = inlawi!(0100);
-    let lut1 = inlawi!(1000);
     for i in 0..num {
         let mut signal = inlawi!(1);
         for j in 0..lb_num {
-            let mut tmp = inlawi!(00);
-            tmp.set(0, inx.get(j).unwrap()).unwrap();
-            tmp.set(1, signal.to_bool()).unwrap();
             // depending on the `j`th bit of `i`, keep the signal line true
             if (i & (1 << j)) == 0 {
-                signal.lut_(&lut0, &tmp).unwrap();
+                static_lut!(signal; 0100; inx.get(j).unwrap(), signal.to_bool());
             } else {
-                signal.lut_(&lut1, &tmp).unwrap();
+                static_lut!(signal; 1000; inx.get(j).unwrap(), signal.to_bool());
             }
         }
         signals.push(signal);
@@ -59,19 +72,14 @@ pub fn selector_awi(inx: &Bits, cap: Option<usize>) -> Awi {
     }
     let lb_num = num.next_power_of_two().trailing_zeros() as usize;
     let mut signals = Awi::zero(NonZeroUsize::new(num).unwrap());
-    let lut0 = inlawi!(0100);
-    let lut1 = inlawi!(1000);
     for i in 0..num {
         let mut signal = inlawi!(1);
         for j in 0..lb_num {
-            let mut tmp = inlawi!(00);
-            tmp.set(0, inx.get(j).unwrap()).unwrap();
-            tmp.set(1, signal.to_bool()).unwrap();
             // depending on the `j`th bit of `i`, keep the signal line true
             if (i & (1 << j)) == 0 {
-                signal.lut_(&lut0, &tmp).unwrap();
+                static_lut!(signal; 0100; inx.get(j).unwrap(), signal.to_bool());
             } else {
-                signal.lut_(&lut1, &tmp).unwrap();
+                static_lut!(signal; 1000; inx.get(j).unwrap(), signal.to_bool());
             }
         }
         signals.set(i, signal.to_bool()).unwrap();
