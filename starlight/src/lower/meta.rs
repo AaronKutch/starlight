@@ -272,23 +272,27 @@ pub fn resize(x: &Bits, w: NonZeroUsize, signed: bool) -> Awi {
 
 pub fn resize_cond(x: &Bits, w: NonZeroUsize, signed: &Bits) -> Awi {
     assert_eq!(signed.bw(), 1);
-    let mut out = Awi::zero(w);
-    if out.nzbw() == x.nzbw() {
-        out.copy_(x).unwrap();
-    } else if out.nzbw() < x.nzbw() {
-        for i in 0..out.bw() {
-            out.set(i, x.get(i).unwrap()).unwrap();
-        }
+    if w == x.nzbw() {
+        Awi::from_bits(x)
+    } else if w < x.nzbw() {
+        Awi::new(
+            w,
+            Op::ConcatFields(ConcatFieldsType::from_iter([(x.state(), 0usize, w)])),
+        )
     } else {
-        for i in 0..x.bw() {
-            out.set(i, x.get(i).unwrap()).unwrap();
-        }
-        let signed = signed.to_bool();
-        for i in x.bw()..out.bw() {
-            out.set(i, signed).unwrap();
-        }
+        let extend = x.msb() & signed.to_bool();
+        let extension = Awi::new(
+            NonZeroUsize::new(w.get() - x.bw()).unwrap(),
+            Op::Repeat([extend.state()]),
+        );
+        Awi::new(
+            w,
+            Op::Concat(ConcatType::from_smallvec(smallvec![
+                x.state(),
+                extension.state()
+            ])),
+        )
     }
-    out
 }
 
 /// Returns (`lhs`, true) if there are invalid values
