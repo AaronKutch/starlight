@@ -165,18 +165,14 @@ pub fn tsmear_awi(inx: &Bits, num_signals: usize) -> Awi {
 pub fn mux_(x0: &Bits, x1: &Bits, inx: &Bits) -> Awi {
     assert_eq!(x0.bw(), x1.bw());
     assert_eq!(inx.bw(), 1);
-    let mut out = Awi::zero(x0.nzbw());
-    let lut = inlawi!(1100_1010);
+    let nzbw = x0.nzbw();
+    let mut signals = SmallVec::with_capacity(nzbw.get());
     for i in 0..x0.bw() {
-        let mut tmp0 = inlawi!(000);
-        tmp0.set(0, x0.get(i).unwrap()).unwrap();
-        tmp0.set(1, x1.get(i).unwrap()).unwrap();
-        tmp0.set(2, inx.to_bool()).unwrap();
         let mut tmp1 = inlawi!(0);
-        tmp1.lut_(&lut, &tmp0).unwrap();
-        out.set(i, tmp1.to_bool()).unwrap();
+        static_lut!(tmp1; 1100_1010; x0.get(i).unwrap(), x1.get(i).unwrap(), inx);
+        signals.push(tmp1.state());
     }
-    out
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(signals)))
 }
 
 /*
