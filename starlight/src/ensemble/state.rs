@@ -1,7 +1,7 @@
 use std::{fmt::Write, num::NonZeroUsize};
 
 use awint::awint_dag::{
-    smallvec::SmallVec,
+    smallvec::{smallvec, SmallVec},
     triple_arena::{Advancer, Arena},
     EAwi, EvalError, EvalResult, Location,
     Op::{self, *},
@@ -265,6 +265,16 @@ impl Ensemble {
                             self.union_equiv(p_equiv0, p_equiv1).unwrap();
                         }
                     }
+                    StaticGet([bits], inx) => {
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
+                        let len = self.stator.states[bits].p_self_bits.len();
+                        assert!(inx < len);
+                        let p_self_bits = &self.stator.states[p_state].p_self_bits;
+                        assert_eq!(p_self_bits.len(), 1);
+                        let p_equiv0 = p_self_bits[0].unwrap();
+                        let p_equiv1 = self.stator.states[bits].p_self_bits[inx].unwrap();
+                        self.union_equiv(p_equiv0, p_equiv1).unwrap();
+                    }
                     Concat(ref concat) => {
                         let concat_len = concat.len();
                         self.initialize_state_bits_if_needed(p_state).unwrap();
@@ -310,10 +320,23 @@ impl Ensemble {
                         }
                         assert_eq!(total_len, to);
                     }
-                    StaticLut([inx], ref table) => {
+                    StaticLut(ref concat, ref table) => {
                         let table = table.clone();
+                        let concat_len = concat.len();
                         self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let inx_bits = self.stator.states[inx].p_self_bits.clone();
+                        let mut inx_bits: SmallVec<[Option<PBack>; 8]> = smallvec![];
+                        for c_i in 0..concat_len {
+                            let c = if let StaticLut(ref concat, _) = self.stator.states[p_state].op
+                            {
+                                concat.as_slice()[c_i]
+                            } else {
+                                unreachable!()
+                            };
+                            let bits = &self.stator.states[c].p_self_bits;
+                            inx_bits.extend(bits.iter().cloned());
+                        }
+
+                        self.initialize_state_bits_if_needed(p_state).unwrap();
                         let inx_len = inx_bits.len();
                         let out_bw = self.stator.states[p_state].p_self_bits.len();
                         let num_entries =

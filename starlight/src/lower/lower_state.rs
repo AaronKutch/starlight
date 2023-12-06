@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 
 use awint::{
-    awint_dag::{smallvec::smallvec, ConcatFieldsType, EvalError, Op::*, PState},
+    awint_dag::{smallvec::smallvec, ConcatFieldsType, ConcatType, EvalError, Op::*, PState},
     bw,
 };
 
@@ -219,7 +219,8 @@ impl Ensemble {
                     }
                 }
                 let needs_lower = match lock.ensemble.stator.states[p_state].op {
-                    Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticLut(..) => false,
+                    Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..)
+                    | StaticLut(..) => false,
                     Lut([lut, inx]) => {
                         if let Literal(ref lit) = lock.ensemble.stator.states[lut].op {
                             let lit = lit.clone();
@@ -239,7 +240,8 @@ impl Ensemble {
                                 lock.ensemble.stator.states[p_state].op = Opaque(smallvec![], None);
                                 lock.ensemble.dec_rc(inx).unwrap();
                             } else {
-                                lock.ensemble.stator.states[p_state].op = StaticLut([inx], lit);
+                                lock.ensemble.stator.states[p_state].op =
+                                    StaticLut(ConcatType::from_iter([inx]), lit);
                             }
                             lock.ensemble.dec_rc(lut).unwrap();
                             false
@@ -260,7 +262,7 @@ impl Ensemble {
                                 lock.ensemble.dec_rc(bits).unwrap();
                             } else {
                                 lock.ensemble.stator.states[p_state].op = ConcatFields(
-                                    ConcatFieldsType::from_iter(1, [(bits, lit_u, bw(1))]),
+                                    ConcatFieldsType::from_iter([(bits, lit_u, bw(1))]),
                                 );
                             }
                             lock.ensemble.dec_rc(inx).unwrap();
@@ -281,7 +283,7 @@ impl Ensemble {
                             } else if let Some(lo_rem) = NonZeroUsize::new(lit_u) {
                                 if let Some(hi_rem) = NonZeroUsize::new(bits_w - 1 - lit_u) {
                                     lock.ensemble.stator.states[p_state].op =
-                                        ConcatFields(ConcatFieldsType::from_iter(3, [
+                                        ConcatFields(ConcatFieldsType::from_iter([
                                             (bits, 0, lo_rem),
                                             (bit, 0, bw(1)),
                                             (bits, lit_u + 1, hi_rem),
@@ -289,7 +291,7 @@ impl Ensemble {
                                 } else {
                                     // setting the last bit
                                     lock.ensemble.stator.states[p_state].op =
-                                        ConcatFields(ConcatFieldsType::from_iter(2, [
+                                        ConcatFields(ConcatFieldsType::from_iter([
                                             (bits, 0, lo_rem),
                                             (bit, 0, bw(1)),
                                         ]));
@@ -297,7 +299,7 @@ impl Ensemble {
                             } else if let Some(rem) = NonZeroUsize::new(bits_w - 1) {
                                 // setting the first bit
                                 lock.ensemble.stator.states[p_state].op =
-                                    ConcatFields(ConcatFieldsType::from_iter(2, [
+                                    ConcatFields(ConcatFieldsType::from_iter([
                                         (bit, 0, bw(1)),
                                         (bits, 1, rem),
                                     ]));
