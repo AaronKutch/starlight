@@ -103,9 +103,6 @@ pub fn tsmear_inx(inx: &Bits, num_signals: usize) -> Vec<inlawi_ty!(1)> {
         lb_num += 1;
     }
     let mut signals = vec![];
-    let lut_s0 = inlawi!(10010000);
-    let lut_and = inlawi!(1000);
-    let lut_or = inlawi!(1110);
     for i in 0..num_signals {
         // if `inx < i`
         let mut signal = inlawi!(0);
@@ -116,25 +113,14 @@ pub fn tsmear_inx(inx: &Bits, num_signals: usize) -> Vec<inlawi_ty!(1)> {
             if (i & (1 << j)) == 0 {
                 // update equality, and if the prefix is true and the `j` bit of `inx` is set
                 // then the signal is set
-                let mut tmp0 = inlawi!(00);
-                tmp0.set(0, inx.get(j).unwrap()).unwrap();
-                tmp0.set(1, prefix_equal.to_bool()).unwrap();
-                let mut tmp1 = inlawi!(00);
-                tmp1.lut_(&lut_s0, &tmp0).unwrap();
-                prefix_equal.set(0, tmp1.get(0).unwrap()).unwrap();
 
-                // or into `signal`
-                let mut tmp = inlawi!(00);
-                tmp.set(0, tmp1.get(1).unwrap()).unwrap();
-                tmp.set(1, signal.to_bool()).unwrap();
-                signal.lut_(&lut_or, &tmp).unwrap();
+                static_lut!(signal; 11111000; inx.get(j).unwrap(), prefix_equal, signal);
+
+                static_lut!(prefix_equal; 0100; inx.get(j).unwrap(), prefix_equal);
             } else {
                 // just update equality, the `j`th bit of `i` is 1 and cannot be less than
                 // whatever the `inx` bit is
-                let mut tmp = inlawi!(00);
-                tmp.set(0, inx.get(j).unwrap()).unwrap();
-                tmp.set(1, prefix_equal.to_bool()).unwrap();
-                prefix_equal.lut_(&lut_and, &tmp).unwrap();
+                static_lut!(prefix_equal; 1000; inx.get(j).unwrap(), prefix_equal);
             }
         }
         signals.push(signal);
