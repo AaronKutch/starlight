@@ -198,16 +198,10 @@ pub fn dynamic_to_static_lut(out: &mut Bits, table: &Bits, inx: &Bits) {
     // if this is broken it breaks a lot of stuff
     assert!(table.bw() == (out.bw().checked_mul(1 << inx.bw()).unwrap()));
     let signals = selector(inx, None);
-    let lut = inlawi!(1111_1000);
     for j in 0..out.bw() {
         let mut column = inlawi!(0);
         for (i, signal) in signals.iter().enumerate() {
-            let mut tmp = inlawi!(000);
-            tmp.set(0, signal.to_bool()).unwrap();
-            tmp.set(1, table.get((i * out.bw()) + j).unwrap()).unwrap();
-            tmp.set(2, column.to_bool()).unwrap();
-            // if the column is set or both the cell and signal are set
-            column.lut_(&lut, &tmp).unwrap();
+            static_lut!(column; 1111_1000; signal, table.get((i * out.bw()) + j).unwrap(), column);
         }
         out.set(j, column.to_bool()).unwrap();
     }
@@ -218,15 +212,9 @@ pub fn dynamic_to_static_get(bits: &Bits, inx: &Bits) -> inlawi_ty!(1) {
         return InlAwi::from(bits.to_bool())
     }
     let signals = selector(inx, Some(bits.bw()));
-    let lut = inlawi!(1111_1000);
     let mut out = inlawi!(0);
     for (i, signal) in signals.iter().enumerate() {
-        let mut tmp = inlawi!(000);
-        tmp.set(0, signal.to_bool()).unwrap();
-        tmp.set(1, bits.get(i).unwrap()).unwrap();
-        tmp.set(2, out.to_bool()).unwrap();
-        // horizontally OR the product of the signals and `bits`
-        out.lut_(&lut, &tmp).unwrap();
+        static_lut!(out; 1111_1000; signal, bits.get(i).unwrap(), out);
     }
     out
 }
