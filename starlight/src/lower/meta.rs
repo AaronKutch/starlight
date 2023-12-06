@@ -2,6 +2,8 @@
 
 use std::{cmp::min, mem, num::NonZeroUsize};
 
+use awint::awint_dag::smallvec::smallvec;
+
 use crate::{
     awi,
     awint_dag::{ConcatType, Lineage, Op},
@@ -51,9 +53,9 @@ pub fn selector(inx: &Bits, cap: Option<usize>) -> Vec<inlawi_ty!(1)> {
         for j in 0..lb_num {
             // depending on the `j`th bit of `i`, keep the signal line true
             if (i & (1 << j)) == 0 {
-                static_lut!(signal; 0100; inx.get(j).unwrap(), signal.to_bool());
+                static_lut!(signal; 0100; inx.get(j).unwrap(), signal);
             } else {
-                static_lut!(signal; 1000; inx.get(j).unwrap(), signal.to_bool());
+                static_lut!(signal; 1000; inx.get(j).unwrap(), signal);
             }
         }
         signals.push(signal);
@@ -71,20 +73,21 @@ pub fn selector_awi(inx: &Bits, cap: Option<usize>) -> Awi {
         return awi!(1)
     }
     let lb_num = num.next_power_of_two().trailing_zeros() as usize;
-    let mut signals = Awi::zero(NonZeroUsize::new(num).unwrap());
+    let nzbw = NonZeroUsize::new(num).unwrap();
+    let mut signals = smallvec![];
     for i in 0..num {
         let mut signal = inlawi!(1);
         for j in 0..lb_num {
             // depending on the `j`th bit of `i`, keep the signal line true
             if (i & (1 << j)) == 0 {
-                static_lut!(signal; 0100; inx.get(j).unwrap(), signal.to_bool());
+                static_lut!(signal; 0100; inx.get(j).unwrap(), signal);
             } else {
-                static_lut!(signal; 1000; inx.get(j).unwrap(), signal.to_bool());
+                static_lut!(signal; 1000; inx.get(j).unwrap(), signal);
             }
         }
-        signals.set(i, signal.to_bool()).unwrap();
+        signals.push(signal.state());
     }
-    signals
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(signals)))
 }
 
 /// Trailing smear, given the value of `inx` it will set all bits in the vector
