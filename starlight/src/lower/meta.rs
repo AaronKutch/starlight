@@ -2,7 +2,10 @@
 
 use std::{cmp::min, mem, num::NonZeroUsize};
 
-use awint::awint_dag::smallvec::SmallVec;
+use awint::awint_dag::{
+    smallvec::{smallvec, SmallVec},
+    ConcatFieldsType,
+};
 
 use crate::{
     awi,
@@ -236,24 +239,32 @@ pub fn dynamic_to_static_set(bits: &Bits, inx: &Bits, bit: &Bits) -> Awi {
 }
 
 pub fn resize(x: &Bits, w: NonZeroUsize, signed: bool) -> Awi {
-    let mut out = Awi::zero(w);
-    if out.nzbw() == x.nzbw() {
-        out.copy_(x).unwrap();
-    } else if out.nzbw() < x.nzbw() {
-        for i in 0..out.bw() {
-            out.set(i, x.get(i).unwrap()).unwrap();
-        }
-    } else {
+    if w == x.nzbw() {
+        return Awi::from_bits(&x);
+    } else if w < x.nzbw() {
+        Awi::new(
+            w,
+            Op::ConcatFields(ConcatFieldsType::from_iter([(x.state(), 0usize, w)])),
+        )
+    } else if signed {
+        let mut out = Awi::zero(w);
         for i in 0..x.bw() {
             out.set(i, x.get(i).unwrap()).unwrap();
         }
-        if signed {
-            for i in x.bw()..out.bw() {
-                out.set(i, x.get(x.bw() - 1).unwrap()).unwrap();
-            }
-        } // else the bits in `out` are automatically zero
+        for i in x.bw()..out.bw() {
+            out.set(i, x.get(x.bw() - 1).unwrap()).unwrap();
+        }
+        out
+    } else {
+        let zero = Awi::zero(NonZeroUsize::new(w.get() - x.bw()).unwrap());
+        Awi::new(
+            w,
+            Op::Concat(ConcatType::from_smallvec(smallvec![
+                x.state(),
+                zero.state()
+            ])),
+        )
     }
-    out
 }
 
 pub fn resize_cond(x: &Bits, w: NonZeroUsize, signed: &Bits) -> Awi {
