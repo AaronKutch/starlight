@@ -2,7 +2,7 @@
 
 use std::{cmp::min, mem, num::NonZeroUsize};
 
-use awint::awint_dag::smallvec::smallvec;
+use awint::awint_dag::smallvec::SmallVec;
 
 use crate::{
     awi,
@@ -74,7 +74,7 @@ pub fn selector_awi(inx: &Bits, cap: Option<usize>) -> Awi {
     }
     let lb_num = num.next_power_of_two().trailing_zeros() as usize;
     let nzbw = NonZeroUsize::new(num).unwrap();
-    let mut signals = smallvec![];
+    let mut signals = SmallVec::with_capacity(num);
     for i in 0..num {
         let mut signal = inlawi!(1);
         for j in 0..lb_num {
@@ -135,10 +135,8 @@ pub fn tsmear_awi(inx: &Bits, num_signals: usize) -> Awi {
         // need extra bit to get all `n + 1`
         lb_num += 1;
     }
-    let mut signals = Awi::zero(NonZeroUsize::new(num_signals).unwrap());
-    let lut_s0 = inlawi!(10010000);
-    let lut_and = inlawi!(1000);
-    let lut_or = inlawi!(1110);
+    let nzbw = NonZeroUsize::new(num_signals).unwrap();
+    let mut signals = SmallVec::with_capacity(num_signals);
     for i in 0..num_signals {
         // if `inx < i`
         let mut signal = inlawi!(0);
@@ -149,30 +147,19 @@ pub fn tsmear_awi(inx: &Bits, num_signals: usize) -> Awi {
             if (i & (1 << j)) == 0 {
                 // update equality, and if the prefix is true and the `j` bit of `inx` is set
                 // then the signal is set
-                let mut tmp0 = inlawi!(00);
-                tmp0.set(0, inx.get(j).unwrap()).unwrap();
-                tmp0.set(1, prefix_equal.to_bool()).unwrap();
-                let mut tmp1 = inlawi!(00);
-                tmp1.lut_(&lut_s0, &tmp0).unwrap();
-                prefix_equal.set(0, tmp1.get(0).unwrap()).unwrap();
 
-                // or into `signal`
-                let mut tmp = inlawi!(00);
-                tmp.set(0, tmp1.get(1).unwrap()).unwrap();
-                tmp.set(1, signal.to_bool()).unwrap();
-                signal.lut_(&lut_or, &tmp).unwrap();
+                static_lut!(signal; 11111000; inx.get(j).unwrap(), prefix_equal, signal);
+
+                static_lut!(prefix_equal; 0100; inx.get(j).unwrap(), prefix_equal);
             } else {
                 // just update equality, the `j`th bit of `i` is 1 and cannot be less than
                 // whatever the `inx` bit is
-                let mut tmp = inlawi!(00);
-                tmp.set(0, inx.get(j).unwrap()).unwrap();
-                tmp.set(1, prefix_equal.to_bool()).unwrap();
-                prefix_equal.lut_(&lut_and, &tmp).unwrap();
+                static_lut!(prefix_equal; 1000; inx.get(j).unwrap(), prefix_equal);
             }
         }
-        signals.set(i, signal.to_bool()).unwrap();
+        signals.push(signal.state());
     }
-    signals
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(signals)))
 }
 
 pub fn mux_(x0: &Bits, x1: &Bits, inx: &Bits) -> Awi {
