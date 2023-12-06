@@ -168,9 +168,9 @@ pub fn mux_(x0: &Bits, x1: &Bits, inx: &Bits) -> Awi {
     let nzbw = x0.nzbw();
     let mut signals = SmallVec::with_capacity(nzbw.get());
     for i in 0..x0.bw() {
-        let mut tmp1 = inlawi!(0);
-        static_lut!(tmp1; 1100_1010; x0.get(i).unwrap(), x1.get(i).unwrap(), inx);
-        signals.push(tmp1.state());
+        let mut tmp = inlawi!(0);
+        static_lut!(tmp; 1100_1010; x0.get(i).unwrap(), x1.get(i).unwrap(), inx);
+        signals.push(tmp.state());
     }
     Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(signals)))
 }
@@ -224,19 +224,15 @@ pub fn dynamic_to_static_set(bits: &Bits, inx: &Bits, bit: &Bits) -> Awi {
         return Awi::from(bit)
     }
     let signals = selector(inx, Some(bits.bw()));
-    let mut out = Awi::zero(bits.nzbw());
-    let lut = inlawi!(1101_1000);
+    let nzbw = bits.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     for (i, signal) in signals.iter().enumerate() {
-        let mut tmp0 = inlawi!(000);
-        tmp0.set(0, signal.to_bool()).unwrap();
-        tmp0.set(1, bit.to_bool()).unwrap();
-        tmp0.set(2, bits.get(i).unwrap()).unwrap();
-        let mut tmp1 = inlawi!(0);
         // multiplex between using `bits` or the `bit` depending on the signal
-        tmp1.lut_(&lut, &tmp0).unwrap();
-        out.set(i, tmp1.to_bool()).unwrap();
+        let mut tmp = inlawi!(0);
+        static_lut!(tmp; 1101_1000; signal, bit, bits.get(i).unwrap());
+        out.push(tmp.state());
     }
-    out
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
 }
 
 pub fn resize(x: &Bits, w: NonZeroUsize, signed: bool) -> Awi {
