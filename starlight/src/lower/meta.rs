@@ -240,21 +240,24 @@ pub fn dynamic_to_static_set(bits: &Bits, inx: &Bits, bit: &Bits) -> Awi {
 
 pub fn resize(x: &Bits, w: NonZeroUsize, signed: bool) -> Awi {
     if w == x.nzbw() {
-        return Awi::from_bits(&x);
+        Awi::from_bits(x)
     } else if w < x.nzbw() {
         Awi::new(
             w,
             Op::ConcatFields(ConcatFieldsType::from_iter([(x.state(), 0usize, w)])),
         )
     } else if signed {
-        let mut out = Awi::zero(w);
-        for i in 0..x.bw() {
-            out.set(i, x.get(i).unwrap()).unwrap();
-        }
-        for i in x.bw()..out.bw() {
-            out.set(i, x.get(x.bw() - 1).unwrap()).unwrap();
-        }
-        out
+        let extension = Awi::new(
+            NonZeroUsize::new(w.get() - x.bw()).unwrap(),
+            Op::Repeat([x.msb().state()]),
+        );
+        Awi::new(
+            w,
+            Op::Concat(ConcatType::from_smallvec(smallvec![
+                x.state(),
+                extension.state()
+            ])),
+        )
     } else {
         let zero = Awi::zero(NonZeroUsize::new(w.get() - x.bw()).unwrap());
         Awi::new(

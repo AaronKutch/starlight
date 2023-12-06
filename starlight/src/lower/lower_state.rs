@@ -219,7 +219,7 @@ impl Ensemble {
                     }
                 }
                 let needs_lower = match lock.ensemble.stator.states[p_state].op {
-                    Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..)
+                    Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..) | Repeat(_)
                     | StaticLut(..) => false,
                     Lut([lut, inx]) => {
                         if let Literal(ref lit) = lock.ensemble.stator.states[lut].op {
