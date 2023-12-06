@@ -1,6 +1,9 @@
 use std::num::NonZeroUsize;
 
-use awint::awint_dag::{smallvec::smallvec, EvalError, Op::*, PState};
+use awint::{
+    awint_dag::{smallvec::smallvec, ConcatFieldsType, EvalError, Op::*, PState},
+    bw,
+};
 
 use crate::{
     ensemble::Ensemble,
@@ -257,7 +260,9 @@ impl Ensemble {
                                 lock.ensemble.stator.states[p_state].op = Opaque(smallvec![], None);
                                 lock.ensemble.dec_rc(bits).unwrap();
                             } else {
-                                lock.ensemble.stator.states[p_state].op = StaticGet([bits], lit_u);
+                                lock.ensemble.stator.states[p_state].op = ConcatFields(
+                                    ConcatFieldsType::from_iter(1, [(bits, lit_u, bw(1))]),
+                                );
                             }
                             lock.ensemble.dec_rc(inx).unwrap();
                             false
@@ -269,13 +274,38 @@ impl Ensemble {
                         if let Literal(ref lit) = lock.ensemble.stator.states[inx].op {
                             let lit = lit.clone();
                             let lit_u = lit.to_usize();
-                            if lit_u >= lock.ensemble.stator.states[bits].nzbw.get() {
+                            let bits_w = lock.ensemble.stator.states[bits].nzbw.get();
+                            if lit_u >= bits_w {
                                 // no-op
                                 lock.ensemble.stator.states[p_state].op = Copy([bits]);
                                 lock.ensemble.dec_rc(bit).unwrap();
-                            } else {
+                            } else if let Some(lo_rem) = NonZeroUsize::new(lit_u) {
+                                if let Some(hi_rem) = NonZeroUsize::new(bits_w - 1 - lit_u) {
+                                    lock.ensemble.stator.states[p_state].op =
+                                        ConcatFields(ConcatFieldsType::from_iter(3, [
+                                            (bits, 0, lo_rem),
+                                            (bit, 0, bw(1)),
+                                            (bits, lit_u + 1, hi_rem),
+                                        ]));
+                                } else {
+                                    // setting the last bit
+                                    lock.ensemble.stator.states[p_state].op =
+                                        ConcatFields(ConcatFieldsType::from_iter(2, [
+                                            (bits, 0, lo_rem),
+                                            (bit, 0, bw(1)),
+                                        ]));
+                                }
+                            } else if let Some(rem) = NonZeroUsize::new(bits_w - 1) {
+                                // setting the first bit
                                 lock.ensemble.stator.states[p_state].op =
-                                    StaticSet([bits, bit], lit.to_usize());
+                                    ConcatFields(ConcatFieldsType::from_iter(2, [
+                                        (bit, 0, bw(1)),
+                                        (bits, 1, rem),
+                                    ]));
+                            } else {
+                                // setting a single bit
+                                lock.ensemble.stator.states[p_state].op = Copy([bit]);
+                                lock.ensemble.dec_rc(bits).unwrap();
                             }
                             lock.ensemble.dec_rc(inx).unwrap();
                             false
