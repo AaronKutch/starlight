@@ -573,24 +573,32 @@ pub fn bitwise(lhs: &Bits, rhs: &Bits, lut: awi::Awi) -> Awi {
 
 pub fn incrementer(x: &Bits, cin: &Bits, dec: bool) -> (Awi, inlawi_ty!(1)) {
     assert_eq!(cin.bw(), 1);
-    // half adder or subtractor
-    let lut = if dec {
-        inlawi!(1110_1001)
-    } else {
-        inlawi!(1001_0100)
-    };
-    let mut out = Awi::zero(x.nzbw());
+    let nzbw = x.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(cin.to_bool());
-    for i in 0..x.bw() {
-        let mut carry_sum = inlawi!(00);
-        let mut inx = inlawi!(00);
-        inx.set(0, carry.to_bool()).unwrap();
-        inx.set(1, x.get(i).unwrap()).unwrap();
-        carry_sum.lut_(&lut, &inx).unwrap();
-        out.set(i, carry_sum.get(0).unwrap()).unwrap();
-        carry.bool_(carry_sum.get(1).unwrap());
+    if dec {
+        for i in 0..x.bw() {
+            let mut tmp = inlawi!(0);
+            let b = x.get(i).unwrap();
+            // half subtractor
+            static_lut!(tmp; 1001; carry, b);
+            out.push(tmp.state());
+            static_lut!(carry; 1110; carry, b);
+        }
+    } else {
+        for i in 0..x.bw() {
+            let mut tmp = inlawi!(0);
+            let b = x.get(i).unwrap();
+            // half adder
+            static_lut!(tmp; 0110; carry, b);
+            out.push(tmp.state());
+            static_lut!(carry; 1000; carry, b);
+        }
     }
-    (out, carry)
+    (
+        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out))),
+        carry,
+    )
 }
 
 // TODO select carry adder
