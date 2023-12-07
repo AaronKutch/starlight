@@ -19,6 +19,12 @@ const USIZE_BITS: usize = usize::BITS as usize;
 // infinite lowering loops. These first few functions need to use manual
 // concatenation and only literal macros within loop blocks.
 
+// Everything used to be done through `get` and `set`, but going straight to
+// `StaticLut` or `Concat` or `ConcatFields` is a massive performance boost.
+
+// TODO In the future if we want something more, we should have some kind of
+// caching for known optimization results.
+
 // note that the $inx arguments are in order from least to most significant
 macro_rules! static_lut {
     ($lhs:ident; $lut:expr; $($inx:expr),*) => {{
@@ -385,22 +391,23 @@ pub fn crossbar(
 ) {
     assert!(signal_range.0 < signal_range.1);
     assert_eq!(signal_range.1 - signal_range.0, signals.len());
+
+    let nzbw = output.nzbw();
+    let mut tmp_output = SmallVec::with_capacity(nzbw.get());
     for j in 0..output.bw() {
         // output bar for ORing
         let mut out_bar = inlawi!(0);
         for i in 0..input.bw() {
             let signal_inx = output.bw() - 1 + i - j;
             if (signal_inx >= signal_range.0) && (signal_inx < signal_range.1) {
-                let mut inx = inlawi!(000);
-                inx.set(0, input.get(i).unwrap()).unwrap();
-                inx.set(1, signals[signal_inx - signal_range.0].to_bool())
-                    .unwrap();
-                inx.set(2, out_bar.to_bool()).unwrap();
-                out_bar.lut_(&inlawi!(1111_1000), &inx).unwrap();
+                static_lut!(out_bar; 1111_1000; input.get(i).unwrap(), signals[signal_inx - signal_range.0], out_bar);
             }
         }
-        output.set(j, out_bar.to_bool()).unwrap();
+        tmp_output.push(out_bar.state());
     }
+    output
+        .update_state(nzbw, Op::Concat(ConcatType::from_smallvec(tmp_output)))
+        .unwrap_at_runtime();
 }
 
 pub fn funnel_(x: &Bits, s: &Bits) -> Awi {
