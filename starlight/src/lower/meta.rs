@@ -654,21 +654,17 @@ pub fn cin_sum(cin: &Bits, lhs: &Bits, rhs: &Bits) -> (Awi, inlawi_ty!(1), inlaw
 
 pub fn negator(x: &Bits, neg: &Bits) -> Awi {
     assert_eq!(neg.bw(), 1);
-    // half adder with input inversion control
-    let lut = inlawi!(0100_1001_1001_0100);
-    let mut out = Awi::zero(x.nzbw());
+    let nzbw = x.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(neg.to_bool());
     for i in 0..x.bw() {
         let mut carry_sum = inlawi!(00);
-        let mut inx = inlawi!(000);
-        inx.set(0, carry.to_bool()).unwrap();
-        inx.set(1, x.get(i).unwrap()).unwrap();
-        inx.set(2, neg.to_bool()).unwrap();
-        carry_sum.lut_(&lut, &inx).unwrap();
-        out.set(i, carry_sum.get(0).unwrap()).unwrap();
+        // half adder with input inversion control
+        static_lut!(carry_sum; 0100_1001_1001_0100; carry, x.get(i).unwrap(), neg);
+        out.push(carry_sum.get(0).unwrap().state());
         carry.bool_(carry_sum.get(1).unwrap());
     }
-    out
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
 }
 
 /// Setting `width` to 0 guarantees that nothing happens even with other
