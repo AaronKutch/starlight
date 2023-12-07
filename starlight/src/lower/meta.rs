@@ -794,17 +794,12 @@ pub fn field(lhs: &Bits, to: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Aw
 
 pub fn equal(lhs: &Bits, rhs: &Bits) -> inlawi_ty!(1) {
     let mut ranks = vec![vec![]];
-    let lut_xnor = inlawi!(1001);
     for i in 0..lhs.bw() {
-        let mut tmp0 = inlawi!(00);
-        tmp0.set(0, lhs.get(i).unwrap()).unwrap();
-        tmp0.set(1, rhs.get(i).unwrap()).unwrap();
         let mut tmp1 = inlawi!(0);
-        tmp1.lut_(&lut_xnor, &tmp0).unwrap();
+        static_lut!(tmp1; 1001; lhs.get(i).unwrap(), rhs.get(i).unwrap());
         ranks[0].push(tmp1);
     }
     // binary tree reduce
-    let lut_and = inlawi!(1000);
     loop {
         let prev_rank = ranks.last().unwrap();
         let rank_len = prev_rank.len();
@@ -813,11 +808,8 @@ pub fn equal(lhs: &Bits, rhs: &Bits) -> inlawi_ty!(1) {
         }
         let mut next_rank = vec![];
         for i in 0..(rank_len / 2) {
-            let mut tmp0 = inlawi!(00);
-            tmp0.set(0, prev_rank[2 * i].to_bool()).unwrap();
-            tmp0.set(1, prev_rank[2 * i + 1].to_bool()).unwrap();
             let mut tmp1 = inlawi!(0);
-            tmp1.lut_(&lut_and, &tmp0).unwrap();
+            static_lut!(tmp1; 1000; prev_rank[2 * i], prev_rank[2 * i + 1]);
             next_rank.push(tmp1);
         }
         if (rank_len & 1) != 0 {
@@ -926,17 +918,12 @@ pub fn lut_set(table: &Bits, entry: &Bits, inx: &Bits) -> Awi {
     assert_eq!(table.bw(), entry.bw() * num_entries);
     let signals = selector(inx, Some(num_entries));
     let mut out = Awi::from_bits(table);
-    let lut_mux = inlawi!(1100_1010);
     for (j, signal) in signals.into_iter().enumerate() {
         for i in 0..entry.bw() {
             let lut_inx = i + (j * entry.bw());
             // mux_ between `lhs` or `entry` based on the signal
-            let mut tmp0 = inlawi!(000);
-            tmp0.set(0, table.get(lut_inx).unwrap()).unwrap();
-            tmp0.set(1, entry.get(i).unwrap()).unwrap();
-            tmp0.set(2, signal.to_bool()).unwrap();
             let mut tmp1 = inlawi!(0);
-            tmp1.lut_(&lut_mux, &tmp0).unwrap();
+            static_lut!(tmp1; 1100_1010; table.get(lut_inx).unwrap(), entry.get(i).unwrap(), signal);
             out.set(lut_inx, tmp1.to_bool()).unwrap();
         }
     }
