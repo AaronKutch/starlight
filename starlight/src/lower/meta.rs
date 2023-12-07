@@ -2,9 +2,12 @@
 
 use std::{cmp::min, mem, num::NonZeroUsize};
 
-use awint::awint_dag::{
-    smallvec::{smallvec, SmallVec},
-    ConcatFieldsType,
+use awint::{
+    awint_dag::{
+        smallvec::{smallvec, SmallVec},
+        ConcatFieldsType,
+    },
+    bw,
 };
 
 use crate::{
@@ -548,18 +551,24 @@ pub fn bitwise_not(x: &Bits) -> Awi {
     Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
 }
 
-pub fn bitwise(lhs: &Bits, rhs: &Bits, lut: inlawi_ty!(4)) -> Awi {
+pub fn bitwise(lhs: &Bits, rhs: &Bits, lut: awi::Awi) -> Awi {
     assert_eq!(lhs.bw(), rhs.bw());
-    let mut out = Awi::zero(lhs.nzbw());
+    assert_eq!(lut.bw(), 4);
+    let nzbw = lhs.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     for i in 0..lhs.bw() {
         let mut tmp = inlawi!(0);
-        let mut inx = inlawi!(00);
-        inx.set(0, lhs.get(i).unwrap()).unwrap();
-        inx.set(1, rhs.get(i).unwrap()).unwrap();
-        tmp.lut_(&lut, &inx).unwrap();
-        out.set(i, tmp.to_bool()).unwrap();
+        tmp.update_state(
+            bw(1),
+            Op::StaticLut(
+                ConcatType::from_iter([lhs.get(i).unwrap().state(), rhs.get(i).unwrap().state()]),
+                lut.clone(),
+            ),
+        )
+        .unwrap_at_runtime();
+        out.push(tmp.state());
     }
-    out
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
 }
 
 pub fn incrementer(x: &Bits, cin: &Bits, dec: bool) -> (Awi, inlawi_ty!(1)) {

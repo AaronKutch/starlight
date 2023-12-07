@@ -17,6 +17,7 @@ use awint::{
 };
 
 use super::meta::*;
+use crate::awi;
 
 pub trait LowerManagement<P: Ptr + DummyDefault> {
     fn graft(&mut self, output_and_operands: &[PState]);
@@ -311,19 +312,28 @@ pub fn lower_op<P: Ptr + DummyDefault>(
         Or([lhs, rhs]) => {
             let lhs = Awi::opaque(m.get_nzbw(lhs));
             let rhs = Awi::opaque(m.get_nzbw(rhs));
-            let out = bitwise(&lhs, &rhs, inlawi!(1110));
+            let out = bitwise(&lhs, &rhs, {
+                use awi::*;
+                awi!(1110)
+            });
             m.graft(&[out.state(), lhs.state(), rhs.state()]);
         }
         And([lhs, rhs]) => {
             let lhs = Awi::opaque(m.get_nzbw(lhs));
             let rhs = Awi::opaque(m.get_nzbw(rhs));
-            let out = bitwise(&lhs, &rhs, inlawi!(1000));
+            let out = bitwise(&lhs, &rhs, {
+                use awi::*;
+                awi!(1000)
+            });
             m.graft(&[out.state(), lhs.state(), rhs.state()]);
         }
         Xor([lhs, rhs]) => {
             let lhs = Awi::opaque(m.get_nzbw(lhs));
             let rhs = Awi::opaque(m.get_nzbw(rhs));
-            let out = bitwise(&lhs, &rhs, inlawi!(0110));
+            let out = bitwise(&lhs, &rhs, {
+                use awi::*;
+                awi!(0110)
+            });
             m.graft(&[out.state(), lhs.state(), rhs.state()]);
         }
         Inc([x, cin]) => {
