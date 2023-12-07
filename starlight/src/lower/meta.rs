@@ -623,19 +623,33 @@ pub fn cin_sum(cin: &Bits, lhs: &Bits, rhs: &Bits) -> (Awi, inlawi_ty!(1), inlaw
     assert_eq!(cin.bw(), 1);
     assert_eq!(lhs.bw(), rhs.bw());
     let w = lhs.bw();
-    let mut out = Awi::zero(lhs.nzbw());
-    //let nzbw = lhs.nzbw();
-    //let mut out = SmallVec::with_capacity(nzbw.get());
+    let nzbw = lhs.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(cin.to_bool());
     for i in 0..w {
         let mut carry_sum = inlawi!(00);
         static_lut!(carry_sum; 1110_1001_1001_0100; carry, lhs.get(i).unwrap(), rhs.get(i).unwrap());
-        out.set(i, carry_sum.get(0).unwrap()).unwrap();
+        out.push(carry_sum.get(0).unwrap().state());
         carry.bool_(carry_sum.get(1).unwrap());
     }
     let mut signed_overflow = inlawi!(0);
-    static_lut!(signed_overflow; 0001_1000; lhs.get(w - 1).unwrap(), rhs.get(w - 1).unwrap(), out.get(w - 1).unwrap());
-    (out, carry, signed_overflow)
+    let a = lhs.get(w - 1).unwrap().state();
+    let b = rhs.get(w - 1).unwrap().state();
+    let c = *out.get(w - 1).unwrap();
+    signed_overflow
+        .update_state(
+            bw(1),
+            Op::StaticLut(ConcatType::from_iter([a, b, c]), {
+                use awi::*;
+                awi!(0001_1000)
+            }),
+        )
+        .unwrap_at_runtime();
+    (
+        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out))),
+        carry,
+        signed_overflow,
+    )
 }
 
 pub fn negator(x: &Bits, neg: &Bits) -> Awi {
