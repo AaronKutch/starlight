@@ -494,10 +494,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
         }
         Rev([x]) => {
             let x = Awi::opaque(m.get_nzbw(x));
-            let mut out = Awi::zero(x.nzbw());
-            for i in 0..x.bw() {
-                out.set(i, x.get(x.bw() - 1 - i).unwrap()).unwrap()
-            }
+            let out = reverse(&x);
             m.graft(&[out.state(), x.state()]);
         }
         Eq([lhs, rhs]) => {

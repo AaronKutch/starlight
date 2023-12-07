@@ -45,6 +45,15 @@ macro_rules! static_lut {
     }};
 }
 
+pub fn reverse(x: &Bits) -> Awi {
+    let nzbw = x.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
+    for i in 0..x.bw() {
+        out.push(x.get(x.bw() - 1 - i).unwrap().state())
+    }
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
+}
+
 /// Given `inx.bw()` bits, this returns `2^inx.bw()` signals for every possible
 /// state of `inx`. The `i`th signal is true only if `inx.to_usize() == i`.
 /// `cap` optionally restricts the number of signals. If `cap` is 0, there is
