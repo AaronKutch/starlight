@@ -623,26 +623,18 @@ pub fn cin_sum(cin: &Bits, lhs: &Bits, rhs: &Bits) -> (Awi, inlawi_ty!(1), inlaw
     assert_eq!(cin.bw(), 1);
     assert_eq!(lhs.bw(), rhs.bw());
     let w = lhs.bw();
-    // full adder
-    let lut = inlawi!(1110_1001_1001_0100);
     let mut out = Awi::zero(lhs.nzbw());
+    //let nzbw = lhs.nzbw();
+    //let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(cin.to_bool());
     for i in 0..w {
         let mut carry_sum = inlawi!(00);
-        let mut inx = inlawi!(000);
-        inx.set(0, carry.to_bool()).unwrap();
-        inx.set(1, lhs.get(i).unwrap()).unwrap();
-        inx.set(2, rhs.get(i).unwrap()).unwrap();
-        carry_sum.lut_(&lut, &inx).unwrap();
+        static_lut!(carry_sum; 1110_1001_1001_0100; carry, lhs.get(i).unwrap(), rhs.get(i).unwrap());
         out.set(i, carry_sum.get(0).unwrap()).unwrap();
         carry.bool_(carry_sum.get(1).unwrap());
     }
     let mut signed_overflow = inlawi!(0);
-    let mut inx = inlawi!(000);
-    inx.set(0, lhs.get(w - 1).unwrap()).unwrap();
-    inx.set(1, rhs.get(w - 1).unwrap()).unwrap();
-    inx.set(2, out.get(w - 1).unwrap()).unwrap();
-    signed_overflow.lut_(&inlawi!(0001_1000), &inx).unwrap();
+    static_lut!(signed_overflow; 0001_1000; lhs.get(w - 1).unwrap(), rhs.get(w - 1).unwrap(), out.get(w - 1).unwrap());
     (out, carry, signed_overflow)
 }
 
