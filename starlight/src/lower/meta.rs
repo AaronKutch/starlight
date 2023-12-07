@@ -126,9 +126,10 @@ pub fn tsmear_inx(inx: &Bits, num_signals: usize) -> Vec<inlawi_ty!(1)> {
                 // update equality, and if the prefix is true and the `j` bit of `inx` is set
                 // then the signal is set
 
-                static_lut!(signal; 11111000; inx.get(j).unwrap(), prefix_equal, signal);
+                let inx_j = inx.get(j).unwrap();
+                static_lut!(signal; 11111000; inx_j, prefix_equal, signal);
 
-                static_lut!(prefix_equal; 0100; inx.get(j).unwrap(), prefix_equal);
+                static_lut!(prefix_equal; 0100; inx_j, prefix_equal);
             } else {
                 // just update equality, the `j`th bit of `i` is 1 and cannot be less than
                 // whatever the `inx` bit is
@@ -160,9 +161,10 @@ pub fn tsmear_awi(inx: &Bits, num_signals: usize) -> Awi {
                 // update equality, and if the prefix is true and the `j` bit of `inx` is set
                 // then the signal is set
 
-                static_lut!(signal; 11111000; inx.get(j).unwrap(), prefix_equal, signal);
+                let inx_j = inx.get(j).unwrap();
+                static_lut!(signal; 11111000; inx_j, prefix_equal, signal);
 
-                static_lut!(prefix_equal; 0100; inx.get(j).unwrap(), prefix_equal);
+                static_lut!(prefix_equal; 0100; inx_j, prefix_equal);
             } else {
                 // just update equality, the `j`th bit of `i` is 1 and cannot be less than
                 // whatever the `inx` bit is
@@ -628,7 +630,11 @@ pub fn cin_sum(cin: &Bits, lhs: &Bits, rhs: &Bits) -> (Awi, inlawi_ty!(1), inlaw
     let mut carry = InlAwi::from(cin.to_bool());
     for i in 0..w {
         let mut carry_sum = inlawi!(00);
-        static_lut!(carry_sum; 1110_1001_1001_0100; carry, lhs.get(i).unwrap(), rhs.get(i).unwrap());
+        static_lut!(carry_sum; 1110_1001_1001_0100;
+            carry,
+            lhs.get(i).unwrap(),
+            rhs.get(i).unwrap()
+        );
         out.push(carry_sum.get(0).unwrap().state());
         carry.bool_(carry_sum.get(1).unwrap());
     }
@@ -923,7 +929,11 @@ pub fn lut_set(table: &Bits, entry: &Bits, inx: &Bits) -> Awi {
             let lut_inx = i + (j * entry.bw());
             // mux_ between `lhs` or `entry` based on the signal
             let mut tmp1 = inlawi!(0);
-            static_lut!(tmp1; 1100_1010; table.get(lut_inx).unwrap(), entry.get(i).unwrap(), signal);
+            static_lut!(tmp1; 1100_1010;
+                table.get(lut_inx).unwrap(),
+                entry.get(i).unwrap(),
+                signal
+            );
             out.set(lut_inx, tmp1.to_bool()).unwrap();
         }
     }
@@ -938,7 +948,6 @@ pub fn mul_add(out_w: NonZeroUsize, add: Option<&Bits>, lhs: &Bits, rhs: &Bits) 
         (lhs, rhs)
     };
 
-    let and = inlawi!(1000);
     let place_map0: &mut Vec<Vec<inlawi_ty!(1)>> = &mut vec![];
     let place_map1: &mut Vec<Vec<inlawi_ty!(1)>> = &mut vec![];
     for _ in 0..out_w.get() {
@@ -946,13 +955,11 @@ pub fn mul_add(out_w: NonZeroUsize, add: Option<&Bits>, lhs: &Bits, rhs: &Bits) 
         place_map1.push(vec![]);
     }
     for j in 0..rhs.bw() {
+        let rhs_j = rhs.get(j).unwrap();
         for i in 0..lhs.bw() {
             if let Some(place) = place_map0.get_mut(i + j) {
-                let mut tmp = inlawi!(00);
-                tmp.set(0, rhs.get(j).unwrap()).unwrap();
-                tmp.set(1, lhs.get(i).unwrap()).unwrap();
                 let mut ji = inlawi!(0);
-                ji.lut_(&and, &tmp).unwrap();
+                static_lut!(ji; 1000; rhs_j, lhs.get(i).unwrap());
                 place.push(ji);
             }
         }
