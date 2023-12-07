@@ -207,13 +207,17 @@ pub fn dynamic_to_static_lut(out: &mut Bits, table: &Bits, inx: &Bits) {
     // if this is broken it breaks a lot of stuff
     assert!(table.bw() == (out.bw().checked_mul(1 << inx.bw()).unwrap()));
     let signals = selector(inx, None);
+    let nzbw = out.nzbw();
+    let mut tmp_output = SmallVec::with_capacity(nzbw.get());
     for j in 0..out.bw() {
         let mut column = inlawi!(0);
         for (i, signal) in signals.iter().enumerate() {
             static_lut!(column; 1111_1000; signal, table.get((i * out.bw()) + j).unwrap(), column);
         }
-        out.set(j, column.to_bool()).unwrap();
+        tmp_output.push(column.state());
     }
+    out.update_state(nzbw, Op::Concat(ConcatType::from_smallvec(tmp_output)))
+        .unwrap_at_runtime();
 }
 
 pub fn dynamic_to_static_get(bits: &Bits, inx: &Bits) -> inlawi_ty!(1) {
@@ -330,21 +334,19 @@ pub fn static_field(lhs: &Bits, to: usize, rhs: &Bits, from: usize, width: usize
                     ])),
                 )
             }
+        } else if let Some(lhs_rem_hi) = NonZeroUsize::new(lhs.bw() - width.get()) {
+            Awi::new(
+                lhs.nzbw(),
+                Op::ConcatFields(ConcatFieldsType::from_iter([
+                    (rhs.state(), from, width),
+                    (lhs.state(), width.get(), lhs_rem_hi),
+                ])),
+            )
         } else {
-            if let Some(lhs_rem_hi) = NonZeroUsize::new(lhs.bw() - width.get()) {
-                Awi::new(
-                    lhs.nzbw(),
-                    Op::ConcatFields(ConcatFieldsType::from_iter([
-                        (rhs.state(), from, width),
-                        (lhs.state(), width.get(), lhs_rem_hi),
-                    ])),
-                )
-            } else {
-                Awi::new(
-                    lhs.nzbw(),
-                    Op::ConcatFields(ConcatFieldsType::from_iter([(rhs.state(), from, width)])),
-                )
-            }
+            Awi::new(
+                lhs.nzbw(),
+                Op::ConcatFields(ConcatFieldsType::from_iter([(rhs.state(), from, width)])),
+            )
         }
     } else {
         Awi::from_bits(lhs)
@@ -400,7 +402,11 @@ pub fn crossbar(
         for i in 0..input.bw() {
             let signal_inx = output.bw() - 1 + i - j;
             if (signal_inx >= signal_range.0) && (signal_inx < signal_range.1) {
-                static_lut!(out_bar; 1111_1000; input.get(i).unwrap(), signals[signal_inx - signal_range.0], out_bar);
+                static_lut!(out_bar; 1111_1000;
+                    input.get(i).unwrap(),
+                    signals[signal_inx - signal_range.0],
+                    out_bar
+                );
             }
         }
         tmp_output.push(out_bar.state());
