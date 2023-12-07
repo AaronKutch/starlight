@@ -348,21 +348,28 @@ pub fn static_field(lhs: &Bits, to: usize, rhs: &Bits, from: usize, width: usize
 
 /// This does not handle invalid arguments; set `width` to zero to cause no-ops
 pub fn field_width(lhs: &Bits, rhs: &Bits, width: &Bits) -> Awi {
-    let mut out = Awi::from_bits(lhs);
     let min_w = min(lhs.bw(), rhs.bw());
     let signals = tsmear_inx(width, min_w);
-    let lut = inlawi!(1100_1010);
+    let nzbw = NonZeroUsize::new(signals.len()).unwrap();
+    let mut mux_part = SmallVec::with_capacity(nzbw.get());
     for (i, signal) in signals.into_iter().enumerate() {
         // mux_ between `lhs` or `rhs` based on the signal
-        let mut tmp0 = inlawi!(000);
-        tmp0.set(0, lhs.get(i).unwrap()).unwrap();
-        tmp0.set(1, rhs.get(i).unwrap()).unwrap();
-        tmp0.set(2, signal.to_bool()).unwrap();
-        let mut tmp1 = inlawi!(0);
-        tmp1.lut_(&lut, &tmp0).unwrap();
-        out.set(i, tmp1.to_bool()).unwrap();
+        let mut tmp = inlawi!(0);
+        static_lut!(tmp; 1100_1010; lhs.get(i).unwrap(), rhs.get(i).unwrap(), signal);
+        mux_part.push(tmp.state());
     }
-    out
+    let mux_part = Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(mux_part)));
+    if let Some(lhs_rem_hi) = NonZeroUsize::new(lhs.bw() - nzbw.get()) {
+        Awi::new(
+            lhs.nzbw(),
+            Op::ConcatFields(ConcatFieldsType::from_iter([
+                (mux_part.state(), 0usize, nzbw),
+                (lhs.state(), nzbw.get(), lhs_rem_hi),
+            ])),
+        )
+    } else {
+        mux_part
+    }
 }
 
 /// Given the diagonal control lines and input of a crossbar with output width
