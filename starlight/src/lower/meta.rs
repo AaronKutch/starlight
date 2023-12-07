@@ -472,6 +472,7 @@ pub fn ashr(x: &Bits, s: &Bits) -> Awi {
     // Not sure if there is a better way to do this. If we try to use the crossbar
     // signals in some way, we are guaranteed some kind of > O(1) time thing.
 
+    let msb = x.msb();
     // get the `lb_num` that `tsmear_inx` uses, it can be `x.bw() - 1` because of
     // the `s < x.bw()` requirement, this single bit of difference is important
     // for powers of two because of the `lb_num += 1` condition it avoids.
@@ -484,26 +485,18 @@ pub fn ashr(x: &Bits, s: &Bits) -> Awi {
     }
     if let Some(w) = NonZeroUsize::new(lb_num) {
         let mut gated_s = Awi::zero(w);
-        let lut_and = inlawi!(1000);
         // `gated_s` will be zero if `x.msb()` is zero, in which case `tsmear_inx`
         // produces all zeros to be ORed
         for i in 0..gated_s.bw() {
-            let mut tmp0 = inlawi!(00);
-            tmp0.set(0, s.get(i).unwrap()).unwrap();
-            tmp0.set(1, x.msb()).unwrap();
             let mut tmp1 = inlawi!(0);
-            tmp1.lut_(&lut_and, &tmp0).unwrap();
+            static_lut!(tmp1; 1000; s.get(i).unwrap(), msb);
             gated_s.set(i, tmp1.to_bool()).unwrap();
         }
         let or_mask = tsmear_awi(&gated_s, num);
-        let lut_or = inlawi!(1110);
         for i in 0..or_mask.bw() {
             let out_i = out.bw() - 1 - i;
-            let mut tmp0 = inlawi!(00);
-            tmp0.set(0, out.get(out_i).unwrap()).unwrap();
-            tmp0.set(1, or_mask.get(i).unwrap()).unwrap();
             let mut tmp1 = inlawi!(0);
-            tmp1.lut_(&lut_or, &tmp0).unwrap();
+            static_lut!(tmp1; 1110; out.get(out_i).unwrap(), or_mask.get(i).unwrap());
             out.set(out_i, tmp1.to_bool()).unwrap();
         }
     }
@@ -545,14 +538,14 @@ pub fn rotr(x: &Bits, s: &Bits) -> Awi {
 }
 
 pub fn bitwise_not(x: &Bits) -> Awi {
-    let mut out = Awi::zero(x.nzbw());
+    let nzbw = x.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     for i in 0..x.bw() {
         let mut tmp = inlawi!(0);
-        let inx = InlAwi::from(x.get(i).unwrap());
-        tmp.lut_(&inlawi!(01), &inx).unwrap();
-        out.set(i, tmp.to_bool()).unwrap();
+        static_lut!(tmp; 01; x.get(i).unwrap());
+        out.push(tmp.state());
     }
-    out
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
 }
 
 pub fn bitwise(lhs: &Bits, rhs: &Bits, lut: inlawi_ty!(4)) -> Awi {
