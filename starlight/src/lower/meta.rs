@@ -701,19 +701,20 @@ pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
         let mut lmask = tsmear_inx(&tmp, lhs.bw());
         lmask.reverse();
 
-        let mut out = Awi::from_bits(lhs);
-        let lut = inlawi!(1011_1111_1000_0000);
+        let nzbw = lhs.nzbw();
+        let mut out = SmallVec::with_capacity(nzbw.get());
+        // when `tmask` and `lmask` are both set, mux_ in `rhs`
         for i in 0..lhs.bw() {
-            let mut tmp = inlawi!(0000);
-            tmp.set(0, rhs_to_lhs.get(i).unwrap()).unwrap();
-            tmp.set(1, tmask[i].to_bool()).unwrap();
-            tmp.set(2, lmask[i].to_bool()).unwrap();
-            tmp.set(3, lhs.get(i).unwrap()).unwrap();
             let mut lut_out = inlawi!(0);
-            lut_out.lut_(&lut, &tmp).unwrap();
-            out.set(i, lut_out.to_bool()).unwrap();
+            static_lut!(lut_out; 1011_1111_1000_0000;
+                rhs_to_lhs.get(i).unwrap(),
+                tmask[i],
+                lmask[i],
+                lhs.get(i).unwrap()
+            );
+            out.push(lut_out.state());
         }
-        out
+        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
     } else {
         let lut = inlawi!(rhs[0], lhs[0]).unwrap();
         let mut out = awi!(0);
@@ -768,20 +769,20 @@ pub fn field(lhs: &Bits, to: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Aw
         let mut lmask = tsmear_inx(&tmp, lhs.bw());
         lmask.reverse();
 
-        let mut out = Awi::from_bits(lhs);
+        let nzbw = lhs.nzbw();
+        let mut out = SmallVec::with_capacity(nzbw.get());
         // when `tmask` and `lmask` are both set, mux_ in `rhs`
-        let lut = inlawi!(1011_1111_1000_0000);
         for i in 0..lhs.bw() {
-            let mut tmp = inlawi!(0000);
-            tmp.set(0, rhs_to_lhs.get(i).unwrap()).unwrap();
-            tmp.set(1, tmask[i].to_bool()).unwrap();
-            tmp.set(2, lmask[i].to_bool()).unwrap();
-            tmp.set(3, lhs.get(i).unwrap()).unwrap();
             let mut lut_out = inlawi!(0);
-            lut_out.lut_(&lut, &tmp).unwrap();
-            out.set(i, lut_out.to_bool()).unwrap();
+            static_lut!(lut_out; 1011_1111_1000_0000;
+                rhs_to_lhs.get(i).unwrap(),
+                tmask[i],
+                lmask[i],
+                lhs.get(i).unwrap()
+            );
+            out.push(lut_out.state());
         }
-        out
+        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
     } else {
         // `lhs.bw() == 1`, `rhs.bw() == 1`, `width` is the only thing that matters
         let lut = inlawi!(rhs[0], lhs[0]).unwrap();
