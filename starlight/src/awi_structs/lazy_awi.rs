@@ -12,7 +12,7 @@ use awint::{
 
 use crate::{
     awi,
-    ensemble::{Ensemble, Evaluator, PNote},
+    ensemble::{Ensemble, PNote},
     epoch::get_current_epoch,
 };
 
@@ -95,7 +95,7 @@ impl LazyAwi {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Evaluator::change_thread_local_note_value(self.p_note, rhs)
+        Ensemble::change_thread_local_note_value(self.p_note, rhs)
     }
 }
 
@@ -196,7 +196,7 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Evaluator::change_thread_local_note_value(self.p_note, rhs)
+        Ensemble::change_thread_local_note_value(self.p_note, rhs)
     }
 }
 

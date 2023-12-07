@@ -3,7 +3,8 @@ use std::num::NonZeroUsize;
 use awint::awint_dag::{triple_arena::ptr_struct, EvalError, PState};
 
 use crate::{
-    ensemble::{Ensemble, PBack, Referent},
+    awi,
+    ensemble::{Ensemble, PBack, Referent, Value},
     epoch::get_current_epoch,
 };
 
@@ -58,6 +59,31 @@ impl Ensemble {
         } else {
             Err(EvalError::OtherStr("could not find thread local `Note`"))
         }
+    }
+
+    pub fn change_thread_local_note_value(
+        p_note: PNote,
+        bits: &awi::Bits,
+    ) -> Result<(), EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+        if let Some(note) = ensemble.notes.get(p_note) {
+            if note.bits.len() != bits.bw() {
+                return Err(EvalError::WrongBitwidth);
+            }
+        } else {
+            return Err(EvalError::OtherStr("could not find thread local `Note`"))
+        }
+        for bit_i in 0..bits.bw() {
+            let p_back = ensemble.notes[p_note].bits[bit_i];
+            if let Some(p_back) = p_back {
+                ensemble
+                    .change_value(p_back, Value::Dynam(bits.get(bit_i).unwrap()))
+                    .unwrap();
+            }
+        }
+        Ok(())
     }
 }
 

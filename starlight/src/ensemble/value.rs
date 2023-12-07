@@ -8,9 +8,7 @@ use awint::{
     Awi,
 };
 
-use super::PNote;
 use crate::{
-    awi,
     ensemble::{Ensemble, PBack, PTNode, Referent, TNode},
     epoch::{get_current_epoch, EpochShared},
 };
@@ -150,34 +148,6 @@ impl Evaluator {
 
     pub fn insert(&mut self, eval_step: Eval) {
         let _ = self.evaluations.insert(eval_step, ());
-    }
-
-    pub fn change_thread_local_note_value(
-        p_note: PNote,
-        bits: &awi::Bits,
-    ) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        let mut lock = epoch_shared.epoch_data.borrow_mut();
-        let ensemble = &mut lock.ensemble;
-        if let Some(note) = ensemble.notes.get(p_note) {
-            if note.bits.len() != bits.bw() {
-                return Err(EvalError::WrongBitwidth);
-            }
-        } else {
-            return Err(EvalError::OtherStr("could not find thread local `Note`"))
-        }
-        for bit_i in 0..bits.bw() {
-            let p_back = ensemble.notes[p_note].bits[bit_i];
-            if let Some(p_back) = p_back {
-                // switch to change phase
-                if ensemble.evaluator.phase != EvalPhase::Change {
-                    ensemble.evaluator.phase = EvalPhase::Change;
-                    ensemble.evaluator.next_change_visit_gen();
-                }
-                let _ = ensemble.change_value(p_back, Value::Dynam(bits.get(bit_i).unwrap()));
-            }
-        }
-        Ok(())
     }
 
     // stepping loops should request their drivers, evaluating everything requests
