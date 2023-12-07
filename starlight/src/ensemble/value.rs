@@ -8,6 +8,7 @@ use awint::{
     Awi,
 };
 
+use super::PNote;
 use crate::{
     awi,
     ensemble::{Ensemble, PBack, PTNode, Referent, TNode},
@@ -151,29 +152,29 @@ impl Evaluator {
         let _ = self.evaluations.insert(eval_step, ());
     }
 
-    /// This will return no error if `p_state` is not contained
-    pub fn change_thread_local_state_value(
-        p_state: PState,
+    pub fn change_thread_local_note_value(
+        p_note: PNote,
         bits: &awi::Bits,
     ) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
-        if let Some(state) = ensemble.stator.states.get(p_state) {
-            if state.nzbw != bits.nzbw() {
+        if let Some(note) = ensemble.notes.get(p_note) {
+            if note.bits.len() != bits.bw() {
                 return Err(EvalError::WrongBitwidth);
             }
-            // switch to change phase
-            if ensemble.evaluator.phase != EvalPhase::Change {
-                ensemble.evaluator.phase = EvalPhase::Change;
-                ensemble.evaluator.next_change_visit_gen();
-            }
-            ensemble.initialize_state_bits_if_needed(p_state).unwrap();
-            for bit_i in 0..bits.bw() {
-                let p_bit = ensemble.stator.states.get(p_state).unwrap().p_self_bits[bit_i];
-                if let Some(p_bit) = p_bit {
-                    let _ = ensemble.change_value(p_bit, Value::Dynam(bits.get(bit_i).unwrap()));
+        } else {
+            return Err(EvalError::OtherStr("could not find thread local `Note`"))
+        }
+        for bit_i in 0..bits.bw() {
+            let p_back = ensemble.notes[p_note].bits[bit_i];
+            if let Some(p_back) = p_back {
+                // switch to change phase
+                if ensemble.evaluator.phase != EvalPhase::Change {
+                    ensemble.evaluator.phase = EvalPhase::Change;
+                    ensemble.evaluator.next_change_visit_gen();
                 }
+                let _ = ensemble.change_value(p_back, Value::Dynam(bits.get(bit_i).unwrap()));
             }
         }
         Ok(())

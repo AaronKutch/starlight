@@ -1,6 +1,11 @@
-use awint::awint_dag::{triple_arena::ptr_struct, PState};
+use std::num::NonZeroUsize;
 
-use crate::ensemble::{Ensemble, PBack, Referent};
+use awint::awint_dag::{triple_arena::ptr_struct, EvalError, PState};
+
+use crate::{
+    ensemble::{Ensemble, PBack, Referent},
+    epoch::get_current_epoch,
+};
 
 ptr_struct!(PNote);
 
@@ -42,6 +47,17 @@ impl Ensemble {
             }
         }
         Some(p_note)
+    }
+
+    pub fn get_thread_local_note_nzbw(p_note: PNote) -> Result<NonZeroUsize, EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+        if let Some(note) = ensemble.notes.get(p_note) {
+            Ok(NonZeroUsize::new(note.bits.len()).unwrap())
+        } else {
+            Err(EvalError::OtherStr("could not find thread local `Note`"))
+        }
     }
 }
 

@@ -12,7 +12,7 @@ use awint::{
 
 use crate::{
     awi,
-    ensemble::{Evaluator, PNote},
+    ensemble::{Ensemble, Evaluator, PNote},
     epoch::get_current_epoch,
 };
 
@@ -26,11 +26,7 @@ use crate::{
 /// When other mimicking types are created from a reference of this, `retro_`
 /// can later be called to retroactively change the input values of the DAG.
 pub struct LazyAwi {
-    // this must remain the same opaque and noted in order for `retro_` to work
     opaque: dag::Awi,
-    // needs to be kept in case the `LazyAwi` is optimized away, but we still need bitwidth
-    // comparisons
-    nzbw: NonZeroUsize,
     p_note: PNote,
 }
 
@@ -46,15 +42,11 @@ impl LazyAwi {
     }
 
     pub fn nzbw(&self) -> NonZeroUsize {
-        self.nzbw
+        Ensemble::get_thread_local_note_nzbw(self.p_note).unwrap()
     }
 
     pub fn bw(&self) -> usize {
-        self.nzbw.get()
-    }
-
-    pub fn p_note(&self) -> PNote {
-        self.p_note
+        self.nzbw().get()
     }
 
     pub fn opaque(w: NonZeroUsize) -> Self {
@@ -66,11 +58,7 @@ impl LazyAwi {
             .ensemble
             .note_pstate(opaque.state())
             .unwrap();
-        Self {
-            opaque,
-            nzbw: w,
-            p_note,
-        }
+        Self { opaque, p_note }
     }
 
     // TODO it probably does need to be an extra `Awi` in the `Opaque` variant,
@@ -107,14 +95,7 @@ impl LazyAwi {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        if self.nzbw != rhs.nzbw() {
-            // `change_thread_local_state_value` will return without error if it does not
-            // find the state, but we need to return an error if there is a bitwidth
-            // mismatch
-            return Err(EvalError::WrongBitwidth)
-        }
-        let p_lhs = self.state();
-        Evaluator::change_thread_local_state_value(p_lhs, rhs)
+        Evaluator::change_thread_local_note_value(self.p_note, rhs)
     }
 }
 
@@ -215,14 +196,7 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        if BW != rhs.bw() {
-            // `change_thread_local_state_value` will return without error if it does not
-            // find the state, but we need to return an error if there is a bitwidth
-            // mismatch
-            return Err(EvalError::WrongBitwidth)
-        }
-        let p_lhs = self.state();
-        Evaluator::change_thread_local_state_value(p_lhs, rhs)
+        Evaluator::change_thread_local_note_value(self.p_note, rhs)
     }
 }
 
