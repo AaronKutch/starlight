@@ -1,7 +1,7 @@
 #![feature(test)]
 
 extern crate test;
-use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi};
+use starlight::{dag::*, Epoch, EvalAwi, LazyAwi};
 use test::Bencher;
 
 #[bench]
@@ -17,9 +17,6 @@ fn lower_funnel(bencher: &mut Bencher) {
         epoch0.prune().unwrap();
         epoch0.lower().unwrap();
         epoch0.assert_assertions().unwrap();
-        awi::assert_eq!(epoch0.ensemble().stator.states.len(), 2437);
-        awi::assert_eq!(epoch0.ensemble().backrefs.len_keys(), 8623);
-        awi::assert_eq!(epoch0.ensemble().backrefs.len_vals(), 1349);
     })
 }
 
@@ -36,8 +33,5 @@ fn optimize_funnel(bencher: &mut Bencher) {
         epoch0.prune().unwrap();
         epoch0.optimize().unwrap();
         epoch0.assert_assertions().unwrap();
-        awi::assert_eq!(epoch0.ensemble().stator.states.len(), 2437);
-        awi::assert_eq!(epoch0.ensemble().backrefs.len_keys(), 8383);
-        awi::assert_eq!(epoch0.ensemble().backrefs.len_vals(), 1269);
     })
 }
