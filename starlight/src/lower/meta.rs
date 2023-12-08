@@ -304,10 +304,9 @@ pub fn resize_cond(x: &Bits, w: NonZeroUsize, signed: &Bits) -> Awi {
             Op::ConcatFields(ConcatFieldsType::from_iter([(x.state(), 0usize, w)])),
         )
     } else {
-        let extend = x.msb() & signed.to_bool();
         let extension = Awi::new(
             NonZeroUsize::new(w.get() - x.bw()).unwrap(),
-            Op::Repeat([extend.state()]),
+            Op::Repeat([signed.state()]),
         );
         Awi::new(
             w,
