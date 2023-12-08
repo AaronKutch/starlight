@@ -128,6 +128,16 @@ impl EvalAwi {
 
 impl fmt::Debug for EvalAwi {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(epoch) = get_current_epoch() {
+            if let Some(s) = epoch
+                .epoch_data
+                .borrow()
+                .ensemble
+                .get_state_debug(self.state())
+            {
+                return write!(f, "EvalAwi({s})");
+            }
+        }
         write!(f, "EvalAwi({:?})", self.state())
     }
 }

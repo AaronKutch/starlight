@@ -133,6 +133,56 @@ impl EpochShared {
         Assertions { bits: cloned }
     }
 
+    /// Using `EpochShared::assertions` creates all new `Assertions`, this can
+    /// eliminate them entirely
+    pub fn assert_assertions(&self) -> Result<(), EvalError> {
+        let p_self = self.p_self;
+        let epoch_data = self.epoch_data.borrow();
+        let len = epoch_data
+            .responsible_for
+            .get(p_self)
+            .unwrap()
+            .assertions
+            .bits
+            .len();
+        drop(epoch_data);
+        let mut i = 0;
+        loop {
+            if i >= len {
+                break
+            }
+            let epoch_data = self.epoch_data.borrow();
+            let eval_awi = &epoch_data
+                .responsible_for
+                .get(p_self)
+                .unwrap()
+                .assertions
+                .bits[i];
+            let p_state = eval_awi.state();
+            let p_note = eval_awi.p_note();
+            drop(epoch_data);
+            let val = Ensemble::calculate_thread_local_note_value(p_note, 0)?;
+            if let Some(val) = val.known_value() {
+                if !val {
+                    let epoch_data = self.epoch_data.borrow();
+                    let s = epoch_data.ensemble.get_state_debug(p_state);
+                    if let Some(s) = s {
+                        return Err(EvalError::OtherString(format!(
+                            "an assertion bit evaluated to false, failed on {p_note} {:?}",
+                            s
+                        )))
+                    } else {
+                        return Err(EvalError::OtherString(format!(
+                            "an assertion bit evaluated to false, failed on {p_note} {p_state}"
+                        )))
+                    }
+                }
+            }
+            i += 1;
+        }
+        Ok(())
+    }
+
     /// Returns a clone of the ensemble
     pub fn ensemble(&self) -> Ensemble {
         self.epoch_data.borrow().ensemble.clone()
@@ -398,24 +448,7 @@ impl Epoch {
 
     /// If any assertion bit evaluates to false, this returns an error.
     pub fn assert_assertions(&self) -> Result<(), EvalError> {
-        let bits = self.shared.assertions().bits;
-        for eval_awi in bits {
-            let val = eval_awi.eval_bit()?;
-            if let Some(val) = val.known_value() {
-                if !val {
-                    return Err(EvalError::OtherString(format!(
-                        "an assertion bit evaluated to false, failed on {}",
-                        self.shared
-                            .epoch_data
-                            .borrow()
-                            .ensemble
-                            .get_state_debug(eval_awi.state())
-                            .unwrap()
-                    )))
-                }
-            }
-        }
-        Ok(())
+        self.shared.assert_assertions()
     }
 
     /// If any assertion bit evaluates to false, this returns an error. If there
