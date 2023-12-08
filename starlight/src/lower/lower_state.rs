@@ -39,7 +39,6 @@ impl Ensemble {
             }
         }
 
-        // TODO what do we do when we make multi-output things
         // graft input
         for i in 1..operands.len() {
             let grafted = operands[i];
@@ -64,8 +63,6 @@ impl Ensemble {
     }
 
     pub fn lower_op(epoch_shared: &EpochShared, p_state: PState) -> Result<bool, EvalError> {
-        // TODO optimization to remove unused nodes early
-        //let epoch = StateEpoch::new();
         struct Tmp<'a> {
             ptr: PState,
             epoch_shared: &'a EpochShared,

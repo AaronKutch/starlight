@@ -534,7 +534,4 @@ impl Epoch {
         lock.ensemble.optimize_all();
         Ok(())
     }
-
-    // TODO
-    //pub fn prune_nonnoted
 }

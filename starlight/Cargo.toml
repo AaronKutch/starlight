@@ -7,9 +7,9 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/AaronKutch/starlight"
 documentation = "https://docs.rs/starlight"
-description = "reservation"
+description = "experimental HDL and optimizer for DAGs of lookup tables"
 keywords = ["dag", "rtl", "hdl"]
-categories = []
+categories = ["algorithms"]
 
 [dependencies]
 awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
