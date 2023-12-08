@@ -1,6 +1,7 @@
 use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi};
 
-// this is done separately from the benchmarks because getting the `ensemble` is expensive
+// this is done separately from the benchmarks because getting the `ensemble` is
+// expensive
 #[test]
 fn stats_optimize_funnel() {
     let epoch0 = Epoch::new();
