@@ -342,6 +342,7 @@ impl Ensemble {
             location,
             err: None,
             rc: 0,
+            other_rc: 0,
             allow_pruning,
             lowered_to_elementary: false,
             lowered_to_tnodes: false,
@@ -510,7 +511,7 @@ impl Ensemble {
         Ok(())
     }
 
-    /// Triggers a cascade of state removals if the states `allow_pruning` and
+    /// Triggers a cascade of state removals if `pruning_allowed()` and
     /// their reference counts are zero
     pub fn remove_state(&mut self, p_state: PState) -> Result<(), EvalError> {
         if !self.stator.states.contains(p_state) {
@@ -520,7 +521,7 @@ impl Ensemble {
         while let Some(p) = pstate_stack.pop() {
             let mut delete = false;
             if let Some(state) = self.stator.states.get(p) {
-                if (state.rc == 0) && state.allow_pruning {
+                if state.pruning_allowed() {
                     delete = true;
                 }
             }

@@ -37,6 +37,12 @@ impl Drop for EvalAwi {
                         "most likely, an `EvalAwi` created in one `Epoch` was dropped in another"
                     )
                 }
+                lock.ensemble
+                    .stator
+                    .states
+                    .get_mut(self.p_state)
+                    .unwrap()
+                    .dec_other_rc();
             }
             // else the epoch has been dropped
         }
@@ -52,13 +58,7 @@ impl Lineage for EvalAwi {
 impl Clone for EvalAwi {
     /// This makes another note to the same state that `self` pointed to.
     fn clone(&self) -> Self {
-        let epoch_data = get_current_epoch().unwrap().epoch_data;
-        let mut lock = epoch_data.borrow_mut();
-        let p_note = lock.ensemble.note_pstate(self.p_state).unwrap();
-        Self {
-            p_state: self.p_state,
-            p_note,
-        }
+        Self::from_state(self.p_state).unwrap()
     }
 }
 
@@ -84,7 +84,7 @@ impl EvalAwi {
             .states
             .get_mut(p_state)
             .unwrap()
-            .allow_pruning = false;
+            .inc_other_rc();
         Some(Self { p_state, p_note })
     }
 

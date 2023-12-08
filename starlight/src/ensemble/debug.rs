@@ -52,7 +52,7 @@ impl DebugNodeTrait<PState> for State {
                 v.push(format!(
                     "{} {} {} {}",
                     this.rc,
-                    short(this.allow_pruning),
+                    short(this.pruning_allowed()),
                     short(this.lowered_to_elementary),
                     short(this.lowered_to_tnodes)
                 ));

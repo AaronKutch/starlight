@@ -35,6 +35,7 @@ pub struct State {
     /// The number of other `State`s, and only other `State`s, that reference
     /// this one through the `Op`s
     pub rc: usize,
+    pub other_rc: usize,
     /// Allows this state to be pruned
     pub allow_pruning: bool,
     /// If the `State` has been lowered to elementary `State`s (`Static-`
@@ -44,6 +45,21 @@ pub struct State {
     /// If the `State` has been lowered from elementary `State`s to `TNode`s.
     /// Note that a DFS might set this before actually being lowered.
     pub lowered_to_tnodes: bool,
+}
+
+impl State {
+    /// Returns if pruning this state is allowed
+    pub fn pruning_allowed(&self) -> bool {
+        (self.rc == 0) && (self.other_rc == 0)
+    }
+
+    pub fn inc_other_rc(&mut self) {
+        self.other_rc = self.other_rc.checked_add(1).unwrap()
+    }
+
+    pub fn dec_other_rc(&mut self) {
+        self.other_rc = self.other_rc.checked_sub(1).unwrap()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -76,7 +92,7 @@ impl Ensemble {
             } else {
                 return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
             };
-            if (state.rc == 0) && state.allow_pruning {
+            if state.pruning_allowed() {
                 self.remove_state(p_state)?;
             }
             Ok(())
@@ -85,12 +101,12 @@ impl Ensemble {
         }
     }
 
-    /// Prunes all states that `allow_pruning`
+    /// Prunes all states with `pruning_allowed()`
     pub fn prune_states(&mut self) -> Result<(), EvalError> {
         let mut adv = self.stator.states.advancer();
         while let Some(p_state) = adv.advance(&self.stator.states) {
             let state = &self.stator.states[p_state];
-            if state.allow_pruning {
+            if state.pruning_allowed() {
                 self.remove_state(p_state).unwrap();
             }
         }
