@@ -148,10 +148,11 @@ impl Mem {
         &mut self.a[inx].dag
     }
 
-    pub fn finish(&mut self, _epoch: &Epoch) {
+    pub fn finish(&mut self, epoch: &Epoch) {
         for pair in self.a.vals_mut() {
             pair.eval = Some(EvalAwi::from(&pair.dag))
         }
+        epoch.prune().unwrap();
     }
 
     pub fn eval_and_verify_equal(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
