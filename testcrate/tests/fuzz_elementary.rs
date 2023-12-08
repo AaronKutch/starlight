@@ -103,13 +103,14 @@ impl Mem {
         epoch.prune().unwrap();
     }
 
-    pub fn verify_equivalence(&mut self, _epoch: &Epoch) -> Result<(), EvalError> {
+    pub fn verify_equivalence(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
         // set all lazy roots
         for (lazy, lit) in &mut self.roots {
             lazy.retro_(lit).unwrap();
         }
 
         // evaluate all
+        epoch.assert_assertions().unwrap();
         for pair in self.a.vals() {
             assert_eq!(pair.eval.as_ref().unwrap().eval().unwrap(), pair.awi);
         }

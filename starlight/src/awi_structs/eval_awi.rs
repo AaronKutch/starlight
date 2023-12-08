@@ -7,7 +7,7 @@ use awint::{
 
 use crate::{
     awi,
-    ensemble::{Ensemble, PNote, Value},
+    ensemble::{Ensemble, PNote},
     epoch::get_current_epoch,
 };
 
@@ -98,11 +98,6 @@ impl EvalAwi {
             }
         }
         Ok(res)
-    }
-
-    /// Assumes `self` is a single bit
-    pub(crate) fn eval_bit(&self) -> Result<Value, EvalError> {
-        Ensemble::calculate_thread_local_note_value(self.p_note, 0)
     }
 
     pub fn zero(w: NonZeroUsize) -> Self {

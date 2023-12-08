@@ -166,6 +166,7 @@ impl Mem {
 
         // lower
         epoch.lower().unwrap();
+        epoch.assert_assertions().unwrap();
 
         // set remaining lazy roots
         for (lazy, lit) in self.roots.drain(..) {
@@ -173,6 +174,7 @@ impl Mem {
         }
 
         // evaluate all
+        epoch.assert_assertions_strict().unwrap();
         for pair in self.a.vals() {
             assert_eq!(pair.eval.as_ref().unwrap().eval().unwrap(), pair.awi);
         }

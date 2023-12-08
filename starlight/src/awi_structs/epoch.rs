@@ -133,12 +133,12 @@ impl EpochShared {
         Assertions { bits: cloned }
     }
 
-    /// Using `EpochShared::assertions` creates all new `Assertions`, this can
-    /// eliminate them entirely
-    pub fn assert_assertions(&self) -> Result<(), EvalError> {
+    /// Using `EpochShared::assertions` creates all new `Assertions`. This
+    /// eliminates assertions that evaluate to a constant true.
+    pub fn assert_assertions(&self, strict: bool) -> Result<(), EvalError> {
         let p_self = self.p_self;
         let epoch_data = self.epoch_data.borrow();
-        let len = epoch_data
+        let mut len = epoch_data
             .responsible_for
             .get(p_self)
             .unwrap()
@@ -146,6 +146,7 @@ impl EpochShared {
             .bits
             .len();
         drop(epoch_data);
+        let mut unknown = None;
         let mut i = 0;
         loop {
             if i >= len {
@@ -177,8 +178,43 @@ impl EpochShared {
                         )))
                     }
                 }
+            } else if unknown.is_none() {
+                // get the earliest failure to evaluate, should be closest to the root cause.
+                // Wait for all bits to be checked for falsity
+                unknown = Some((p_note, p_state));
             }
-            i += 1;
+            if val.is_const() {
+                // remove the assertion
+                let mut epoch_data = self.epoch_data.borrow_mut();
+                epoch_data
+                    .responsible_for
+                    .get_mut(p_self)
+                    .unwrap()
+                    .assertions
+                    .bits
+                    .swap_remove(i);
+                len -= 1;
+            } else {
+                i += 1;
+            }
+        }
+        if strict {
+            if let Some((p_note, p_state)) = unknown {
+                let epoch_data = self.epoch_data.borrow();
+                let s = epoch_data.ensemble.get_state_debug(p_state);
+                if let Some(s) = s {
+                    return Err(EvalError::OtherString(format!(
+                        "an assertion bit could not be evaluated to a known value, failed on \
+                         {p_note} {:?}",
+                        s
+                    )))
+                } else {
+                    return Err(EvalError::OtherString(format!(
+                        "an assertion bit could not be evaluated to a known value, failed on \
+                         {p_note} {p_state}"
+                    )))
+                }
+            }
         }
         Ok(())
     }
@@ -448,48 +484,14 @@ impl Epoch {
 
     /// If any assertion bit evaluates to false, this returns an error.
     pub fn assert_assertions(&self) -> Result<(), EvalError> {
-        self.shared.assert_assertions()
+        self.shared.assert_assertions(false)
     }
 
     /// If any assertion bit evaluates to false, this returns an error. If there
     /// were no known false assertions but some are `Value::Unknown`, this
     /// returns a specific error for it.
     pub fn assert_assertions_strict(&self) -> Result<(), EvalError> {
-        let bits = self.shared.assertions().bits;
-        let mut unknown = None;
-        for eval_awi in bits {
-            let val = eval_awi.eval_bit()?;
-            if let Some(val) = val.known_value() {
-                if !val {
-                    return Err(EvalError::OtherString(format!(
-                        "assertion bits are not all true, failed on {}",
-                        self.shared
-                            .epoch_data
-                            .borrow()
-                            .ensemble
-                            .get_state_debug(eval_awi.state())
-                            .unwrap()
-                    )))
-                }
-            } else if unknown.is_none() {
-                // get the earliest failure to evaluate wait for all bits to be checked for
-                // falsity
-                unknown = Some(eval_awi.state());
-            }
-        }
-        if let Some(p_state) = unknown {
-            Err(EvalError::OtherString(format!(
-                "an assertion bit could not be evaluated to a known value, failed on {}",
-                self.shared
-                    .epoch_data
-                    .borrow()
-                    .ensemble
-                    .get_state_debug(p_state)
-                    .unwrap()
-            )))
-        } else {
-            Ok(())
-        }
+        self.shared.assert_assertions(true)
     }
 
     pub fn ensemble(&self) -> Ensemble {
