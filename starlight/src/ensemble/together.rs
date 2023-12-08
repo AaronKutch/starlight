@@ -329,7 +329,6 @@ impl Ensemble {
         nzbw: NonZeroUsize,
         op: Op<PState>,
         location: Option<Location>,
-        allow_pruning: bool,
     ) -> PState {
         for operand in op.operands() {
             let state = self.stator.states.get_mut(*operand).unwrap();
@@ -342,7 +341,7 @@ impl Ensemble {
             location,
             err: None,
             rc: 0,
-            allow_pruning,
+            other_rc: 0,
             lowered_to_elementary: false,
             lowered_to_tnodes: false,
         })
@@ -520,7 +519,7 @@ impl Ensemble {
         while let Some(p) = pstate_stack.pop() {
             let mut delete = false;
             if let Some(state) = self.stator.states.get(p) {
-                if (state.rc == 0) && state.allow_pruning {
+                if state.pruning_allowed() {
                     delete = true;
                 }
             }

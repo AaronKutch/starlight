@@ -172,6 +172,10 @@ impl Ensemble {
         let mut unimplemented = false;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         if let Some(state) = lock.ensemble.stator.states.get(p_state) {
+            if state.pruning_allowed() {
+                lock.ensemble.remove_state(p_state).unwrap();
+                return Ok(())
+            }
             if state.lowered_to_elementary {
                 return Ok(())
             }
@@ -339,7 +343,7 @@ impl Ensemble {
                     let mut lock = epoch_shared.epoch_data.borrow_mut();
                     for p_state in states {
                         let state = &lock.ensemble.stator.states[p_state];
-                        if state.allow_pruning && (state.rc == 0) {
+                        if state.pruning_allowed() {
                             lock.ensemble.remove_state(p_state).unwrap();
                         }
                     }
