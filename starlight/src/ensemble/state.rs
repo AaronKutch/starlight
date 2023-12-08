@@ -240,181 +240,7 @@ impl Ensemble {
                 path.last_mut().unwrap().0 += 1;
             } else if i >= ops.len() {
                 // checked all sources
-                match self.stator.states[p_state].op {
-                    Assert([x]) => {
-                        // this is the only foolproof way of doing this, at least without more
-                        // branches
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let len = self.stator.states[p_state].p_self_bits.len();
-                        assert_eq!(len, self.stator.states[x].p_self_bits.len());
-                        for i in 0..len {
-                            let p_equiv0 = self.stator.states[p_state].p_self_bits[i].unwrap();
-                            let p_equiv1 = self.stator.states[x].p_self_bits[i].unwrap();
-                            self.union_equiv(p_equiv0, p_equiv1).unwrap();
-                        }
-                    }
-                    Copy([x]) => {
-                        // this is the only foolproof way of doing this, at least without more
-                        // branches
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let len = self.stator.states[p_state].p_self_bits.len();
-                        assert_eq!(len, self.stator.states[x].p_self_bits.len());
-                        for i in 0..len {
-                            let p_equiv0 = self.stator.states[p_state].p_self_bits[i].unwrap();
-                            let p_equiv1 = self.stator.states[x].p_self_bits[i].unwrap();
-                            self.union_equiv(p_equiv0, p_equiv1).unwrap();
-                        }
-                    }
-                    StaticGet([bits], inx) => {
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let len = self.stator.states[bits].p_self_bits.len();
-                        assert!(inx < len);
-                        let p_self_bits = &self.stator.states[p_state].p_self_bits;
-                        assert_eq!(p_self_bits.len(), 1);
-                        let p_equiv0 = p_self_bits[0].unwrap();
-                        let p_equiv1 = self.stator.states[bits].p_self_bits[inx].unwrap();
-                        self.union_equiv(p_equiv0, p_equiv1).unwrap();
-                    }
-                    Concat(ref concat) => {
-                        let concat_len = concat.len();
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let total_len = self.stator.states[p_state].p_self_bits.len();
-                        let mut to = 0;
-                        for c_i in 0..concat_len {
-                            let c = if let Concat(ref concat) = self.stator.states[p_state].op {
-                                concat.as_slice()[c_i]
-                            } else {
-                                unreachable!()
-                            };
-                            let len = self.stator.states[c].p_self_bits.len();
-                            for i in 0..len {
-                                let p_equiv0 =
-                                    self.stator.states[p_state].p_self_bits[to + i].unwrap();
-                                let p_equiv1 = self.stator.states[c].p_self_bits[i].unwrap();
-                                self.union_equiv(p_equiv0, p_equiv1).unwrap();
-                            }
-                            to += len;
-                        }
-                        assert_eq!(total_len, to);
-                    }
-                    ConcatFields(ref concat) => {
-                        let concat_len = concat.len();
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let total_len = self.stator.states[p_state].p_self_bits.len();
-                        let mut to = 0;
-                        for c_i in 0..concat_len {
-                            let (c, (from, width)) =
-                                if let ConcatFields(ref concat) = self.stator.states[p_state].op {
-                                    (concat.t_as_slice()[c_i], concat.field_as_slice()[c_i])
-                                } else {
-                                    unreachable!()
-                                };
-                            let len = width.get();
-                            for i in 0..len {
-                                let p_equiv0 =
-                                    self.stator.states[p_state].p_self_bits[to + i].unwrap();
-                                let p_equiv1 = self.stator.states[c].p_self_bits[from + i].unwrap();
-                                self.union_equiv(p_equiv0, p_equiv1).unwrap();
-                            }
-                            to += len;
-                        }
-                        assert_eq!(total_len, to);
-                    }
-                    Repeat([x]) => {
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let len = self.stator.states[p_state].p_self_bits.len();
-                        let x_w = self.stator.states[x].p_self_bits.len();
-                        assert!((len % x_w) == 0);
-                        let mut from = 0;
-                        for to in 0..len {
-                            if from >= x_w {
-                                from = 0;
-                            }
-                            let p_equiv0 = self.stator.states[p_state].p_self_bits[to].unwrap();
-                            let p_equiv1 = self.stator.states[x].p_self_bits[from].unwrap();
-                            self.union_equiv(p_equiv0, p_equiv1).unwrap();
-                            from += 1;
-                        }
-                    }
-                    StaticLut(ref concat, ref table) => {
-                        let table = table.clone();
-                        let concat_len = concat.len();
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let mut inx_bits: SmallVec<[Option<PBack>; 8]> = smallvec![];
-                        for c_i in 0..concat_len {
-                            let c = if let StaticLut(ref concat, _) = self.stator.states[p_state].op
-                            {
-                                concat.as_slice()[c_i]
-                            } else {
-                                unreachable!()
-                            };
-                            let bits = &self.stator.states[c].p_self_bits;
-                            inx_bits.extend(bits.iter().cloned());
-                        }
-
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
-                        let inx_len = inx_bits.len();
-                        let out_bw = self.stator.states[p_state].p_self_bits.len();
-                        let num_entries =
-                            1usize.checked_shl(u32::try_from(inx_len).unwrap()).unwrap();
-                        // this must be handled upstream
-                        assert_eq!(out_bw * num_entries, table.bw());
-                        // convert from multiple out to single out bit lut
-                        for bit_i in 0..out_bw {
-                            let single_bit_table = if out_bw == 1 {
-                                table.clone()
-                            } else {
-                                let mut val =
-                                    awi::Awi::zero(NonZeroUsize::new(num_entries).unwrap());
-                                for i in 0..num_entries {
-                                    val.set(i, table.get((i * out_bw) + bit_i).unwrap())
-                                        .unwrap();
-                                }
-                                val
-                            };
-                            let p_equiv0 = self
-                                .make_lut(&inx_bits, &single_bit_table, Some(p_state))
-                                .unwrap();
-                            let p_equiv1 = self.stator.states[p_state].p_self_bits[bit_i].unwrap();
-                            self.union_equiv(p_equiv0, p_equiv1).unwrap();
-                        }
-                    }
-                    Opaque(ref v, name) => {
-                        if name == Some("LoopHandle") {
-                            if v.len() != 2 {
-                                return Err(EvalError::OtherStr(
-                                    "LoopHandle `Opaque` does not have 2 arguments",
-                                ))
-                            }
-                            let v0 = v[0];
-                            let v1 = v[1];
-                            let w = self.stator.states[v0].p_self_bits.len();
-                            if w != self.stator.states[v1].p_self_bits.len() {
-                                return Err(EvalError::OtherStr(
-                                    "LoopHandle `Opaque` has a bitwidth mismatch of looper and \
-                                     driver",
-                                ))
-                            }
-                            // Loops work by an initial `Opaque` that gets registered earlier
-                            // and is used by things that use the loop value. A second
-                            // LoopHandle Opaque references the first with `p_looper` and
-                            // supplies a driver.
-                            for i in 0..w {
-                                let p_looper = self.stator.states[v0].p_self_bits[i].unwrap();
-                                let p_driver = self.stator.states[v1].p_self_bits[i].unwrap();
-                                self.make_loop(p_looper, p_driver, Value::Dynam(false))
-                                    .unwrap();
-                            }
-                        } else if let Some(name) = name {
-                            return Err(EvalError::OtherString(format!(
-                                "cannot lower opaque with name {name}"
-                            )))
-                        } else {
-                            return Err(EvalError::OtherStr("cannot lower opaque with no name"))
-                        }
-                    }
-                    ref op => return Err(EvalError::OtherString(format!("cannot lower {op:?}"))),
-                }
+                lower_elementary_to_tnodes_intermediate(self, p_state)?;
                 path.pop().unwrap();
                 if path.is_empty() {
                     break
@@ -467,6 +293,182 @@ impl Ensemble {
 
         Ok(())
     }
+}
+
+fn lower_elementary_to_tnodes_intermediate(
+    this: &mut Ensemble,
+    p_state: PState,
+) -> Result<(), EvalError> {
+    match this.stator.states[p_state].op {
+        Assert([x]) => {
+            // this is the only foolproof way of doing this, at least without more
+            // branches
+            this.initialize_state_bits_if_needed(p_state).unwrap();
+            let len = this.stator.states[p_state].p_self_bits.len();
+            assert_eq!(len, this.stator.states[x].p_self_bits.len());
+            for i in 0..len {
+                let p_equiv0 = this.stator.states[p_state].p_self_bits[i].unwrap();
+                let p_equiv1 = this.stator.states[x].p_self_bits[i].unwrap();
+                this.union_equiv(p_equiv0, p_equiv1).unwrap();
+            }
+        }
+        Copy([x]) => {
+            // this is the only foolproof way of doing this, at least without more
+            // branches
+            this.initialize_state_bits_if_needed(p_state).unwrap();
+            let len = this.stator.states[p_state].p_self_bits.len();
+            assert_eq!(len, this.stator.states[x].p_self_bits.len());
+            for i in 0..len {
+                let p_equiv0 = this.stator.states[p_state].p_self_bits[i].unwrap();
+                let p_equiv1 = this.stator.states[x].p_self_bits[i].unwrap();
+                this.union_equiv(p_equiv0, p_equiv1).unwrap();
+            }
+        }
+        StaticGet([bits], inx) => {
+            this.initialize_state_bits_if_needed(p_state).unwrap();
+            let len = this.stator.states[bits].p_self_bits.len();
+            assert!(inx < len);
+            let p_self_bits = &this.stator.states[p_state].p_self_bits;
+            assert_eq!(p_self_bits.len(), 1);
+            let p_equiv0 = p_self_bits[0].unwrap();
+            let p_equiv1 = this.stator.states[bits].p_self_bits[inx].unwrap();
+            this.union_equiv(p_equiv0, p_equiv1).unwrap();
+        }
+        Concat(ref concat) => {
+            let concat_len = concat.len();
+            this.initialize_state_bits_if_needed(p_state).unwrap();
+            let total_len = this.stator.states[p_state].p_self_bits.len();
+            let mut to = 0;
+            for c_i in 0..concat_len {
+                let c = if let Concat(ref concat) = this.stator.states[p_state].op {
+                    concat.as_slice()[c_i]
+                } else {
+                    unreachable!()
+                };
+                let len = this.stator.states[c].p_self_bits.len();
+                for i in 0..len {
+                    let p_equiv0 = this.stator.states[p_state].p_self_bits[to + i].unwrap();
+                    let p_equiv1 = this.stator.states[c].p_self_bits[i].unwrap();
+                    this.union_equiv(p_equiv0, p_equiv1).unwrap();
+                }
+                to += len;
+            }
+            assert_eq!(total_len, to);
+        }
+        ConcatFields(ref concat) => {
+            let concat_len = concat.len();
+            this.initialize_state_bits_if_needed(p_state).unwrap();
+            let total_len = this.stator.states[p_state].p_self_bits.len();
+            let mut to = 0;
+            for c_i in 0..concat_len {
+                let (c, (from, width)) =
+                    if let ConcatFields(ref concat) = this.stator.states[p_state].op {
+                        (concat.t_as_slice()[c_i], concat.field_as_slice()[c_i])
+                    } else {
+                        unreachable!()
+                    };
+                let len = width.get();
+                for i in 0..len {
+                    let p_equiv0 = this.stator.states[p_state].p_self_bits[to + i].unwrap();
+                    let p_equiv1 = this.stator.states[c].p_self_bits[from + i].unwrap();
+                    this.union_equiv(p_equiv0, p_equiv1).unwrap();
+                }
+                to += len;
+            }
+            assert_eq!(total_len, to);
+        }
+        Repeat([x]) => {
+            this.initialize_state_bits_if_needed(p_state).unwrap();
+            let len = this.stator.states[p_state].p_self_bits.len();
+            let x_w = this.stator.states[x].p_self_bits.len();
+            assert!((len % x_w) == 0);
+            let mut from = 0;
+            for to in 0..len {
+                if from >= x_w {
+                    from = 0;
+                }
+                let p_equiv0 = this.stator.states[p_state].p_self_bits[to].unwrap();
+                let p_equiv1 = this.stator.states[x].p_self_bits[from].unwrap();
+                this.union_equiv(p_equiv0, p_equiv1).unwrap();
+                from += 1;
+            }
+        }
+        StaticLut(ref concat, ref table) => {
+            let table = table.clone();
+            let concat_len = concat.len();
+            this.initialize_state_bits_if_needed(p_state).unwrap();
+            let mut inx_bits: SmallVec<[Option<PBack>; 8]> = smallvec![];
+            for c_i in 0..concat_len {
+                let c = if let StaticLut(ref concat, _) = this.stator.states[p_state].op {
+                    concat.as_slice()[c_i]
+                } else {
+                    unreachable!()
+                };
+                let bits = &this.stator.states[c].p_self_bits;
+                inx_bits.extend(bits.iter().cloned());
+            }
+
+            this.initialize_state_bits_if_needed(p_state).unwrap();
+            let inx_len = inx_bits.len();
+            let out_bw = this.stator.states[p_state].p_self_bits.len();
+            let num_entries = 1usize.checked_shl(u32::try_from(inx_len).unwrap()).unwrap();
+            // this must be handled upstream
+            assert_eq!(out_bw * num_entries, table.bw());
+            // convert from multiple out to single out bit lut
+            for bit_i in 0..out_bw {
+                let single_bit_table = if out_bw == 1 {
+                    table.clone()
+                } else {
+                    let mut val = awi::Awi::zero(NonZeroUsize::new(num_entries).unwrap());
+                    for i in 0..num_entries {
+                        val.set(i, table.get((i * out_bw) + bit_i).unwrap())
+                            .unwrap();
+                    }
+                    val
+                };
+                let p_equiv0 = this
+                    .make_lut(&inx_bits, &single_bit_table, Some(p_state))
+                    .unwrap();
+                let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
+                this.union_equiv(p_equiv0, p_equiv1).unwrap();
+            }
+        }
+        Opaque(ref v, name) => {
+            if name == Some("LoopHandle") {
+                if v.len() != 2 {
+                    return Err(EvalError::OtherStr(
+                        "LoopHandle `Opaque` does not have 2 arguments",
+                    ))
+                }
+                let v0 = v[0];
+                let v1 = v[1];
+                let w = this.stator.states[v0].p_self_bits.len();
+                if w != this.stator.states[v1].p_self_bits.len() {
+                    return Err(EvalError::OtherStr(
+                        "LoopHandle `Opaque` has a bitwidth mismatch of looper and driver",
+                    ))
+                }
+                // Loops work by an initial `Opaque` that gets registered earlier
+                // and is used by things that use the loop value. A second
+                // LoopHandle Opaque references the first with `p_looper` and
+                // supplies a driver.
+                for i in 0..w {
+                    let p_looper = this.stator.states[v0].p_self_bits[i].unwrap();
+                    let p_driver = this.stator.states[v1].p_self_bits[i].unwrap();
+                    this.make_loop(p_looper, p_driver, Value::Dynam(false))
+                        .unwrap();
+                }
+            } else if let Some(name) = name {
+                return Err(EvalError::OtherString(format!(
+                    "cannot lower opaque with name {name}"
+                )))
+            } else {
+                return Err(EvalError::OtherStr("cannot lower opaque with no name"))
+            }
+        }
+        ref op => return Err(EvalError::OtherString(format!("cannot lower {op:?}"))),
+    }
+    Ok(())
 }
 
 impl Default for Stator {
