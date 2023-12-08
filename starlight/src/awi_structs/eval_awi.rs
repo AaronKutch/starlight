@@ -20,8 +20,8 @@ use crate::{
 ///
 /// TODO
 pub struct EvalAwi {
-    pub(crate) p_state: PState,
-    pub(crate) p_note: PNote,
+    p_state: PState,
+    p_note: PNote,
 }
 
 // TODO impl drop to remove note

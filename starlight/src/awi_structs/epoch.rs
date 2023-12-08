@@ -154,10 +154,10 @@ impl EpochShared {
     pub fn remove_associated(&self) {
         let mut epoch_data = self.epoch_data.borrow_mut();
         let mut ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
+        ours.assertions.bits.clear();
         for p_state in ours.states_inserted {
             let _ = epoch_data.ensemble.remove_state(p_state);
         }
-        ours.assertions.bits.clear();
     }
 
     pub fn set_as_current(&self) {
@@ -274,21 +274,22 @@ pub fn _callback() -> EpochCallback {
     fn register_assertion_bit(bit: dag::bool, location: Location) {
         // need a new bit to attach new location data to
         let new_bit = new_pstate(bw(1), Op::Assert([bit.state()]), Some(location));
-        no_recursive_current_epoch_mut(|current| {
-            let mut epoch_data = current.epoch_data.borrow_mut();
-            // need to manually construct to get around closure issues
-            let p_note = epoch_data.ensemble.note_pstate(new_bit).unwrap();
-            let eval_awi = EvalAwi {
-                p_state: new_bit,
-                p_note,
-            };
-            epoch_data
-                .responsible_for
-                .get_mut(current.p_self)
-                .unwrap()
-                .assertions
-                .bits
-                .push(eval_awi);
+        let eval_awi = EvalAwi::from_state(new_bit).unwrap();
+        // manual to get around closure issue
+        CURRENT_EPOCH.with(|top| {
+            let mut top = top.borrow_mut();
+            if let Some(current) = top.as_mut() {
+                let mut epoch_data = current.epoch_data.borrow_mut();
+                epoch_data
+                    .responsible_for
+                    .get_mut(current.p_self)
+                    .unwrap()
+                    .assertions
+                    .bits
+                    .push(eval_awi);
+            } else {
+                panic!("There needs to be an `Epoch` in scope for this to work");
+            }
         })
     }
     fn get_nzbw(p_state: PState) -> NonZeroUsize {
@@ -381,8 +382,9 @@ impl Epoch {
     }
 
     /// Intended primarily for developer use
-    pub fn internal_epoch_shared(&self) -> &EpochShared {
-        &self.shared
+    #[doc(hidden)]
+    pub fn internal_epoch_shared(this: &Epoch) -> &EpochShared {
+        &this.shared
     }
 
     /// Gets the assertions associated with this Epoch (not including assertions
@@ -439,7 +441,7 @@ impl Epoch {
             } else if unknown.is_none() {
                 // get the earliest failure to evaluate wait for all bits to be checked for
                 // falsity
-                unknown = Some(eval_awi.p_state);
+                unknown = Some(eval_awi.state());
             }
         }
         if let Some(p_state) = unknown {
