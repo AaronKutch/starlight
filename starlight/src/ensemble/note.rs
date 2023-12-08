@@ -50,6 +50,20 @@ impl Ensemble {
         Some(p_note)
     }
 
+    pub fn remove_note(&mut self, p_note: PNote) -> Result<(), EvalError> {
+        if let Some(note) = self.notes.remove(p_note) {
+            for p_back in note.bits {
+                if let Some(p_back) = p_back {
+                    let referent = self.backrefs.remove_key(p_back).unwrap().0;
+                    assert!(matches!(referent, Referent::Note(_)));
+                }
+            }
+            Ok(())
+        } else {
+            Err(EvalError::InvalidPtr)
+        }
+    }
+
     pub fn get_thread_local_note_nzbw(p_note: PNote) -> Result<NonZeroUsize, EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         let mut lock = epoch_shared.epoch_data.borrow_mut();

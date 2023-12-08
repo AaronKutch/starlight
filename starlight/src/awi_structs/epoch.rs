@@ -108,6 +108,7 @@ impl EpochShared {
         }
     }
 
+    /*
     /// Returns a clone of the assertions currently associated with `self`
     pub fn assertions(&self) -> Assertions {
         let p_self = self.p_self;
@@ -131,7 +132,7 @@ impl EpochShared {
             }
         }
         Assertions { bits: cloned }
-    }
+    }*/
 
     /// Using `EpochShared::assertions` creates all new `Assertions`. This
     /// eliminates assertions that evaluate to a constant true.
@@ -186,13 +187,15 @@ impl EpochShared {
             if val.is_const() {
                 // remove the assertion
                 let mut epoch_data = self.epoch_data.borrow_mut();
-                epoch_data
+                let eval_awi = epoch_data
                     .responsible_for
                     .get_mut(p_self)
                     .unwrap()
                     .assertions
                     .bits
                     .swap_remove(i);
+                drop(epoch_data);
+                drop(eval_awi);
                 len -= 1;
             } else {
                 i += 1;
@@ -239,11 +242,13 @@ impl EpochShared {
     /// Removes associated states and assertions
     pub fn remove_associated(&self) {
         let mut epoch_data = self.epoch_data.borrow_mut();
-        let mut ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
-        ours.assertions.bits.clear();
-        for p_state in ours.states_inserted {
-            let _ = epoch_data.ensemble.remove_state(p_state);
+        let ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
+        for p_state in &ours.states_inserted {
+            let _ = epoch_data.ensemble.remove_state(*p_state);
         }
+        drop(epoch_data);
+        // drop the `EvalAwi`s of the assertions after unlocking
+        drop(ours);
     }
 
     pub fn set_as_current(&self) {
@@ -473,12 +478,13 @@ impl Epoch {
         &this.shared
     }
 
+    /*
     /// Gets the assertions associated with this Epoch (not including assertions
     /// from when sub-epochs are alive or from before the this Epoch was
     /// created)
     pub fn assertions(&self) -> Assertions {
         self.shared.assertions()
-    }
+    }*/
 
     // TODO fix the EvalError enum situation
 

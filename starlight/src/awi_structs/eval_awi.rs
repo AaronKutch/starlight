@@ -1,4 +1,4 @@
-use std::{fmt, num::NonZeroUsize};
+use std::{fmt, num::NonZeroUsize, thread::panicking};
 
 use awint::{
     awint_dag::{dag, epoch, EvalError, Lineage, PState},
@@ -18,13 +18,29 @@ use crate::{
 ///
 /// # Custom Drop
 ///
-/// TODO
+/// Upon being dropped, this will remove special references being kept by the
+/// current `Epoch`
 pub struct EvalAwi {
     p_state: PState,
     p_note: PNote,
 }
 
-// TODO impl drop to remove note
+impl Drop for EvalAwi {
+    fn drop(&mut self) {
+        // prevent invoking recursive panics and a buffer overrun
+        if !panicking() {
+            if let Some(epoch) = get_current_epoch() {
+                let res = epoch
+                    .epoch_data
+                    .borrow_mut()
+                    .ensemble
+                    .remove_note(self.p_note);
+                // TODO
+                //res.unwrap();
+            }
+        }
+    }
+}
 
 impl Lineage for EvalAwi {
     fn state(&self) -> PState {
