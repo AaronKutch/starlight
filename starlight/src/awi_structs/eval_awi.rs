@@ -42,7 +42,7 @@ impl Drop for EvalAwi {
                     .states
                     .get_mut(self.p_state)
                     .unwrap()
-                    .dec_other_rc();
+                    .dec_extern_rc();
             }
             // else the epoch has been dropped
         }
@@ -84,7 +84,7 @@ impl EvalAwi {
             .states
             .get_mut(p_state)
             .unwrap()
-            .inc_other_rc();
+            .inc_extern_rc();
         Some(Self { p_state, p_note })
     }
 

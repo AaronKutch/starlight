@@ -215,7 +215,9 @@ impl Ensemble {
                 }
                 Referent::ThisStateBit(p_state, _) => {
                     let state = &self.stator.states[p_state];
-                    if !state.allow_pruning {
+                    // the state bits can always be disregarded on a per-tnode basis unless they are
+                    // being used externally
+                    if state.extern_rc != 0 {
                         non_self_rc += 1;
                     }
                 }
@@ -465,7 +467,9 @@ impl Ensemble {
                         Referent::ThisTNode(_) => (),
                         Referent::ThisStateBit(p_state, _) => {
                             let state = &self.stator.states[p_state];
-                            if !state.allow_pruning {
+                            // the state bits can always be disregarded on a per-tnode basis unless
+                            // they are being used externally
+                            if state.extern_rc != 0 {
                                 found_use = true;
                             }
                         }

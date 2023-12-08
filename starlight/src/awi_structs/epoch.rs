@@ -58,8 +58,6 @@ pub struct EpochData {
     pub epoch_key: EpochKey,
     pub ensemble: Ensemble,
     pub responsible_for: Arena<PEpochShared, PerEpochShared>,
-    /// If set, states made will have `allow_pruning` set
-    pub allow_pruning: bool,
 }
 
 impl Drop for EpochData {
@@ -86,7 +84,6 @@ impl EpochShared {
             epoch_key: _callback().push_on_epoch_stack(),
             ensemble: Ensemble::new(),
             responsible_for: Arena::new(),
-            allow_pruning: true,
         };
         let p_self = epoch_data.responsible_for.insert(PerEpochShared::new());
         Self {
@@ -348,10 +345,7 @@ pub fn _callback() -> EpochCallback {
     fn new_pstate(nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PState {
         no_recursive_current_epoch_mut(|current| {
             let mut epoch_data = current.epoch_data.borrow_mut();
-            let allow_pruning = epoch_data.allow_pruning;
-            let p_state = epoch_data
-                .ensemble
-                .make_state(nzbw, op.clone(), location, allow_pruning);
+            let p_state = epoch_data.ensemble.make_state(nzbw, op.clone(), location);
             epoch_data
                 .responsible_for
                 .get_mut(current.p_self)

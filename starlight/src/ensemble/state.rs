@@ -35,9 +35,7 @@ pub struct State {
     /// The number of other `State`s, and only other `State`s, that reference
     /// this one through the `Op`s
     pub rc: usize,
-    pub other_rc: usize,
-    /// Allows this state to be pruned
-    pub allow_pruning: bool,
+    pub extern_rc: usize,
     /// If the `State` has been lowered to elementary `State`s (`Static-`
     /// operations and roots). Note that a DFS might set this before actually
     /// being lowered.
@@ -50,15 +48,15 @@ pub struct State {
 impl State {
     /// Returns if pruning this state is allowed
     pub fn pruning_allowed(&self) -> bool {
-        (self.rc == 0) && (self.other_rc == 0)
+        (self.rc == 0) && (self.extern_rc == 0)
     }
 
-    pub fn inc_other_rc(&mut self) {
-        self.other_rc = self.other_rc.checked_add(1).unwrap()
+    pub fn inc_extern_rc(&mut self) {
+        self.extern_rc = self.extern_rc.checked_add(1).unwrap()
     }
 
-    pub fn dec_other_rc(&mut self) {
-        self.other_rc = self.other_rc.checked_sub(1).unwrap()
+    pub fn dec_extern_rc(&mut self) {
+        self.extern_rc = self.extern_rc.checked_sub(1).unwrap()
     }
 }
 
