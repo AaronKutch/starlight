@@ -85,6 +85,31 @@ impl Ensemble {
         }
         Ok(())
     }
+
+    pub fn calculate_thread_local_note_value(
+        p_note: PNote,
+        bit_i: usize,
+    ) -> Result<Value, EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+        let p_back = if let Some(note) = ensemble.notes.get(p_note) {
+            if bit_i >= note.bits.len() {
+                return Err(EvalError::WrongBitwidth);
+            }
+            if let Some(p_back) = note.bits[bit_i] {
+                p_back
+            } else {
+                return Err(EvalError::OtherStr(
+                    "something went wrong, found `Note` for evaluator but a bit was denoted",
+                ))
+            }
+        } else {
+            return Err(EvalError::OtherStr("could not find thread local `Note`"))
+        };
+        drop(lock);
+        Ensemble::calculate_value(&epoch_shared, p_back)
+    }
 }
 
 impl Default for Note {

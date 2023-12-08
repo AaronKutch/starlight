@@ -7,7 +7,7 @@ use awint::{
 
 use crate::{
     awi,
-    ensemble::{Evaluator, PNote, Value},
+    ensemble::{Ensemble, PNote, Value},
     epoch::get_current_epoch,
 };
 
@@ -79,10 +79,9 @@ impl EvalAwi {
 
     pub fn eval(&self) -> Result<awi::Awi, EvalError> {
         let nzbw = self.nzbw();
-        let p_self = self.state();
         let mut res = awi::Awi::zero(nzbw);
         for bit_i in 0..res.bw() {
-            let val = Evaluator::calculate_thread_local_state_value(p_self, bit_i)?;
+            let val = Ensemble::calculate_thread_local_note_value(self.p_note, bit_i)?;
             if let Some(val) = val.known_value() {
                 res.set(bit_i, val).unwrap();
             } else {
@@ -93,7 +92,7 @@ impl EvalAwi {
                         .epoch_data
                         .borrow()
                         .ensemble
-                        .get_state_debug(p_self)
+                        .get_state_debug(self.p_state)
                         .unwrap()
                 )))
             }
@@ -103,9 +102,7 @@ impl EvalAwi {
 
     /// Assumes `self` is a single bit
     pub(crate) fn eval_bit(&self) -> Result<Value, EvalError> {
-        let p_self = self.state();
-        assert_eq!(self.bw(), 1);
-        Evaluator::calculate_thread_local_state_value(p_self, 0)
+        Ensemble::calculate_thread_local_note_value(self.p_note, 0)
     }
 
     pub fn zero(w: NonZeroUsize) -> Self {

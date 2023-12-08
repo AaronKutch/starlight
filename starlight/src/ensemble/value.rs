@@ -3,14 +3,14 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use awint::{
     awint_dag::{
         triple_arena::{ptr_struct, Advancer, OrdArena},
-        EvalError, PState,
+        EvalError,
     },
     Awi,
 };
 
 use crate::{
     ensemble::{Ensemble, PBack, PTNode, Referent, TNode},
-    epoch::{get_current_epoch, EpochShared},
+    epoch::EpochShared,
 };
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -149,55 +149,6 @@ impl Evaluator {
     pub fn insert(&mut self, eval_step: Eval) {
         let _ = self.evaluations.insert(eval_step, ());
     }
-
-    // stepping loops should request their drivers, evaluating everything requests
-    // everything
-    pub fn calculate_thread_local_state_value(
-        p_state: PState,
-        bit_i: usize,
-    ) -> Result<Value, EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        let mut lock = epoch_shared.epoch_data.borrow_mut();
-        let ensemble = &mut lock.ensemble;
-        ensemble.initialize_state_bits_if_needed(p_state).unwrap();
-        let state = ensemble.stator.states.get(p_state).unwrap();
-        let p_back = *state.p_self_bits.get(bit_i).unwrap();
-        let p_back = if let Some(p) = p_back {
-            p
-        } else {
-            return Err(EvalError::OtherString(format!(
-                "state {p_state} bit {bit_i} has been removed, something was not noted correctly"
-            )));
-        };
-        if let Some(equiv) = ensemble.backrefs.get_val_mut(p_back) {
-            // switch to request phase
-            if ensemble.evaluator.phase != EvalPhase::Request {
-                ensemble.evaluator.phase = EvalPhase::Request;
-                ensemble.evaluator.next_request_visit_gen();
-            }
-            let visit = ensemble.evaluator.request_visit_gen();
-            if equiv.request_visit != visit {
-                equiv.request_visit = visit;
-                ensemble
-                    .evaluator
-                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
-                drop(lock);
-                Ensemble::handle_requests(&epoch_shared)?;
-            } else {
-                drop(lock);
-            }
-            Ok(epoch_shared
-                .epoch_data
-                .borrow()
-                .ensemble
-                .backrefs
-                .get_val(p_back)
-                .unwrap()
-                .val)
-        } else {
-            Err(EvalError::InvalidPtr)
-        }
-    }
 }
 
 impl Ensemble {
@@ -322,21 +273,57 @@ impl Ensemble {
         res
     }
 
-    /// Returns `None` only if `p_back` does not exist or was removed
     pub fn change_value(&mut self, p_back: PBack, value: Value) -> Option<()> {
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
-            if self.evaluator.phase != EvalPhase::Change {
-                self.evaluator.phase = EvalPhase::Change;
-                self.evaluator.next_change_visit_gen();
-            }
             if equiv.val.is_const() {
                 // not allowed
                 panic!();
+            }
+            // switch to change phase if not already
+            if self.evaluator.phase != EvalPhase::Change {
+                self.evaluator.phase = EvalPhase::Change;
+                self.evaluator.next_change_visit_gen();
             }
             equiv.val = value;
             Some(())
         } else {
             None
+        }
+    }
+
+    pub fn calculate_value(epoch_shared: &EpochShared, p_back: PBack) -> Result<Value, EvalError> {
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+        if let Some(equiv) = ensemble.backrefs.get_val_mut(p_back) {
+            if equiv.val.is_const() {
+                return Ok(equiv.val)
+            }
+            // switch to request phase if not already
+            if ensemble.evaluator.phase != EvalPhase::Request {
+                ensemble.evaluator.phase = EvalPhase::Request;
+                ensemble.evaluator.next_request_visit_gen();
+            }
+            let visit = ensemble.evaluator.request_visit_gen();
+            if equiv.request_visit != visit {
+                equiv.request_visit = visit;
+                ensemble
+                    .evaluator
+                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
+                drop(lock);
+                Ensemble::handle_requests(epoch_shared)?;
+            } else {
+                drop(lock);
+            }
+            Ok(epoch_shared
+                .epoch_data
+                .borrow()
+                .ensemble
+                .backrefs
+                .get_val(p_back)
+                .unwrap()
+                .val)
+        } else {
+            Err(EvalError::InvalidPtr)
         }
     }
 
