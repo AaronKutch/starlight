@@ -58,7 +58,8 @@ pub struct EpochData {
     pub epoch_key: EpochKey,
     pub ensemble: Ensemble,
     pub responsible_for: Arena<PEpochShared, PerEpochShared>,
-    pub keep_flag: bool,
+    /// If set, states made will have `allow_pruning` set
+    pub allow_pruning: bool,
 }
 
 impl Drop for EpochData {
@@ -85,7 +86,7 @@ impl EpochShared {
             epoch_key: _callback().push_on_epoch_stack(),
             ensemble: Ensemble::new(),
             responsible_for: Arena::new(),
-            keep_flag: true,
+            allow_pruning: false,
         };
         let p_self = epoch_data.responsible_for.insert(PerEpochShared::new());
         Self {
@@ -257,10 +258,10 @@ pub fn _callback() -> EpochCallback {
     fn new_pstate(nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PState {
         no_recursive_current_epoch_mut(|current| {
             let mut epoch_data = current.epoch_data.borrow_mut();
-            let keep = epoch_data.keep_flag;
+            let allow_pruning = epoch_data.allow_pruning;
             let p_state = epoch_data
                 .ensemble
-                .make_state(nzbw, op.clone(), location, keep);
+                .make_state(nzbw, op.clone(), location, allow_pruning);
             epoch_data
                 .responsible_for
                 .get_mut(current.p_self)
@@ -460,14 +461,14 @@ impl Epoch {
         self.shared.ensemble()
     }
 
-    /// Removes all non-noted states
+    /// For users, this removes all states that do not lead to a live `EvalAwi`
     pub fn prune(&self) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
             return Err(EvalError::OtherStr("epoch is not the current epoch"))
         }
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.prune_unnoted_states()
+        lock.ensemble.prune_states()
     }
 
     /// Lowers all states. This is not needed in most circumstances, `EvalAwi`

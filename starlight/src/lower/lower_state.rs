@@ -184,7 +184,7 @@ impl Ensemble {
         lock.ensemble.stator.states[p_state].lowered_to_elementary = true;
 
         // NOTE be sure to reset this before returning from the function
-        lock.keep_flag = false;
+        lock.allow_pruning = true;
         drop(lock);
         let mut path: Vec<(usize, PState)> = vec![(0, p_state)];
         loop {
@@ -332,7 +332,7 @@ impl Ensemble {
                             temporary.remove_as_current();
                             let mut lock = epoch_shared.epoch_data.borrow_mut();
                             lock.ensemble.stator.states[p_state].err = Some(e.clone());
-                            lock.keep_flag = true;
+                            lock.allow_pruning = false;
                             return Err(e)
                         }
                     };
@@ -345,7 +345,7 @@ impl Ensemble {
                     let mut lock = epoch_shared.epoch_data.borrow_mut();
                     for p_state in states {
                         let state = &lock.ensemble.stator.states[p_state];
-                        if (!state.keep) && (state.rc == 0) {
+                        if state.allow_pruning && (state.rc == 0) {
                             lock.ensemble.remove_state(p_state).unwrap();
                         }
                     }
@@ -384,7 +384,7 @@ impl Ensemble {
         }
 
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.keep_flag = true;
+        lock.allow_pruning = false;
 
         if unimplemented {
             Err(EvalError::Unimplemented)

@@ -215,7 +215,7 @@ impl Ensemble {
                 }
                 Referent::ThisStateBit(p_state, _) => {
                     let state = &self.stator.states[p_state];
-                    if state.keep {
+                    if !state.allow_pruning {
                         non_self_rc += 1;
                     }
                 }
@@ -465,7 +465,7 @@ impl Ensemble {
                         Referent::ThisTNode(_) => (),
                         Referent::ThisStateBit(p_state, _) => {
                             let state = &self.stator.states[p_state];
-                            if state.keep {
+                            if !state.allow_pruning {
                                 found_use = true;
                             }
                         }

@@ -329,7 +329,7 @@ impl Ensemble {
         nzbw: NonZeroUsize,
         op: Op<PState>,
         location: Option<Location>,
-        keep: bool,
+        allow_pruning: bool,
     ) -> PState {
         for operand in op.operands() {
             let state = self.stator.states.get_mut(*operand).unwrap();
@@ -342,7 +342,7 @@ impl Ensemble {
             location,
             err: None,
             rc: 0,
-            keep,
+            allow_pruning,
             lowered_to_elementary: false,
             lowered_to_tnodes: false,
         })
@@ -510,15 +510,17 @@ impl Ensemble {
         Ok(())
     }
 
-    /// Removes the state (it does not necessarily need to still be contained)
-    /// and removes its source tree of states with resulting zero reference
-    /// count and `!state.keep`
+    /// Triggers a cascade of state removals if the states `allow_pruning` and
+    /// their reference counts are zero
     pub fn remove_state(&mut self, p_state: PState) -> Result<(), EvalError> {
+        if !self.stator.states.contains(p_state) {
+            return Err(EvalError::InvalidPtr);
+        }
         let mut pstate_stack = vec![p_state];
         while let Some(p) = pstate_stack.pop() {
             let mut delete = false;
             if let Some(state) = self.stator.states.get(p) {
-                if (state.rc == 0) && !state.keep {
+                if (state.rc == 0) && state.allow_pruning {
                     delete = true;
                 }
             }
