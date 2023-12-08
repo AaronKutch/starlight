@@ -769,12 +769,12 @@ fn fuzz_lower() {
 
     for _ in 0..N.1 {
         let epoch = Epoch::new();
-        m.clear();
         for _ in 0..N.0 {
             num_dag_duo(&mut rng, &mut m)
         }
         m.finish(&epoch);
         m.eval_and_verify_equal(&epoch).unwrap();
+        m.clear();
         drop(epoch);
     }
 }

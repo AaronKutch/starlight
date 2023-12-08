@@ -35,9 +35,13 @@ impl Drop for EvalAwi {
                     .borrow_mut()
                     .ensemble
                     .remove_note(self.p_note);
-                // TODO
-                //res.unwrap();
+                if res.is_err() {
+                    panic!(
+                        "most likely, an `EvalAwi` created in one `Epoch` was dropped in another"
+                    )
+                }
             }
+            // else the epoch has been dropped
         }
     }
 }

@@ -3,6 +3,7 @@ use std::{
     fmt,
     num::NonZeroUsize,
     ops::{Deref, Index, RangeFull},
+    thread::panicking,
 };
 
 use awint::{
@@ -19,15 +20,35 @@ use crate::{
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
 // type
 
-// TODO I have attached a note to `LazyAwi` because without debug assertions,
-// states could get clobbered. I suspect that it naturally requires `Note`s to
-// get involved because of the `nzbw` problem.
-
 /// When other mimicking types are created from a reference of this, `retro_`
 /// can later be called to retroactively change the input values of the DAG.
+///
+/// # Custom Drop
+///
+/// Upon being dropped, this will remove special references being kept by the
+/// current `Epoch`
 pub struct LazyAwi {
     opaque: dag::Awi,
     p_note: PNote,
+}
+
+impl Drop for LazyAwi {
+    fn drop(&mut self) {
+        // prevent invoking recursive panics and a buffer overrun
+        if !panicking() {
+            if let Some(epoch) = get_current_epoch() {
+                let res = epoch
+                    .epoch_data
+                    .borrow_mut()
+                    .ensemble
+                    .remove_note(self.p_note);
+                if res.is_err() {
+                    panic!("most likely, a `LazyAwi` created in one `Epoch` was dropped in another")
+                }
+            }
+            // else the epoch has been dropped
+        }
+    }
 }
 
 impl Lineage for LazyAwi {
