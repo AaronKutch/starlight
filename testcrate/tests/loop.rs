@@ -1,6 +1,6 @@
-// TODO should loop be a capability of LazyAwi or something? Have an enum on the
-// inside?
-/*
+/*use starlight::{Epoch, Loop, dag::*, EvalAwi, awi};
+use testcrate::_render;
+
 #[test]
 fn invert_in_loop() {
     let epoch0 = Epoch::new();
@@ -16,17 +16,20 @@ fn invert_in_loop() {
     {
         use awi::{assert_eq, *};
 
-        t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), awi!(1));
-        t_dag.drive_loops();
-        t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), awi!(0));
-        t_dag.drive_loops();
-        t_dag.eval_all().unwrap();
-        assert_eq!(t_dag.get_noted_as_extawi(p_x).unwrap(), awi!(1));
+        let eval_x = EvalAwi::from(&x);
+        _render(&epoch0).unwrap();
+        //epoch0.drive_loops();
+        assert_eq!(eval_x.eval().unwrap(), awi!(1));
+        //epoch0.drive_loops();
+        assert_eq!(eval_x.eval().unwrap(), awi!(0));
+        //epoch0.drive_loops();
+        assert_eq!(eval_x.eval().unwrap(), awi!(1));
     }
+    drop(epoch0);
 }
+*/
 
+/*
 // tests an incrementing counter
 #[test]
 fn incrementer() {

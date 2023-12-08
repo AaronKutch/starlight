@@ -86,7 +86,7 @@ impl EpochShared {
             epoch_key: _callback().push_on_epoch_stack(),
             ensemble: Ensemble::new(),
             responsible_for: Arena::new(),
-            allow_pruning: false,
+            allow_pruning: true,
         };
         let p_self = epoch_data.responsible_for.insert(PerEpochShared::new());
         Self {
@@ -108,7 +108,6 @@ impl EpochShared {
         }
     }
 
-    /*
     /// Returns a clone of the assertions currently associated with `self`
     pub fn assertions(&self) -> Assertions {
         let p_self = self.p_self;
@@ -132,7 +131,7 @@ impl EpochShared {
             }
         }
         Assertions { bits: cloned }
-    }*/
+    }
 
     /// Using `EpochShared::assertions` creates all new `Assertions`. This
     /// eliminates assertions that evaluate to a constant true.
@@ -478,13 +477,12 @@ impl Epoch {
         &this.shared
     }
 
-    /*
     /// Gets the assertions associated with this Epoch (not including assertions
     /// from when sub-epochs are alive or from before the this Epoch was
     /// created)
     pub fn assertions(&self) -> Assertions {
         self.shared.assertions()
-    }*/
+    }
 
     // TODO fix the EvalError enum situation
 

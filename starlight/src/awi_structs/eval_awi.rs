@@ -30,11 +30,8 @@ impl Drop for EvalAwi {
         // prevent invoking recursive panics and a buffer overrun
         if !panicking() {
             if let Some(epoch) = get_current_epoch() {
-                let res = epoch
-                    .epoch_data
-                    .borrow_mut()
-                    .ensemble
-                    .remove_note(self.p_note);
+                let mut lock = epoch.epoch_data.borrow_mut();
+                let res = lock.ensemble.remove_note(self.p_note);
                 if res.is_err() {
                     panic!(
                         "most likely, an `EvalAwi` created in one `Epoch` was dropped in another"
@@ -55,13 +52,9 @@ impl Lineage for EvalAwi {
 impl Clone for EvalAwi {
     /// This makes another note to the same state that `self` pointed to.
     fn clone(&self) -> Self {
-        let p_note = get_current_epoch()
-            .unwrap()
-            .epoch_data
-            .borrow_mut()
-            .ensemble
-            .note_pstate(self.p_state)
-            .unwrap();
+        let epoch_data = get_current_epoch().unwrap().epoch_data;
+        let mut lock = epoch_data.borrow_mut();
+        let p_note = lock.ensemble.note_pstate(self.p_state).unwrap();
         Self {
             p_state: self.p_state,
             p_note,
@@ -83,12 +76,15 @@ impl EvalAwi {
     }
 
     pub(crate) fn from_state(p_state: PState) -> Option<Self> {
-        let p_note = get_current_epoch()
+        let epoch_data = get_current_epoch().unwrap().epoch_data;
+        let mut lock = epoch_data.borrow_mut();
+        let p_note = lock.ensemble.note_pstate(p_state)?;
+        lock.ensemble
+            .stator
+            .states
+            .get_mut(p_state)
             .unwrap()
-            .epoch_data
-            .borrow_mut()
-            .ensemble
-            .note_pstate(p_state)?;
+            .allow_pruning = false;
         Some(Self { p_state, p_note })
     }
 

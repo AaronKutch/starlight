@@ -18,7 +18,11 @@ impl DebugNodeTrait<PState> for State {
             sources: {
                 let mut v = vec![];
                 for i in 0..this.op.operands_len() {
-                    v.push((this.op.operands()[i], this.op.operand_names()[i].to_owned()))
+                    if let Some(name) = this.op.operand_names().get(i) {
+                        v.push((this.op.operands()[i], (*name).to_owned()));
+                    } else {
+                        v.push((this.op.operands()[i], "".to_owned()));
+                    }
                 }
                 v
             },
