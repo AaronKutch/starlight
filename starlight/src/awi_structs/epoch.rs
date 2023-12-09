@@ -496,12 +496,25 @@ impl Epoch {
         self.shared.ensemble()
     }
 
+    /// Used for testing
+    pub fn prune_ignore_assertions(&self) -> Result<(), EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
+            return Err(EvalError::OtherStr("epoch is not the current epoch"))
+        }
+        // do not assert assertions because that can trigger lowering
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        lock.ensemble.prune_states()
+    }
+
     /// For users, this removes all states that do not lead to a live `EvalAwi`
     pub fn prune(&self) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
             return Err(EvalError::OtherStr("epoch is not the current epoch"))
         }
+        // get rid of constant assertions
+        let _ = epoch_shared.assert_assertions(false);
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         lock.ensemble.prune_states()
     }
@@ -513,7 +526,9 @@ impl Epoch {
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
             return Err(EvalError::OtherStr("epoch is not the current epoch"))
         }
-        Ensemble::lower_all(&epoch_shared)
+        Ensemble::lower_all(&epoch_shared)?;
+        let _ = epoch_shared.assert_assertions(false);
+        Ok(())
     }
 
     pub fn optimize(&self) -> Result<(), EvalError> {
@@ -524,6 +539,8 @@ impl Epoch {
         Ensemble::lower_all(&epoch_shared)?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         lock.ensemble.optimize_all();
+        drop(lock);
+        let _ = epoch_shared.assert_assertions(false);
         Ok(())
     }
 }
