@@ -5,6 +5,7 @@ use awint::{
     awint_macro_internals::triple_arena::Arena,
 };
 
+use super::LNode;
 use crate::{
     ensemble::{Ensemble, Equiv, PBack, PNote, Referent, State, TNode},
     triple_arena::{Advancer, ChainArena},
@@ -79,6 +80,7 @@ pub struct StateBit {
 pub enum NodeKind {
     StateBit(StateBit),
     TNode(TNode),
+    LNode(LNode),
     Equiv(Equiv, Vec<PBack>),
     Note(PBack, PNote, u64),
     Remove,
@@ -108,12 +110,18 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     if let Some(ref lut) = tnode.lut {
                         v.push(format!("{:?} ", lut));
                     }
-                    if let Some(driver) = tnode.loop_driver {
-                        v.push(format!("driver: {:?}", driver));
-                    }
                     if let Some(lowered_from) = tnode.lowered_from {
                         v.push(format!("{:?}", lowered_from));
                     }
+                    v
+                },
+                sinks: vec![],
+            },
+            NodeKind::LNode(lnode) => DebugNode {
+                sources: vec![],
+                center: {
+                    let mut v = vec![format!("{:?}", p_this)];
+                    v.push(format!("driver: {:?}", lnode.p_driver));
                     v
                 },
                 sinks: vec![],
@@ -172,15 +180,6 @@ impl Ensemble {
                             if let Referent::Input(_) = self.backrefs.get_key(*inp).unwrap() {
                                 let p_input = self.backrefs.get_val(*inp).unwrap().p_self_equiv;
                                 *inp = p_input;
-                            }
-                        }
-                        if let Some(loop_driver) = tnode.loop_driver.as_mut() {
-                            if let Referent::LoopDriver(_) =
-                                self.backrefs.get_key(*loop_driver).unwrap()
-                            {
-                                let p_driver =
-                                    self.backrefs.get_val(*loop_driver).unwrap().p_self_equiv;
-                                *loop_driver = p_driver;
                             }
                         }
                         NodeKind::TNode(tnode)

@@ -9,6 +9,7 @@ use awint::{
     Awi, Bits,
 };
 
+use super::{LNode, PLNode};
 use crate::{
     ensemble::{value::Evaluator, Note, Optimizer, PNote, PTNode, State, Stator, TNode, Value},
     triple_arena::{ptr_struct, Arena, SurjectArena},
@@ -44,11 +45,14 @@ pub enum Referent {
     ThisEquiv,
     /// Self referent, used by all the `Tnode`s of an equivalence class
     ThisTNode(PTNode),
+    /// Self referent for an `LNode`
+    ThisLNode(PLNode),
     /// Self referent to a particular bit of a `State`
     ThisStateBit(PState, usize),
     /// Referent is using this for registering an input dependency
     Input(PTNode),
-    LoopDriver(PTNode),
+    /// Referent is using this for a loop driver
+    LoopDriver(PLNode),
     /// Referent is a note
     Note(PNote),
 }
@@ -59,6 +63,7 @@ pub struct Ensemble {
     pub notes: Arena<PNote, Note>,
     pub stator: Stator,
     pub tnodes: Arena<PTNode, TNode>,
+    pub lnodes: Arena<PLNode, LNode>,
     pub evaluator: Evaluator,
     pub optimizer: Optimizer,
 }
@@ -70,6 +75,7 @@ impl Ensemble {
             notes: Arena::new(),
             stator: Stator::new(),
             tnodes: Arena::new(),
+            lnodes: Arena::new(),
             evaluator: Evaluator::new(),
             optimizer: Optimizer::new(),
         }
@@ -151,15 +157,29 @@ impl Ensemble {
                 )))
             }
         }
+        for (p_lnode, lnode) in &self.lnodes {
+            if let Some(Referent::ThisLNode(p_self)) = self.backrefs.get_key(lnode.p_self) {
+                if p_lnode != *p_self {
+                    return Err(EvalError::OtherString(format!(
+                        "{lnode:?}.p_self roundtrip fail"
+                    )))
+                }
+            } else {
+                return Err(EvalError::OtherString(format!(
+                    "{lnode:?}.p_self is invalid"
+                )))
+            }
+        }
         // check other referent validities
         for referent in self.backrefs.keys() {
             let invalid = match referent {
                 // already checked
                 Referent::ThisEquiv => false,
                 Referent::ThisTNode(_) => false,
+                Referent::ThisLNode(_) => false,
                 Referent::ThisStateBit(..) => false,
                 Referent::Input(p_input) => !self.tnodes.contains(*p_input),
-                Referent::LoopDriver(p_driver) => !self.tnodes.contains(*p_driver),
+                Referent::LoopDriver(p_driver) => !self.lnodes.contains(*p_driver),
                 Referent::Note(p_note) => !self.notes.contains(*p_note),
             };
             if invalid {
@@ -189,24 +209,26 @@ impl Ensemble {
                     )))
                 }
             }
-            if let Some(loop_driver) = tnode.loop_driver {
-                if let Some(referent) = self.backrefs.get_key(loop_driver) {
-                    if let Referent::LoopDriver(p_driver) = referent {
-                        if !self.tnodes.contains(*p_driver) {
-                            return Err(EvalError::OtherString(format!(
-                                "{p_tnode}: {tnode:?} loop driver referrent {p_driver} is invalid"
-                            )))
-                        }
-                    } else {
+        }
+        for p_lnode in self.lnodes.ptrs() {
+            let lnode = self.lnodes.get(p_lnode).unwrap();
+            if let Some(referent) = self.backrefs.get_key(lnode.p_driver) {
+                if let Referent::LoopDriver(p_driver) = referent {
+                    if !self.lnodes.contains(*p_driver) {
                         return Err(EvalError::OtherString(format!(
-                            "{p_tnode}: {tnode:?} loop driver has incorrect referrent"
+                            "{p_lnode}: {lnode:?} loop driver referrent {p_driver} is invalid"
                         )))
                     }
                 } else {
                     return Err(EvalError::OtherString(format!(
-                        "{p_tnode}: {tnode:?} loop driver {loop_driver} is invalid"
+                        "{p_lnode}: {lnode:?} loop driver has incorrect referrent"
                     )))
                 }
+            } else {
+                return Err(EvalError::OtherString(format!(
+                    "{p_lnode}: {lnode:?} loop driver {} is invalid",
+                    lnode.p_driver
+                )))
             }
         }
         for note in self.notes.vals() {
@@ -240,6 +262,10 @@ impl Ensemble {
                     let tnode = self.tnodes.get(*p_tnode).unwrap();
                     p_back != tnode.p_self
                 }
+                Referent::ThisLNode(p_lnode) => {
+                    let lnode = self.lnodes.get(*p_lnode).unwrap();
+                    p_back != lnode.p_self
+                }
                 Referent::ThisStateBit(p_state, inx) => {
                     let state = self.stator.states.get(*p_state).unwrap();
                     let p_bit = state.p_self_bits.get(*inx).unwrap();
@@ -250,9 +276,9 @@ impl Ensemble {
                     }
                 }
                 Referent::Input(p_input) => {
-                    let tnode1 = self.tnodes.get(*p_input).unwrap();
+                    let tnode = self.tnodes.get(*p_input).unwrap();
                     let mut found = false;
-                    for p_back1 in &tnode1.inp {
+                    for p_back1 in &tnode.inp {
                         if *p_back1 == p_back {
                             found = true;
                             break
@@ -260,9 +286,9 @@ impl Ensemble {
                     }
                     !found
                 }
-                Referent::LoopDriver(p_loop) => {
-                    let tnode1 = self.tnodes.get(*p_loop).unwrap();
-                    tnode1.loop_driver != Some(p_back)
+                Referent::LoopDriver(p_lnode) => {
+                    let lnode = self.lnodes.get(*p_lnode).unwrap();
+                    lnode.p_driver != p_back
                 }
                 Referent::Note(p_note) => {
                     let note = self.notes.get(*p_note).unwrap();
@@ -445,27 +471,17 @@ impl Ensemble {
         }
         looper_equiv.val = init_val;
 
-        let referent = self.backrefs.get_key(p_looper)?;
-        let p_looper_tnode = match referent {
-            Referent::ThisEquiv => {
-                // need to create the TNode
-                self.tnodes.insert_with(|p_tnode| {
-                    let p_back_self = self
-                        .backrefs
-                        .insert_key(p_looper, Referent::ThisTNode(p_tnode))
-                        .unwrap();
-                    TNode::new(p_back_self, None)
-                })
-            }
-            // we might want to support more cases in the future
-            _ => panic!("bad referent {referent:?}"),
-        };
-        let p_back_driver = self
-            .backrefs
-            .insert_key(p_driver, Referent::LoopDriver(p_looper_tnode))
-            .unwrap();
-        let tnode = self.tnodes.get_mut(p_looper_tnode).unwrap();
-        tnode.loop_driver = Some(p_back_driver);
+        let p_lnode = self.lnodes.insert_with(|p_lnode| {
+            let p_driver = self
+                .backrefs
+                .insert_key(p_driver, Referent::LoopDriver(p_lnode))
+                .unwrap();
+            let p_self = self
+                .backrefs
+                .insert_key(p_looper, Referent::ThisLNode(p_lnode))
+                .unwrap();
+            LNode::new(p_self, p_driver)
+        });
         Some(())
     }
 
@@ -545,17 +561,14 @@ impl Ensemble {
         Ok(())
     }
 
-    pub fn drive_loops(&mut self) {
-        let mut adv = self.tnodes.advancer();
-        while let Some(p_tnode) = adv.advance(&self.tnodes) {
-            let tnode = self.tnodes.get(p_tnode).unwrap();
-            if let Some(p_driver) = tnode.loop_driver {
-                let driver_equiv = self.backrefs.get_val(p_driver).unwrap();
-                let val = driver_equiv.val;
-                let looper_equiv = self.backrefs.get_val_mut(tnode.p_self).unwrap();
-                looper_equiv.val = val;
-            }
+    pub fn drive_loops(&mut self) -> Result<(), EvalError> {
+        let mut adv = self.lnodes.advancer();
+        while let Some(p_lnode) = adv.advance(&self.lnodes) {
+            let lnode = self.lnodes.get(p_lnode).unwrap();
+            let driver_equiv = self.backrefs.get_val(lnode.p_driver).unwrap();
+            self.change_value(lnode.p_self, driver_equiv.val).unwrap();
         }
+        Ok(())
     }
 }
 
