@@ -1,6 +1,6 @@
 use awint::awint_dag::triple_arena::ptr_struct;
 
-use super::PBack;
+use crate::ensemble::PBack;
 
 // We use this because our algorithms depend on generation counters
 ptr_struct!(PLNode);

@@ -8,9 +8,8 @@ use awint::{
     Awi,
 };
 
-use super::PLNode;
 use crate::{
-    ensemble::{Ensemble, PBack, PTNode, Referent, TNode},
+    ensemble::{Ensemble, PBack, PLNode, PTNode, Referent, TNode},
     epoch::EpochShared,
 };
 

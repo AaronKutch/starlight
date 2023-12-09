@@ -9,9 +9,11 @@ use awint::{
     Awi, Bits,
 };
 
-use super::{LNode, PLNode};
 use crate::{
-    ensemble::{value::Evaluator, Note, Optimizer, PNote, PTNode, State, Stator, TNode, Value},
+    ensemble::{
+        value::Evaluator, LNode, Note, Optimizer, PLNode, PNote, PTNode, State, Stator, TNode,
+        Value,
+    },
     triple_arena::{ptr_struct, Arena, SurjectArena},
 };
 
