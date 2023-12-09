@@ -352,8 +352,9 @@ impl Ensemble {
                         Referent::ThisTNode(p_tnode) => {
                             self.remove_tnode_not_p_self(*p_tnode);
                         }
-                        // TODO check self reference case
-                        Referent::LoopDriver(_) => todo!(),
+                        Referent::LoopDriver(p_lnode) => {
+                            self.remove_lnode_not_p_self(*p_lnode);
+                        }
                         _ => unreachable!(),
                     }
                 }

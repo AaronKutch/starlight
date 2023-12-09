@@ -176,7 +176,7 @@ impl Ensemble {
             // corresponding bits are set if the input is either a const value or is
             // already evaluated
             let mut fixed = inp.clone();
-            // corresponding bits ar set if the input is `Value::Unknown`
+            // corresponding bits are set if the input is `Value::Unknown`
             let mut unknown = inp.clone();
             for i in 0..len {
                 let p_inp = tnode.inp[i];
@@ -458,7 +458,18 @@ impl Ensemble {
                                 self.evaluator.insert(Eval::ChangeTNode(p_tnode));
                             }
                         }
-                        Referent::LoopDriver(_) => (),
+                        Referent::LoopDriver(p_lnode) => {
+                            let lnode = self.lnodes.get(p_lnode).unwrap();
+                            let p_self = lnode.p_self;
+                            let equiv = self.backrefs.get_val(p_self).unwrap();
+                            if (equiv.request_visit == self.evaluator.request_visit_gen())
+                                && (equiv.change_visit != self.evaluator.change_visit_gen())
+                            {
+                                // only go leafward to the given input if it was in the request
+                                // front and it hasn't been updated by some other route
+                                self.evaluator.insert(Eval::ChangeLNode(p_lnode));
+                            }
+                        }
                         Referent::Note(_) => (),
                     }
                 }
