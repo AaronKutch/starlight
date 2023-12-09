@@ -477,9 +477,7 @@ impl Ensemble {
             Eval::RequestTNode(request) => {
                 if let Referent::Input(_) = self.backrefs.get_key(request.p_back_tnode).unwrap() {
                     let equiv = self.backrefs.get_val(request.p_back_tnode).unwrap();
-                    if (equiv.change_visit != self.evaluator.change_visit_gen())
-                        || (equiv.request_visit != self.evaluator.request_visit_gen())
-                    {
+                    if equiv.request_visit != self.evaluator.request_visit_gen() {
                         self.evaluator
                             .insert(Eval::Investigate0(request.depth, equiv.p_self_equiv));
                     }
@@ -492,9 +490,7 @@ impl Ensemble {
                     self.backrefs.get_key(request.p_back_lnode).unwrap()
                 {
                     let equiv = self.backrefs.get_val(request.p_back_lnode).unwrap();
-                    if (equiv.change_visit != self.evaluator.change_visit_gen())
-                        || (equiv.request_visit != self.evaluator.request_visit_gen())
-                    {
+                    if equiv.request_visit != self.evaluator.request_visit_gen() {
                         self.evaluator
                             .insert(Eval::Investigate0(request.depth, equiv.p_self_equiv));
                     }
