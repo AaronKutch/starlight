@@ -1,5 +1,4 @@
-/*use starlight::{Epoch, Loop, dag::*, EvalAwi, awi};
-use testcrate::_render;
+use starlight::{awi, dag::*, Epoch, EvalAwi, Loop};
 
 #[test]
 fn invert_in_loop() {
@@ -17,17 +16,14 @@ fn invert_in_loop() {
         use awi::{assert_eq, *};
 
         let eval_x = EvalAwi::from(&x);
-        _render(&epoch0).unwrap();
-        //epoch0.drive_loops();
         assert_eq!(eval_x.eval().unwrap(), awi!(1));
-        //epoch0.drive_loops();
+        epoch0.drive_loops().unwrap();
         assert_eq!(eval_x.eval().unwrap(), awi!(0));
-        //epoch0.drive_loops();
+        epoch0.drive_loops().unwrap();
         assert_eq!(eval_x.eval().unwrap(), awi!(1));
     }
     drop(epoch0);
 }
-*/
 
 /*
 // tests an incrementing counter

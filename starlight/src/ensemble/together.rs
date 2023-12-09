@@ -470,14 +470,6 @@ impl Ensemble {
         p_driver: PBack,
         init_val: Value,
     ) -> Option<PLNode> {
-        let looper_equiv = self.backrefs.get_val_mut(p_looper)?;
-        match looper_equiv.val {
-            Value::Unknown => (),
-            // shouldn't fail unless the special Opaque loopback structure is broken
-            _ => panic!("looper is already set to a known value"),
-        }
-        looper_equiv.val = init_val;
-
         let p_lnode = self.lnodes.insert_with(|p_lnode| {
             let p_driver = self
                 .backrefs
@@ -489,6 +481,8 @@ impl Ensemble {
                 .unwrap();
             LNode::new(p_self, p_driver)
         });
+        // in order for the value to register correctly
+        self.change_value(p_looper, init_val).unwrap();
         Some(p_lnode)
     }
 
@@ -561,16 +555,6 @@ impl Ensemble {
                     }
                 }
             }
-        }
-        Ok(())
-    }
-
-    pub fn drive_loops(&mut self) -> Result<(), EvalError> {
-        let mut adv = self.lnodes.advancer();
-        while let Some(p_lnode) = adv.advance(&self.lnodes) {
-            let lnode = self.lnodes.get(p_lnode).unwrap();
-            let driver_equiv = self.backrefs.get_val(lnode.p_driver).unwrap();
-            self.change_value(lnode.p_self, driver_equiv.val).unwrap();
         }
         Ok(())
     }

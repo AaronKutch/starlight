@@ -326,6 +326,7 @@ impl Ensemble {
                 self.evaluator.next_change_visit_gen();
             }
             equiv.val = value;
+            equiv.change_visit = self.evaluator.change_visit_gen();
             Some(())
         } else {
             None

@@ -8,7 +8,7 @@ use std::{cell::RefCell, mem, num::NonZeroUsize, rc::Rc, thread::panicking};
 use awint::{
     awint_dag::{
         epoch::{EpochCallback, EpochKey},
-        triple_arena::{ptr_struct, Arena},
+        triple_arena::{ptr_struct, Advancer, Arena},
         EvalError, Lineage, Location, Op, PState,
     },
     bw, dag,
@@ -541,6 +541,43 @@ impl Epoch {
         lock.ensemble.optimize_all();
         drop(lock);
         let _ = epoch_shared.assert_assertions(false);
+        Ok(())
+    }
+
+    /// This evaluates all loop drivers, and then registers loopback changes
+    pub fn drive_loops(&self) -> Result<(), EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
+            return Err(EvalError::OtherStr("epoch is not the current epoch"))
+        }
+        // first evaluate all loop drivers
+        let lock = epoch_shared.epoch_data.borrow();
+        let mut adv = lock.ensemble.lnodes.advancer();
+        drop(lock);
+        loop {
+            let lock = epoch_shared.epoch_data.borrow();
+            if let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
+                let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
+                let p_driver = lnode.p_driver;
+                drop(lock);
+                Ensemble::calculate_value(&epoch_shared, p_driver)?;
+            } else {
+                break
+            }
+        }
+        // second do all loopback changes
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let mut adv = lock.ensemble.lnodes.advancer();
+        loop {
+            if let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
+                let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
+                let val = lock.ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
+                let p_self = lnode.p_self;
+                lock.ensemble.change_value(p_self, val).unwrap();
+            } else {
+                break
+            }
+        }
         Ok(())
     }
 }
