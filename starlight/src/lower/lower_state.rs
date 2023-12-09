@@ -57,7 +57,7 @@ impl Ensemble {
         // graft output
         let grafted = operands[0];
         self.stator.states.get_mut(p_state).unwrap().op = Copy([grafted]);
-        self.stator.states[grafted].rc = self.stator.states[grafted].rc.checked_add(1).unwrap();
+        self.stator.states[grafted].inc_rc();
 
         Ok(())
     }
@@ -365,8 +365,7 @@ impl Ensemble {
                     while let Copy([a]) = lock.ensemble.stator.states[p_next].op {
                         // special optimization case: forward Copies
                         lock.ensemble.stator.states[p_state].op.operands_mut()[i] = a;
-                        let rc = &mut lock.ensemble.stator.states[a].rc;
-                        *rc = (*rc).checked_add(1).unwrap();
+                        lock.ensemble.stator.states[a].inc_rc();
                         lock.ensemble.dec_rc(p_next).unwrap();
                         p_next = a;
                     }

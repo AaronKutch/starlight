@@ -48,7 +48,16 @@ pub struct State {
 impl State {
     /// Returns if pruning this state is allowed
     pub fn pruning_allowed(&self) -> bool {
-        (self.rc == 0) && (self.extern_rc == 0)
+        (self.rc == 0) && (self.extern_rc == 0) && !matches!(self.op, Opaque(_, Some(_)))
+    }
+
+    pub fn inc_rc(&mut self) {
+        self.rc = self.rc.checked_add(1).unwrap()
+    }
+
+    pub fn dec_rc(&mut self) -> Option<()> {
+        self.rc = self.rc.checked_sub(1)?;
+        Some(())
     }
 
     pub fn inc_extern_rc(&mut self) {

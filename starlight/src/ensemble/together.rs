@@ -462,7 +462,12 @@ impl Ensemble {
 
     /// Sets up a loop from the loop source `p_looper` and driver `p_driver`
     #[must_use]
-    pub fn make_loop(&mut self, p_looper: PBack, p_driver: PBack, init_val: Value) -> Option<()> {
+    pub fn make_loop(
+        &mut self,
+        p_looper: PBack,
+        p_driver: PBack,
+        init_val: Value,
+    ) -> Option<PLNode> {
         let looper_equiv = self.backrefs.get_val_mut(p_looper)?;
         match looper_equiv.val {
             Value::Unknown => (),
@@ -482,7 +487,7 @@ impl Ensemble {
                 .unwrap();
             LNode::new(p_self, p_driver)
         });
-        Some(())
+        Some(p_lnode)
     }
 
     pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), EvalError> {
@@ -542,12 +547,9 @@ impl Ensemble {
             if delete {
                 for i in 0..self.stator.states[p].op.operands_len() {
                     let op = self.stator.states[p].op.operands()[i];
-                    self.stator.states[op].rc =
-                        if let Some(x) = self.stator.states[op].rc.checked_sub(1) {
-                            x
-                        } else {
-                            return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
-                        };
+                    if self.stator.states[op].dec_rc().is_none() {
+                        return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
+                    };
                     pstate_stack.push(op);
                 }
                 let mut state = self.stator.states.remove(p).unwrap();
