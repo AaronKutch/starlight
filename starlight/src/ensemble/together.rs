@@ -5,7 +5,6 @@ use awint::{
         smallvec::{smallvec, SmallVec},
         EvalError, Location, Op, PState,
     },
-    awint_macro_internals::triple_arena::Advancer,
     Awi, Bits,
 };
 
@@ -348,7 +347,6 @@ impl Ensemble {
             }
         }
 
-        // TODO verify DAGness
         Ok(())
     }
 

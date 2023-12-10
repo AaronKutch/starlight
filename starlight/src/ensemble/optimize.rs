@@ -553,6 +553,8 @@ impl Ensemble {
                 /*if !self.backrefs.contains(p_back) {
                     return
                 };*/
+                // TODO eliminate equal TNodes, combine equal equivalences etc.
+
                 // TODO compare TNodes
                 // TODO compress inverters by inverting inx table
                 // TODO fusion of structures like

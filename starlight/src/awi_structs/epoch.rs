@@ -478,8 +478,6 @@ impl Epoch {
         self.shared.assertions()
     }
 
-    // TODO fix the EvalError enum situation
-
     /// If any assertion bit evaluates to false, this returns an error.
     pub fn assert_assertions(&self) -> Result<(), EvalError> {
         self.shared.assert_assertions(false)

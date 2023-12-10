@@ -165,9 +165,7 @@ mod awi_structs;
 pub mod ensemble;
 pub(crate) mod lower;
 mod misc;
-pub use awi_structs::{
-    epoch, Assertions, Epoch, EvalAwi, LazyAwi, LazyInlAwi, Loop, LoopHandle, Net,
-};
+pub use awi_structs::{epoch, Assertions, Epoch, EvalAwi, LazyAwi, LazyInlAwi, Loop, Net};
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
 pub use awint::{self, awint_dag, awint_dag::triple_arena};
@@ -191,8 +189,10 @@ pub mod dag {
         *,
     };
 
-    pub use crate::{Loop, LoopHandle, Net};
+    pub use crate::{Loop, Net};
 }
+
+// TODO fix the EvalError enum situation
 
 // TODO use modified Lagrangians that appear different to nets with different
 // requirements on critical path, plus small differencing values to prevent

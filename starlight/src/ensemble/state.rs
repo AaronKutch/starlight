@@ -440,33 +440,27 @@ fn lower_elementary_to_tnodes_intermediate(
             }
         }
         Opaque(ref v, name) => {
-            if name == Some("LoopHandle") {
-                if v.len() != 2 {
+            if name == Some("LoopSource") {
+                if v.len() != 1 {
+                    return Err(EvalError::OtherStr("cannot lower an undriven `Loop`"))
+                }
+                let p_driver_state = v[0];
+                this.initialize_state_bits_if_needed(p_state).unwrap();
+                let w = this.stator.states[p_state].p_self_bits.len();
+                if w != this.stator.states[p_driver_state].p_self_bits.len() {
                     return Err(EvalError::OtherStr(
-                        "LoopHandle `Opaque` does not have 2 arguments",
+                        "`Loop` has a bitwidth mismatch of looper and driver",
                     ))
                 }
-                let v0 = v[0];
-                let v1 = v[1];
-                let w = this.stator.states[v0].p_self_bits.len();
-                if w != this.stator.states[v1].p_self_bits.len() {
-                    return Err(EvalError::OtherStr(
-                        "LoopHandle `Opaque` has a bitwidth mismatch of looper and driver",
-                    ))
-                }
-                // Loops work by an initial `Opaque` that gets registered earlier
-                // and is used by things that use the loop value. A second
-                // LoopHandle Opaque references the first with `p_looper` and
-                // supplies a driver.
                 for i in 0..w {
-                    let p_looper = this.stator.states[v0].p_self_bits[i].unwrap();
-                    let p_driver = this.stator.states[v1].p_self_bits[i].unwrap();
+                    let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
+                    let p_driver = this.stator.states[p_driver_state].p_self_bits[i].unwrap();
                     this.make_loop(p_looper, p_driver, Value::Dynam(false))
                         .unwrap();
                 }
             } else if let Some(name) = name {
                 return Err(EvalError::OtherString(format!(
-                    "cannot lower opaque with name {name}"
+                    "cannot lower opaque with name \"{name}\""
                 )))
             } else {
                 return Err(EvalError::OtherStr("cannot lower opaque with no name"))
