@@ -381,21 +381,22 @@ impl Ensemble {
             loop {
                 let mut lock = epoch_shared.epoch_data.borrow_mut();
                 if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
-                    let state = &lock.ensemble.stator.states[p_state];
-                    // first check that it has not already been lowered
-                    if !state.lowered_to_tnodes {
-                        drop(lock);
-                        Ensemble::dfs_lower(epoch_shared, p_state)?;
-                        let mut lock = epoch_shared.epoch_data.borrow_mut();
-                        // reinvestigate
-                        let len = lock.ensemble.stator.states[p_state].p_self_bits.len();
-                        for i in 0..len {
-                            let p_bit = lock.ensemble.stator.states[p_state].p_self_bits[i];
-                            if let Some(p_bit) = p_bit {
-                                lock.ensemble.evaluator.insert(Eval::Investigate0(0, p_bit));
+                    if let Some(state) = lock.ensemble.stator.states.get(p_state) {
+                        // first check that it has not already been lowered
+                        if !state.lowered_to_tnodes {
+                            drop(lock);
+                            Ensemble::dfs_lower(epoch_shared, p_state)?;
+                            let mut lock = epoch_shared.epoch_data.borrow_mut();
+                            // reinvestigate
+                            let len = lock.ensemble.stator.states[p_state].p_self_bits.len();
+                            for i in 0..len {
+                                let p_bit = lock.ensemble.stator.states[p_state].p_self_bits[i];
+                                if let Some(p_bit) = p_bit {
+                                    lock.ensemble.evaluator.insert(Eval::Investigate0(0, p_bit));
+                                }
                             }
+                            drop(lock);
                         }
-                        drop(lock);
                     }
                 } else {
                     break

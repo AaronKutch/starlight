@@ -556,6 +556,17 @@ impl Ensemble {
         }
         Ok(())
     }
+
+    pub fn force_remove_all_states(&mut self) -> Result<(), EvalError> {
+        for (_, mut state) in self.stator.states.drain() {
+            for p_self_state in state.p_self_bits.drain(..) {
+                if let Some(p_self_state) = p_self_state {
+                    self.backrefs.remove_key(p_self_state).unwrap();
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for Ensemble {

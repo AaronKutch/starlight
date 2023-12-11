@@ -1,7 +1,7 @@
 use std::{fmt, num::NonZeroUsize, thread::panicking};
 
 use awint::{
-    awint_dag::{dag, epoch, EvalError, Lineage, PState},
+    awint_dag::{dag, EvalError, Lineage, PState},
     awint_internals::forward_debug_fmt,
 };
 
@@ -42,12 +42,9 @@ impl Drop for EvalAwi {
                         "most likely, an `EvalAwi` created in one `Epoch` was dropped in another"
                     )
                 }
-                lock.ensemble
-                    .stator
-                    .states
-                    .get_mut(self.p_state)
-                    .unwrap()
-                    .dec_extern_rc();
+                if let Some(state) = lock.ensemble.stator.states.get_mut(self.p_state) {
+                    state.dec_extern_rc();
+                }
             }
             // else the epoch has been dropped
         }
@@ -97,7 +94,7 @@ impl EvalAwi {
     );
 
     pub fn nzbw(&self) -> NonZeroUsize {
-        epoch::get_nzbw_from_current_epoch(self.p_state)
+        Ensemble::get_thread_local_note_nzbw(self.p_note).unwrap()
     }
 
     pub fn bw(&self) -> usize {

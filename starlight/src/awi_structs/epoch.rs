@@ -540,6 +540,7 @@ impl Epoch {
         Ok(())
     }
 
+    /// Runs optimization including lowering then pruning all states.
     pub fn optimize(&self) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {

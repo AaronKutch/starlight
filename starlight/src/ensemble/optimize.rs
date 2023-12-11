@@ -311,7 +311,9 @@ impl Ensemble {
         self.backrefs.remove_key(lnode.p_driver).unwrap();
     }
 
+    /// Also removes all states
     pub fn optimize_all(&mut self) {
+        self.force_remove_all_states().unwrap();
         // need to preinvestigate everything before starting a priority loop
         let mut adv = self.backrefs.advancer();
         while let Some(p_back) = adv.advance(&self.backrefs) {
