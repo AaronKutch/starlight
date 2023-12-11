@@ -68,6 +68,12 @@ impl Loop {
                 .get_mut(driver.state())
                 .unwrap()
                 .inc_rc();
+            // in order for loop driving to always work we need to do this (otherwise
+            // `drive_loops` would have to search all states)
+            lock.ensemble
+                .stator
+                .states_to_lower
+                .push(self.source.state());
             Some(())
         }
     }

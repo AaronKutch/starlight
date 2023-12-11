@@ -369,7 +369,7 @@ impl Ensemble {
         }
     }
 
-    fn handle_requests(epoch_shared: &EpochShared) -> Result<(), EvalError> {
+    pub(crate) fn handle_requests(epoch_shared: &EpochShared) -> Result<(), EvalError> {
         // TODO currently, the only way of avoiding N^2 worst case scenarios where
         // different change cascades lead to large groups of nodes being evaluated
         // repeatedly, is to use the front strategy. Only a powers of two reduction tree

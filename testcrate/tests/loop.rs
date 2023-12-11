@@ -58,8 +58,6 @@ fn loop_net() {
 
     {
         use awi::{assert_eq, *};
-        // TODO
-        epoch0.lower().unwrap();
         inx.retro_(&awi!(0_u2)).unwrap();
         epoch0.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xa_u4));

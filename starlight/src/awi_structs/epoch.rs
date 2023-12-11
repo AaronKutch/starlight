@@ -561,6 +561,8 @@ impl Epoch {
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
             return Err(EvalError::OtherStr("epoch is not the current epoch"))
         }
+        // `Loop`s register states to lower so that the below loops can find them
+        Ensemble::handle_requests(&epoch_shared)?;
         // first evaluate all loop drivers
         let lock = epoch_shared.epoch_data.borrow();
         let mut adv = lock.ensemble.lnodes.advancer();

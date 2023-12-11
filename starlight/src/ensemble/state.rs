@@ -254,6 +254,10 @@ impl Ensemble {
             } else {
                 let p_next = ops[i];
                 if self.stator.states[p_next].lowered_to_tnodes {
+                    // in the case of circular cases with `Loop`s, if the DFS goes around and does
+                    // not encounter a root, the argument needs to be initialized or else any branch
+                    // of `lower_elementary_to_tnodes_intermediate` could fail
+                    self.initialize_state_bits_if_needed(p_next).unwrap();
                     // do not visit
                     path.last_mut().unwrap().0 += 1;
                 } else {
@@ -305,11 +309,11 @@ fn lower_elementary_to_tnodes_intermediate(
     this: &mut Ensemble,
     p_state: PState,
 ) -> Result<(), EvalError> {
+    this.initialize_state_bits_if_needed(p_state).unwrap();
     match this.stator.states[p_state].op {
         Assert([x]) => {
             // this is the only foolproof way of doing this, at least without more
             // branches
-            this.initialize_state_bits_if_needed(p_state).unwrap();
             let len = this.stator.states[p_state].p_self_bits.len();
             assert_eq!(len, this.stator.states[x].p_self_bits.len());
             for i in 0..len {
@@ -321,7 +325,6 @@ fn lower_elementary_to_tnodes_intermediate(
         Copy([x]) => {
             // this is the only foolproof way of doing this, at least without more
             // branches
-            this.initialize_state_bits_if_needed(p_state).unwrap();
             let len = this.stator.states[p_state].p_self_bits.len();
             assert_eq!(len, this.stator.states[x].p_self_bits.len());
             for i in 0..len {
@@ -331,7 +334,6 @@ fn lower_elementary_to_tnodes_intermediate(
             }
         }
         StaticGet([bits], inx) => {
-            this.initialize_state_bits_if_needed(p_state).unwrap();
             let len = this.stator.states[bits].p_self_bits.len();
             assert!(inx < len);
             let p_self_bits = &this.stator.states[p_state].p_self_bits;
@@ -342,7 +344,6 @@ fn lower_elementary_to_tnodes_intermediate(
         }
         Concat(ref concat) => {
             let concat_len = concat.len();
-            this.initialize_state_bits_if_needed(p_state).unwrap();
             let total_len = this.stator.states[p_state].p_self_bits.len();
             let mut to = 0;
             for c_i in 0..concat_len {
@@ -363,7 +364,6 @@ fn lower_elementary_to_tnodes_intermediate(
         }
         ConcatFields(ref concat) => {
             let concat_len = concat.len();
-            this.initialize_state_bits_if_needed(p_state).unwrap();
             let total_len = this.stator.states[p_state].p_self_bits.len();
             let mut to = 0;
             for c_i in 0..concat_len {
@@ -384,7 +384,6 @@ fn lower_elementary_to_tnodes_intermediate(
             assert_eq!(total_len, to);
         }
         Repeat([x]) => {
-            this.initialize_state_bits_if_needed(p_state).unwrap();
             let len = this.stator.states[p_state].p_self_bits.len();
             let x_w = this.stator.states[x].p_self_bits.len();
             assert!((len % x_w) == 0);
@@ -402,7 +401,6 @@ fn lower_elementary_to_tnodes_intermediate(
         StaticLut(ref concat, ref table) => {
             let table = table.clone();
             let concat_len = concat.len();
-            this.initialize_state_bits_if_needed(p_state).unwrap();
             let mut inx_bits: SmallVec<[Option<PBack>; 8]> = smallvec![];
             for c_i in 0..concat_len {
                 let c = if let StaticLut(ref concat, _) = this.stator.states[p_state].op {
@@ -414,7 +412,6 @@ fn lower_elementary_to_tnodes_intermediate(
                 inx_bits.extend(bits.iter().cloned());
             }
 
-            this.initialize_state_bits_if_needed(p_state).unwrap();
             let inx_len = inx_bits.len();
             let out_bw = this.stator.states[p_state].p_self_bits.len();
             let num_entries = 1usize.checked_shl(u32::try_from(inx_len).unwrap()).unwrap();
@@ -445,7 +442,6 @@ fn lower_elementary_to_tnodes_intermediate(
                     return Err(EvalError::OtherStr("cannot lower an undriven `Loop`"))
                 }
                 let p_driver_state = v[0];
-                this.initialize_state_bits_if_needed(p_state).unwrap();
                 let w = this.stator.states[p_state].p_self_bits.len();
                 if w != this.stator.states[p_driver_state].p_self_bits.len() {
                     return Err(EvalError::OtherStr(
