@@ -53,24 +53,26 @@ fn loop_net() {
     net.push(&awi!(0xc_u4)).unwrap();
     net.push(&awi!(0xd_u4)).unwrap();
     let val = EvalAwi::from(&net);
-    let inx = LazyAwi::opaque(bw(64));
-    net.drive(inx.to_usize()).unwrap();
+    let inx = LazyAwi::opaque(bw(2));
+    net.drive(&inx).unwrap();
 
     {
         use awi::{assert_eq, *};
-        inx.retro_(&awi!(0_u64)).unwrap();
+        // TODO
+        epoch0.lower().unwrap();
+        inx.retro_(&awi!(0_u2)).unwrap();
         epoch0.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xa_u4));
 
-        inx.retro_(&awi!(2_u64)).unwrap();
+        inx.retro_(&awi!(2_u2)).unwrap();
         epoch0.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xc_u4));
 
-        inx.retro_(&awi!(1_u64)).unwrap();
+        inx.retro_(&awi!(1_u2)).unwrap();
         epoch0.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xb_u4));
 
-        inx.retro_(&awi!(3_u64)).unwrap();
+        inx.retro_(&awi!(3_u2)).unwrap();
         epoch0.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xd_u4));
     }

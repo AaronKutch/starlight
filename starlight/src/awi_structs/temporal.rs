@@ -186,22 +186,36 @@ impl Net {
     /// If `inx` is out of range, the return value is a runtime or dynamic
     /// `None`.
     #[must_use]
-    pub fn drive(self, inx: impl Into<dag::usize>) -> dag::Option<()> {
+    pub fn drive(self, inx: &Bits) -> dag::Option<()> {
         if self.is_empty() {
             return dag::Option::None;
         }
+        if self.len() == 1 {
+            self.source.drive(&self.ports[0]).unwrap();
+            return dag::Option::some_at_dagtime((), inx.is_zero());
+        }
         let max_inx = self.len() - 1;
-        let max_inx_bits = max_inx.next_power_of_two().trailing_zeros() as usize;
-        let inx = InlAwi::from_usize(inx.into());
+        let max_inx_bits = self.len().next_power_of_two().trailing_zeros() as usize;
         // we detect overflow by seeing if any of these bits are nonzero or if the rest
         // of the index is greater than the expected max bits (only needed if the
         // self.len() is not a power of two)
-        let should_stay_zero = awi!(inx[max_inx_bits..]).unwrap();
+        let should_stay_zero = if max_inx_bits < inx.bw() {
+            awi!(inx[max_inx_bits..]).unwrap()
+        } else {
+            awi!(0)
+        };
         let mut in_range = should_stay_zero.is_zero();
-        let inx = awi!(inx[..max_inx_bits]).unwrap();
+        let inx = if max_inx_bits < inx.bw() {
+            awi!(inx[..max_inx_bits]).unwrap()
+        } else {
+            Awi::from(inx)
+        };
         let signals = selector(&inx, None);
-        if !self.len().is_power_of_two() {
-            let le = inx.ule(&InlAwi::from_usize(max_inx)).unwrap();
+        if (!self.len().is_power_of_two()) && (inx.bw() == max_inx_bits) {
+            // dance to avoid stuff that can get lowered into a full `BITS` sized comparison
+            let mut max = Awi::zero(inx.nzbw());
+            max.usize_(max_inx);
+            let le = inx.ule(&max).unwrap();
             in_range &= le;
         }
 

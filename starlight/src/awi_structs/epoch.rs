@@ -579,15 +579,11 @@ impl Epoch {
         // second do all loopback changes
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let mut adv = lock.ensemble.lnodes.advancer();
-        loop {
-            if let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
-                let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
-                let val = lock.ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
-                let p_self = lnode.p_self;
-                lock.ensemble.change_value(p_self, val).unwrap();
-            } else {
-                break
-            }
+        while let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
+            let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
+            let val = lock.ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
+            let p_self = lnode.p_self;
+            lock.ensemble.change_value(p_self, val).unwrap();
         }
         Ok(())
     }
