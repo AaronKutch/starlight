@@ -186,7 +186,7 @@ impl Net {
     /// If `inx` is out of range, the return value is a runtime or dynamic
     /// `None`.
     #[must_use]
-    pub fn drive(mut self, inx: impl Into<dag::usize>) -> dag::Option<()> {
+    pub fn drive(self, inx: impl Into<dag::usize>) -> dag::Option<()> {
         if self.is_empty() {
             return dag::Option::None;
         }
@@ -207,8 +207,7 @@ impl Net {
 
         let mut tmp = Awi::zero(self.nzbw());
         for i in 0..self.len() {
-            tmp.mux_(self.get_mut(i).unwrap(), signals[i].to_bool())
-                .unwrap();
+            tmp.mux_(&self.ports[i], signals[i].to_bool()).unwrap();
         }
         self.source.drive(&tmp).unwrap();
         dag::Option::some_at_dagtime((), in_range)

@@ -64,6 +64,19 @@ impl Drop for EpochData {
     fn drop(&mut self) {
         // prevent invoking recursive panics and a buffer overrun
         if !panicking() {
+            // if `responsible_for` is not empty, then this `EpochData` is probably being
+            // dropped in a special case like a panic (I have `panicking` guards on all the
+            // impls, but it seems that in some cases that for some reason a panic on unwrap
+            // can start dropping `EpochData`s before the `Epoch`s, and there are
+            // arbitrarily bad interactions so we always need to forget any `EvalAwi`s here)
+            // in which the `Epoch` is not going to be useful anyway. We need to
+            // `mem::forget` just the `EvalAwi`s of the assertions
+            for (_, mut shared) in self.responsible_for.drain() {
+                for eval_awi in shared.assertions.bits.drain(..) {
+                    // avoid the `EvalAwi` drop code trying to access recursively
+                    mem::forget(eval_awi);
+                }
+            }
             self.epoch_key.pop_off_epoch_stack();
         }
     }

@@ -163,7 +163,7 @@
 mod awi_structs;
 /// Internals used by this crate to deal with states and TNode DAGs
 pub mod ensemble;
-pub(crate) mod lower;
+pub mod lower;
 mod misc;
 pub use awi_structs::{epoch, Assertions, Epoch, EvalAwi, LazyAwi, LazyInlAwi, Loop, Net};
 #[cfg(feature = "debug")]

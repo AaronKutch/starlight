@@ -20,6 +20,11 @@ use crate::{
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
 // type
 
+// Note: `mem::forget` can be used on `LazyAwi`s, but in this crate it should
+// only be done in special cases like if a `EpochShared` is being force dropped
+// by a panic or something that would necessitate giving up on `Epoch`
+// invariants anyway
+
 /// When other mimicking types are created from a reference of this, `retro_`
 /// can later be called to retroactively change the input values of the DAG.
 ///

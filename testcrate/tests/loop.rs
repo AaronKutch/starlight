@@ -70,7 +70,7 @@ fn loop_net() {
         epoch0.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xb_u4));
 
-        inx.retro_(&awi!(2_u64)).unwrap();
+        inx.retro_(&awi!(3_u64)).unwrap();
         epoch0.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xd_u4));
     }

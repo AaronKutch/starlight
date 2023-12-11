@@ -11,6 +11,11 @@ use crate::{
     epoch::get_current_epoch,
 };
 
+// Note: `mem::forget` can be used on `EvalAwi`s, but in this crate it should
+// only be done in special cases like if a `EpochShared` is being force dropped
+// by a panic or something that would necessitate giving up on `Epoch`
+// invariants anyway
+
 /// When created from a type implementing `AsRef<dag::Bits>`, it can later be
 /// used to evaluate its dynamic value.
 ///
@@ -19,7 +24,7 @@ use crate::{
 /// # Custom Drop
 ///
 /// Upon being dropped, this will remove special references being kept by the
-/// current `Epoch`
+/// current `Epoch`.
 pub struct EvalAwi {
     p_state: PState,
     p_note: PNote,
