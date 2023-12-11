@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, num::NonZeroUsize, ops::Deref};
+use std::{borrow::Borrow, cmp::min, num::NonZeroUsize, ops::Deref};
 
 use awint::{
     awint_dag::{smallvec::smallvec, Lineage, Op},
@@ -190,7 +190,9 @@ impl Net {
     /// a dynamic `dag::usize`.
     ///
     /// If `inx` is out of range, the return value is a runtime or dynamic
-    /// `None`.
+    /// `None`. The source value if the `inx` is out of range is not specified,
+    /// and it may result in an undriven `Loop` in some cases, so the return
+    /// `Option` should probably be `unwrap`ed.
     #[must_use]
     pub fn drive(self, inx: &Bits) -> dag::Option<()> {
         if self.is_empty() {
@@ -226,7 +228,7 @@ impl Net {
         }
 
         let mut tmp = Awi::zero(self.nzbw());
-        for i in 0..self.len() {
+        for i in 0..min(self.len(), signals.len()) {
             tmp.mux_(&self.ports[i], signals[i].to_bool()).unwrap();
         }
         self.source.drive(&tmp).unwrap();

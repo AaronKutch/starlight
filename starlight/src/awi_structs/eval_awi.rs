@@ -62,12 +62,40 @@ impl Lineage for EvalAwi {
 
 impl Clone for EvalAwi {
     /// This makes another note to the same state that `self` pointed to.
+    #[track_caller]
     fn clone(&self) -> Self {
-        Self::from_state(self.p_state).unwrap()
+        Self::from_state(self.p_state)
+    }
+}
+
+macro_rules! evalawi_from_impl {
+    ($($fn:ident $t:ident);*;) => {
+        $(
+            #[track_caller]
+            pub fn $fn(x: dag::$t) -> Self {
+                Self::from_state(x.state())
+            }
+        )*
     }
 }
 
 impl EvalAwi {
+    evalawi_from_impl!(
+        from_bool bool;
+        from_u8 u8;
+        from_i8 i8;
+        from_u16 u16;
+        from_i16 i16;
+        from_u32 u32;
+        from_i32 i32;
+        from_u64 u64;
+        from_i64 i64;
+        from_u128 u128;
+        from_i128 i128;
+        from_usize usize;
+        from_isize isize;
+    );
+
     pub fn nzbw(&self) -> NonZeroUsize {
         epoch::get_nzbw_from_current_epoch(self.p_state)
     }
@@ -80,21 +108,40 @@ impl EvalAwi {
         self.p_note
     }
 
-    pub(crate) fn from_state(p_state: PState) -> Option<Self> {
-        let epoch_data = get_current_epoch().unwrap().epoch_data;
-        let mut lock = epoch_data.borrow_mut();
-        let p_note = lock.ensemble.note_pstate(p_state)?;
-        lock.ensemble
-            .stator
-            .states
-            .get_mut(p_state)
-            .unwrap()
-            .inc_extern_rc();
-        Some(Self { p_state, p_note })
+    /// Used internally to create `EvalAwi`s
+    ///
+    /// # Panics
+    ///
+    /// If an `Epoch` does not exist or the `PState` was pruned
+    #[track_caller]
+    pub fn from_state(p_state: PState) -> Self {
+        if let Some(epoch) = get_current_epoch() {
+            let mut lock = epoch.epoch_data.borrow_mut();
+            match lock.ensemble.note_pstate(p_state) {
+                Some(p_note) => {
+                    lock.ensemble
+                        .stator
+                        .states
+                        .get_mut(p_state)
+                        .unwrap()
+                        .inc_extern_rc();
+                    Self { p_state, p_note }
+                }
+                None => {
+                    panic!(
+                        "could not create an `EvalAwi` from the given mimicking state, probably \
+                         because the state was pruned or came from a different `Epoch`"
+                    )
+                }
+            }
+        } else {
+            panic!("attempted to create an `EvalAwi` when no live `Epoch` exists")
+        }
     }
 
-    /// Can return `None` if the state has been pruned
-    pub fn from_bits(bits: &dag::Bits) -> Option<Self> {
+    /// Can panic if the state has been pruned
+    #[track_caller]
+    pub fn from_bits(bits: &dag::Bits) -> Self {
         Self::from_state(bits.state())
     }
 
@@ -122,23 +169,23 @@ impl EvalAwi {
     }
 
     pub fn zero(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::zero(w)).unwrap()
+        Self::from_bits(&dag::Awi::zero(w))
     }
 
     pub fn umax(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::umax(w)).unwrap()
+        Self::from_bits(&dag::Awi::umax(w))
     }
 
     pub fn imax(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::imax(w)).unwrap()
+        Self::from_bits(&dag::Awi::imax(w))
     }
 
     pub fn imin(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::imin(w)).unwrap()
+        Self::from_bits(&dag::Awi::imin(w))
     }
 
     pub fn uone(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::uone(w)).unwrap()
+        Self::from_bits(&dag::Awi::uone(w))
     }
 }
 
@@ -163,6 +210,6 @@ forward_debug_fmt!(EvalAwi);
 impl<B: AsRef<dag::Bits>> From<B> for EvalAwi {
     #[track_caller]
     fn from(b: B) -> Self {
-        Self::from_bits(b.as_ref()).unwrap()
+        Self::from_bits(b.as_ref())
     }
 }

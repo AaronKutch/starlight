@@ -105,19 +105,19 @@ impl DebugNodeTrait<PBack> for NodeKind {
     fn debug_node(p_this: PBack, this: &Self) -> DebugNode<PBack> {
         match this {
             NodeKind::StateBit(state_bit) => DebugNode {
-                sources: {
+                sources: vec![],
+                center: {
+                    let mut v = vec![format!("{:?}", p_this)];
+                    v.push(format!("{} [{}]", state_bit.p_state, state_bit.i));
+                    v
+                },
+                sinks: {
                     if let Some(p_equiv) = state_bit.p_equiv {
                         vec![(p_equiv, "".to_string())]
                     } else {
                         vec![]
                     }
                 },
-                center: {
-                    let mut v = vec![format!("{:?}", p_this)];
-                    v.push(format!("{} [{}]", state_bit.p_state, state_bit.i));
-                    v
-                },
-                sinks: vec![],
             },
             NodeKind::TNode(tnode) => DebugNode {
                 sources: tnode

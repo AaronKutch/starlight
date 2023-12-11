@@ -136,9 +136,7 @@ impl EpochShared {
         drop(epoch_data);
         let mut cloned = vec![];
         for p_state in states {
-            if let Some(eval) = EvalAwi::from_state(p_state) {
-                cloned.push(eval)
-            }
+            cloned.push(EvalAwi::from_state(p_state))
         }
         Assertions { bits: cloned }
     }
@@ -371,7 +369,7 @@ pub fn _callback() -> EpochCallback {
     fn register_assertion_bit(bit: dag::bool, location: Location) {
         // need a new bit to attach new location data to
         let new_bit = new_pstate(bw(1), Op::Assert([bit.state()]), Some(location));
-        let eval_awi = EvalAwi::from_state(new_bit).unwrap();
+        let eval_awi = EvalAwi::from_state(new_bit);
         // manual to get around closure issue
         CURRENT_EPOCH.with(|top| {
             let mut top = top.borrow_mut();

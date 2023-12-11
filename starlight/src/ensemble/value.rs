@@ -316,7 +316,7 @@ impl Ensemble {
 
     pub fn change_value(&mut self, p_back: PBack, value: Value) -> Option<()> {
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
-            if equiv.val.is_const() {
+            if equiv.val.is_const() && (equiv.val != value) {
                 // not allowed
                 panic!();
             }

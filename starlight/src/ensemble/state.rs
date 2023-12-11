@@ -231,6 +231,12 @@ impl Ensemble {
                     }
                     Opaque(_, name) => {
                         if let Some(name) = name {
+                            if name == "LoopSource" {
+                                return Err(EvalError::OtherString(format!(
+                                    "cannot lower LoopSource opaque with no driver, most likely \
+                                     some `Loop` or `Net` has been left undriven"
+                                )))
+                            }
                             return Err(EvalError::OtherString(format!(
                                 "cannot lower root opaque with name {name}"
                             )))
