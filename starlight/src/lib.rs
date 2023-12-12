@@ -1,11 +1,17 @@
-//! This is a RTL (Register Transfer Level) description library. Instead of the
-//! typical DSL (Domain Specific Language) approach, this allows RTL
+//! This is a DSL (Domain Specific Language) that can describe combinational
+//! logic and temporal logic. This allows RTL (Register Transfer Level)
 //! descriptions in ordinary Rust code with all the features that Rust provides.
 //!
-//! This crate still has a considerable amount of WIP stuff
+//! This crate still has a considerable amount of WIP stuff needed to evolve
+//! into a proper HDL (Hardware Description Language).
 //!
 //! See the documentation of `awint`/`awint_dag` which is used as the backend
-//! for this.
+//! for this. `awint` is the base library that operations are modeled off of.
+//! `awint_dag` allows for recording a DAG of arbitrary bitwidth integer
+//! operations. `starlight` lowers high level operations down into a DAG of
+//! simple lookup tables, and also adds on temporal structs like `Loop`s. It can
+//! optimize, evaluate, and retroactively change values in the `DAG` for various
+//! purposes.
 //!
 //! ```
 //! use std::num::NonZeroUsize;
