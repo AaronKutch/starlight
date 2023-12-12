@@ -44,16 +44,16 @@ impl Equiv {
 pub enum Referent {
     /// Self equivalence class referent
     ThisEquiv,
-    /// Self referent, used by all the `Tnode`s of an equivalence class
-    ThisTNode(PTNode),
-    /// Self referent for an `LNode`
+    /// Self referent, used by all the `LNode`s of an equivalence class
     ThisLNode(PLNode),
+    /// Self referent for an `TNode`
+    ThisTNode(PTNode),
     /// Self referent to a particular bit of a `State`
     ThisStateBit(PState, usize),
     /// Referent is using this for registering an input dependency
-    Input(PTNode),
+    Input(PLNode),
     /// Referent is using this for a loop driver
-    LoopDriver(PLNode),
+    LoopDriver(PTNode),
     /// Referent is a note
     Note(PNote),
 }
@@ -63,8 +63,8 @@ pub struct Ensemble {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
     pub notes: Arena<PNote, Note>,
     pub stator: Stator,
-    pub tnodes: Arena<PTNode, TNode>,
     pub lnodes: Arena<PLNode, LNode>,
+    pub tnodes: Arena<PTNode, TNode>,
     pub evaluator: Evaluator,
     pub optimizer: Optimizer,
     pub debug_counter: u64,
@@ -76,8 +76,8 @@ impl Ensemble {
             backrefs: SurjectArena::new(),
             notes: Arena::new(),
             stator: Stator::new(),
-            tnodes: Arena::new(),
             lnodes: Arena::new(),
+            tnodes: Arena::new(),
             evaluator: Evaluator::new(),
             optimizer: Optimizer::new(),
             debug_counter: 0,
@@ -147,19 +147,6 @@ impl Ensemble {
                 }
             }
         }
-        for (p_tnode, tnode) in &self.tnodes {
-            if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get_key(tnode.p_self) {
-                if p_tnode != *p_self {
-                    return Err(EvalError::OtherString(format!(
-                        "{tnode:?}.p_self roundtrip fail"
-                    )))
-                }
-            } else {
-                return Err(EvalError::OtherString(format!(
-                    "{tnode:?}.p_self is invalid"
-                )))
-            }
-        }
         for (p_lnode, lnode) in &self.lnodes {
             if let Some(Referent::ThisLNode(p_self)) = self.backrefs.get_key(lnode.p_self) {
                 if p_lnode != *p_self {
@@ -173,16 +160,29 @@ impl Ensemble {
                 )))
             }
         }
+        for (p_tnode, tnode) in &self.tnodes {
+            if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get_key(tnode.p_self) {
+                if p_tnode != *p_self {
+                    return Err(EvalError::OtherString(format!(
+                        "{tnode:?}.p_self roundtrip fail"
+                    )))
+                }
+            } else {
+                return Err(EvalError::OtherString(format!(
+                    "{tnode:?}.p_self is invalid"
+                )))
+            }
+        }
         // check other referent validities
         for referent in self.backrefs.keys() {
             let invalid = match referent {
                 // already checked
                 Referent::ThisEquiv => false,
-                Referent::ThisTNode(_) => false,
                 Referent::ThisLNode(_) => false,
+                Referent::ThisTNode(_) => false,
                 Referent::ThisStateBit(..) => false,
-                Referent::Input(p_input) => !self.tnodes.contains(*p_input),
-                Referent::LoopDriver(p_driver) => !self.lnodes.contains(*p_driver),
+                Referent::Input(p_input) => !self.lnodes.contains(*p_input),
+                Referent::LoopDriver(p_driver) => !self.tnodes.contains(*p_driver),
                 Referent::Note(p_note) => !self.notes.contains(*p_note),
             };
             if invalid {
@@ -190,47 +190,47 @@ impl Ensemble {
             }
         }
         // other kinds of validity
-        for p_tnode in self.tnodes.ptrs() {
-            let tnode = self.tnodes.get(p_tnode).unwrap();
-            for p_input in &tnode.inp {
+        for p_lnode in self.lnodes.ptrs() {
+            let lnode = self.lnodes.get(p_lnode).unwrap();
+            for p_input in &lnode.inp {
                 if let Some(referent) = self.backrefs.get_key(*p_input) {
                     if let Referent::Input(referent) = referent {
-                        if !self.tnodes.contains(*referent) {
+                        if !self.lnodes.contains(*referent) {
                             return Err(EvalError::OtherString(format!(
-                                "{p_tnode}: {tnode:?} input {p_input} referrent {referent} is \
+                                "{p_lnode}: {lnode:?} input {p_input} referrent {referent} is \
                                  invalid"
                             )))
                         }
                     } else {
                         return Err(EvalError::OtherString(format!(
-                            "{p_tnode}: {tnode:?} input {p_input} has incorrect referrent"
+                            "{p_lnode}: {lnode:?} input {p_input} has incorrect referrent"
                         )))
                     }
                 } else {
                     return Err(EvalError::OtherString(format!(
-                        "{p_tnode}: {tnode:?} input {p_input} is invalid"
+                        "{p_lnode}: {lnode:?} input {p_input} is invalid"
                     )))
                 }
             }
         }
-        for p_lnode in self.lnodes.ptrs() {
-            let lnode = self.lnodes.get(p_lnode).unwrap();
-            if let Some(referent) = self.backrefs.get_key(lnode.p_driver) {
+        for p_tnode in self.tnodes.ptrs() {
+            let tnode = self.tnodes.get(p_tnode).unwrap();
+            if let Some(referent) = self.backrefs.get_key(tnode.p_driver) {
                 if let Referent::LoopDriver(p_driver) = referent {
-                    if !self.lnodes.contains(*p_driver) {
+                    if !self.tnodes.contains(*p_driver) {
                         return Err(EvalError::OtherString(format!(
-                            "{p_lnode}: {lnode:?} loop driver referrent {p_driver} is invalid"
+                            "{p_tnode}: {tnode:?} loop driver referrent {p_driver} is invalid"
                         )))
                     }
                 } else {
                     return Err(EvalError::OtherString(format!(
-                        "{p_lnode}: {lnode:?} loop driver has incorrect referrent"
+                        "{p_tnode}: {tnode:?} loop driver has incorrect referrent"
                     )))
                 }
             } else {
                 return Err(EvalError::OtherString(format!(
-                    "{p_lnode}: {lnode:?} loop driver {} is invalid",
-                    lnode.p_driver
+                    "{p_tnode}: {tnode:?} loop driver {} is invalid",
+                    tnode.p_driver
                 )))
             }
         }
@@ -261,13 +261,13 @@ impl Ensemble {
             let fail = match referent {
                 // already checked
                 Referent::ThisEquiv => false,
-                Referent::ThisTNode(p_tnode) => {
-                    let tnode = self.tnodes.get(*p_tnode).unwrap();
-                    p_back != tnode.p_self
-                }
                 Referent::ThisLNode(p_lnode) => {
                     let lnode = self.lnodes.get(*p_lnode).unwrap();
                     p_back != lnode.p_self
+                }
+                Referent::ThisTNode(p_tnode) => {
+                    let tnode = self.tnodes.get(*p_tnode).unwrap();
+                    p_back != tnode.p_self
                 }
                 Referent::ThisStateBit(p_state, inx) => {
                     let state = self.stator.states.get(*p_state).unwrap();
@@ -279,9 +279,9 @@ impl Ensemble {
                     }
                 }
                 Referent::Input(p_input) => {
-                    let tnode = self.tnodes.get(*p_input).unwrap();
+                    let lnode = self.lnodes.get(*p_input).unwrap();
                     let mut found = false;
-                    for p_back1 in &tnode.inp {
+                    for p_back1 in &lnode.inp {
                         if *p_back1 == p_back {
                             found = true;
                             break
@@ -289,9 +289,9 @@ impl Ensemble {
                     }
                     !found
                 }
-                Referent::LoopDriver(p_lnode) => {
-                    let lnode = self.lnodes.get(*p_lnode).unwrap();
-                    lnode.p_driver != p_back
+                Referent::LoopDriver(p_tnode) => {
+                    let tnode = self.tnodes.get(*p_tnode).unwrap();
+                    tnode.p_driver != p_back
                 }
                 Referent::Note(p_note) => {
                     let note = self.notes.get(*p_note).unwrap();
@@ -312,9 +312,9 @@ impl Ensemble {
             }
         }
         // non-pointer invariants
-        for tnode in self.tnodes.vals() {
-            if let Some(ref lut) = tnode.lut {
-                if tnode.inp.is_empty() {
+        for lnode in self.lnodes.vals() {
+            if let Some(ref lut) = lnode.lut {
+                if lnode.inp.is_empty() {
                     return Err(EvalError::OtherStr("no inputs for lookup table"))
                 }
                 if !lut.bw().is_power_of_two() {
@@ -322,14 +322,14 @@ impl Ensemble {
                         "lookup table is not a power of two in bitwidth",
                     ))
                 }
-                if (lut.bw().trailing_zeros() as usize) != tnode.inp.len() {
+                if (lut.bw().trailing_zeros() as usize) != lnode.inp.len() {
                     return Err(EvalError::OtherStr(
                         "number of inputs does not correspond to lookup table size",
                     ))
                 }
-            } else if tnode.inp.len() != 1 {
+            } else if lnode.inp.len() != 1 {
                 return Err(EvalError::OtherStr(
-                    "`TNode` with no lookup table has more or less than one input",
+                    "`LNode` with no lookup table has more or less than one input",
                 ))
             }
         }
@@ -371,7 +371,7 @@ impl Ensemble {
             rc: 0,
             extern_rc: 0,
             lowered_to_elementary: false,
-            lowered_to_tnodes: false,
+            lowered_to_lnodes: false,
         })
     }
 
@@ -406,7 +406,7 @@ impl Ensemble {
         Some(())
     }
 
-    /// Inserts a `TNode` with `lit` value and returns a `PBack` to it
+    /// Inserts a `LNode` with `lit` value and returns a `PBack` to it
     pub fn make_literal(&mut self, lit: Option<bool>) -> PBack {
         self.backrefs.insert_with(|p_self_equiv| {
             (
@@ -416,7 +416,7 @@ impl Ensemble {
         })
     }
 
-    /// Makes a single output bit lookup table `TNode` and returns a `PBack` to
+    /// Makes a single output bit lookup table `LNode` and returns a `PBack` to
     /// it. Returns `None` if the table length is incorrect or any of the
     /// `p_inxs` are invalid.
     #[must_use]
@@ -443,21 +443,21 @@ impl Ensemble {
                 Equiv::new(p_self_equiv, Value::Unknown),
             )
         });
-        self.tnodes.insert_with(|p_tnode| {
+        self.lnodes.insert_with(|p_lnode| {
             let p_self = self
                 .backrefs
-                .insert_key(p_equiv, Referent::ThisTNode(p_tnode))
+                .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
                 .unwrap();
-            let mut tnode = TNode::new(p_self, lowered_from);
-            tnode.lut = Some(Awi::from(table));
+            let mut lnode = LNode::new(p_self, lowered_from);
+            lnode.lut = Some(Awi::from(table));
             for p_inx in p_inxs {
                 let p_back = self
                     .backrefs
-                    .insert_key(p_inx.unwrap(), Referent::Input(p_tnode))
+                    .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
                     .unwrap();
-                tnode.inp.push(p_back);
+                lnode.inp.push(p_back);
             }
-            tnode
+            lnode
         });
         Some(p_equiv)
     }
@@ -469,21 +469,21 @@ impl Ensemble {
         p_looper: PBack,
         p_driver: PBack,
         init_val: Value,
-    ) -> Option<PLNode> {
-        let p_lnode = self.lnodes.insert_with(|p_lnode| {
+    ) -> Option<PTNode> {
+        let p_tnode = self.tnodes.insert_with(|p_tnode| {
             let p_driver = self
                 .backrefs
-                .insert_key(p_driver, Referent::LoopDriver(p_lnode))
+                .insert_key(p_driver, Referent::LoopDriver(p_tnode))
                 .unwrap();
             let p_self = self
                 .backrefs
-                .insert_key(p_looper, Referent::ThisLNode(p_lnode))
+                .insert_key(p_looper, Referent::ThisTNode(p_tnode))
                 .unwrap();
-            LNode::new(p_self, p_driver)
+            TNode::new(p_self, p_driver)
         });
         // in order for the value to register correctly
         self.change_value(p_looper, init_val).unwrap();
-        Some(p_lnode)
+        Some(p_tnode)
     }
 
     pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), EvalError> {

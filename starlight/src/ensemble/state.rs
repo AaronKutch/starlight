@@ -40,9 +40,9 @@ pub struct State {
     /// operations and roots). Note that a DFS might set this before actually
     /// being lowered.
     pub lowered_to_elementary: bool,
-    /// If the `State` has been lowered from elementary `State`s to `TNode`s.
+    /// If the `State` has been lowered from elementary `State`s to `LNode`s.
     /// Note that a DFS might set this before actually being lowered.
-    pub lowered_to_tnodes: bool,
+    pub lowered_to_lnodes: bool,
 }
 
 impl State {
@@ -206,16 +206,16 @@ impl Ensemble {
     }
 
     /// Assuming that the rootward tree from `p_state` is lowered down to the
-    /// elementary `Op`s, this will create the `TNode` network
-    pub fn dfs_lower_elementary_to_tnodes(&mut self, p_state: PState) -> Result<(), EvalError> {
+    /// elementary `Op`s, this will create the `LNode` network
+    pub fn dfs_lower_elementary_to_lnodes(&mut self, p_state: PState) -> Result<(), EvalError> {
         if let Some(state) = self.stator.states.get(p_state) {
-            if state.lowered_to_tnodes {
+            if state.lowered_to_lnodes {
                 return Ok(())
             }
         } else {
             return Err(EvalError::InvalidPtr)
         }
-        self.stator.states[p_state].lowered_to_tnodes = true;
+        self.stator.states[p_state].lowered_to_lnodes = true;
         let mut path: Vec<(usize, PState)> = vec![(0, p_state)];
         loop {
             let (i, p_state) = path[path.len() - 1];
@@ -252,22 +252,22 @@ impl Ensemble {
                 path.last_mut().unwrap().0 += 1;
             } else if i >= ops.len() {
                 // checked all sources
-                lower_elementary_to_tnodes_intermediate(self, p_state)?;
+                lower_elementary_to_lnodes_intermediate(self, p_state)?;
                 path.pop().unwrap();
                 if path.is_empty() {
                     break
                 }
             } else {
                 let p_next = ops[i];
-                if self.stator.states[p_next].lowered_to_tnodes {
+                if self.stator.states[p_next].lowered_to_lnodes {
                     // in the case of circular cases with `Loop`s, if the DFS goes around and does
                     // not encounter a root, the argument needs to be initialized or else any branch
-                    // of `lower_elementary_to_tnodes_intermediate` could fail
+                    // of `lower_elementary_to_lnodes_intermediate` could fail
                     self.initialize_state_bits_if_needed(p_next).unwrap();
                     // do not visit
                     path.last_mut().unwrap().0 += 1;
                 } else {
-                    self.stator.states[p_next].lowered_to_tnodes = true;
+                    self.stator.states[p_next].lowered_to_lnodes = true;
                     path.push((0, p_next));
                 }
             }
@@ -275,13 +275,13 @@ impl Ensemble {
         Ok(())
     }
 
-    /// Lowers the rootward tree from `p_state` down to `TNode`s
+    /// Lowers the rootward tree from `p_state` down to `LNode`s
     pub fn dfs_lower(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
         Ensemble::dfs_lower_states_to_elementary(epoch_shared, p_state)?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         // the state can get removed by the above step
         if lock.ensemble.stator.states.contains(p_state) {
-            let res = lock.ensemble.dfs_lower_elementary_to_tnodes(p_state);
+            let res = lock.ensemble.dfs_lower_elementary_to_lnodes(p_state);
             res.unwrap();
         }
         Ok(())
@@ -311,7 +311,7 @@ impl Ensemble {
     }
 }
 
-fn lower_elementary_to_tnodes_intermediate(
+fn lower_elementary_to_lnodes_intermediate(
     this: &mut Ensemble,
     p_state: PState,
 ) -> Result<(), EvalError> {

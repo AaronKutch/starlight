@@ -314,13 +314,13 @@ impl EpochShared {
         Ensemble::handle_requests_with_lower_capability(self)?;
         // first evaluate all loop drivers
         let lock = self.epoch_data.borrow();
-        let mut adv = lock.ensemble.lnodes.advancer();
+        let mut adv = lock.ensemble.tnodes.advancer();
         drop(lock);
         loop {
             let lock = self.epoch_data.borrow();
-            if let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
-                let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
-                let p_driver = lnode.p_driver;
+            if let Some(p_tnode) = adv.advance(&lock.ensemble.tnodes) {
+                let tnode = lock.ensemble.tnodes.get(p_tnode).unwrap();
+                let p_driver = tnode.p_driver;
                 drop(lock);
                 Ensemble::calculate_value_with_lower_capability(self, p_driver)?;
             } else {
@@ -329,11 +329,11 @@ impl EpochShared {
         }
         // second do all loopback changes
         let mut lock = self.epoch_data.borrow_mut();
-        let mut adv = lock.ensemble.lnodes.advancer();
-        while let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
-            let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
-            let val = lock.ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
-            let p_self = lnode.p_self;
+        let mut adv = lock.ensemble.tnodes.advancer();
+        while let Some(p_tnode) = adv.advance(&lock.ensemble.tnodes) {
+            let tnode = lock.ensemble.tnodes.get(p_tnode).unwrap();
+            let val = lock.ensemble.backrefs.get_val(tnode.p_driver).unwrap().val;
+            let p_self = tnode.p_self;
             lock.ensemble.change_value(p_self, val).unwrap();
         }
         Ok(())
@@ -344,18 +344,18 @@ impl EpochShared {
         let mut lock = self.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
 
-        let mut adv = ensemble.lnodes.advancer();
-        while let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
-            let lnode = ensemble.lnodes.get(p_lnode).unwrap();
-            let p_driver = lnode.p_driver;
+        let mut adv = ensemble.tnodes.advancer();
+        while let Some(p_tnode) = adv.advance(&ensemble.tnodes) {
+            let tnode = ensemble.tnodes.get(p_tnode).unwrap();
+            let p_driver = tnode.p_driver;
             ensemble.calculate_value(p_driver)?;
         }
         // second do all loopback changes
-        let mut adv = ensemble.lnodes.advancer();
-        while let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
-            let lnode = ensemble.lnodes.get(p_lnode).unwrap();
-            let val = ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
-            let p_self = lnode.p_self;
+        let mut adv = ensemble.tnodes.advancer();
+        while let Some(p_tnode) = adv.advance(&ensemble.tnodes) {
+            let tnode = ensemble.tnodes.get(p_tnode).unwrap();
+            let val = ensemble.backrefs.get_val(tnode.p_driver).unwrap().val;
+            let p_self = tnode.p_self;
             ensemble.change_value(p_self, val).unwrap();
         }
         Ok(())

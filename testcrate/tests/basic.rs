@@ -147,14 +147,14 @@ fn luts() {
 
                 let ensemble = epoch0.ensemble();
 
-                // assert that there is at most one TNode with constant inputs optimized away
-                let mut tnodes = ensemble.tnodes.vals();
-                if let Some(tnode) = tnodes.next() {
-                    inp_bits += tnode.inp.len();
-                    assert!(tnode.inp.len() <= opaque_set.count_ones());
-                    assert!(tnodes.next().is_none());
+                // assert that there is at most one LNode with constant inputs optimized away
+                let mut lnodes = ensemble.lnodes.vals();
+                if let Some(lnode) = lnodes.next() {
+                    inp_bits += lnode.inp.len();
+                    assert!(lnode.inp.len() <= opaque_set.count_ones());
+                    assert!(lnodes.next().is_none());
                 }
-                assert!(tnodes.next().is_none());
+                assert!(lnodes.next().is_none());
             }
         }
     }

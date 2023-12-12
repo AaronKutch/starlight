@@ -6,7 +6,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{Ensemble, Equiv, PBack, PLNode, PNote, Referent, State, TNode},
+    ensemble::{Ensemble, Equiv, LNode, PBack, PNote, PTNode, Referent, State},
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
     Epoch,
@@ -54,7 +54,7 @@ impl DebugNodeTrait<PState> for State {
                     this.rc,
                     this.extern_rc,
                     short(this.lowered_to_elementary),
-                    short(this.lowered_to_tnodes)
+                    short(this.lowered_to_lnodes)
                 ));
                 if let Some(ref e) = this.err {
                     let s = format!("{e}");
@@ -77,10 +77,10 @@ pub struct StateBit {
 }
 
 #[derive(Debug, Clone)]
-pub struct LNodeTmp {
+pub struct TNodeTmp {
     p_self: PBack,
     p_driver: PBack,
-    p_lnode: PLNode,
+    p_tnode: PTNode,
 }
 
 #[derive(Debug, Clone)]
@@ -94,8 +94,8 @@ pub struct NoteTmp {
 #[derive(Debug, Clone)]
 pub enum NodeKind {
     StateBit(StateBit),
-    TNode(TNode),
-    LNode(LNodeTmp),
+    LNode(LNode),
+    TNode(TNodeTmp),
     Equiv(Equiv, Vec<PBack>),
     Note(NoteTmp),
     Remove,
@@ -119,8 +119,8 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     }
                 },
             },
-            NodeKind::TNode(tnode) => DebugNode {
-                sources: tnode
+            NodeKind::LNode(lnode) => DebugNode {
+                sources: lnode
                     .inp
                     .iter()
                     .enumerate()
@@ -128,30 +128,30 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     .collect(),
                 center: {
                     let mut v = vec![format!("{:?}", p_this)];
-                    if let Some(ref lut) = tnode.lut {
+                    if let Some(ref lut) = lnode.lut {
                         v.push(format!("{:?} ", lut));
                     }
-                    if let Some(lowered_from) = tnode.lowered_from {
+                    if let Some(lowered_from) = lnode.lowered_from {
                         v.push(format!("{:?}", lowered_from));
                     }
                     v
                 },
                 sinks: vec![],
             },
-            NodeKind::LNode(lnode) => DebugNode {
+            NodeKind::TNode(tnode) => DebugNode {
                 sources: vec![
-                    (lnode.p_self, "self".to_owned()),
-                    (lnode.p_driver, "driver".to_owned()),
+                    (tnode.p_self, "self".to_owned()),
+                    (tnode.p_driver, "driver".to_owned()),
                 ],
                 center: {
                     let mut v = vec![format!("{:?}", p_this)];
-                    v.push(format!("{:?}", lnode.p_lnode));
+                    v.push(format!("{:?}", tnode.p_tnode));
                     v
                 },
                 sinks: vec![],
             },
-            NodeKind::Equiv(equiv, p_tnodes) => DebugNode {
-                sources: p_tnodes.iter().map(|p| (*p, String::new())).collect(),
+            NodeKind::Equiv(equiv, p_lnodes) => DebugNode {
+                sources: p_lnodes.iter().map(|p| (*p, String::new())).collect(),
                 center: {
                     vec![
                         format!("{:?}", equiv.p_self_equiv),
@@ -179,7 +179,7 @@ impl Ensemble {
     pub fn backrefs_to_chain_arena(&self) -> ChainArena<PBack, Referent> {
         let mut chain_arena = ChainArena::new();
         self.backrefs
-            .clone_keys_to_chain_arena(&mut chain_arena, |_, p_tnode| *p_tnode);
+            .clone_keys_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode);
         chain_arena
     }
 
@@ -192,8 +192,8 @@ impl Ensemble {
                         let mut v = vec![];
                         let mut adv = self.backrefs.advancer_surject(p_self);
                         while let Some(p) = adv.advance(&self.backrefs) {
-                            if let Referent::ThisTNode(_) = self.backrefs.get_key(p).unwrap() {
-                                // get every TNode that is in this equivalence
+                            if let Referent::ThisLNode(_) = self.backrefs.get_key(p).unwrap() {
+                                // get every LNode that is in this equivalence
                                 v.push(p);
                             }
                         }
@@ -216,26 +216,26 @@ impl Ensemble {
                             })
                         }
                     }
-                    Referent::ThisTNode(p_tnode) => {
-                        let mut tnode = self.tnodes.get(*p_tnode).unwrap().clone();
-                        // forward to the `PBack`s of TNodes
-                        for inp in &mut tnode.inp {
+                    Referent::ThisLNode(p_lnode) => {
+                        let mut lnode = self.lnodes.get(*p_lnode).unwrap().clone();
+                        // forward to the `PBack`s of LNodes
+                        for inp in &mut lnode.inp {
                             if let Referent::Input(_) = self.backrefs.get_key(*inp).unwrap() {
                                 let p_input = self.backrefs.get_val(*inp).unwrap().p_self_equiv;
                                 *inp = p_input;
                             }
                         }
-                        NodeKind::TNode(tnode)
+                        NodeKind::LNode(lnode)
                     }
-                    Referent::ThisLNode(p_lnode) => {
-                        let lnode = self.lnodes.get(*p_lnode).unwrap();
+                    Referent::ThisTNode(p_tnode) => {
+                        let tnode = self.tnodes.get(*p_tnode).unwrap();
                         // forward to the `PBack`s
-                        let p_self = self.backrefs.get_val(lnode.p_self).unwrap().p_self_equiv;
-                        let p_driver = self.backrefs.get_val(lnode.p_driver).unwrap().p_self_equiv;
-                        NodeKind::LNode(LNodeTmp {
+                        let p_self = self.backrefs.get_val(tnode.p_self).unwrap().p_self_equiv;
+                        let p_driver = self.backrefs.get_val(tnode.p_driver).unwrap().p_self_equiv;
+                        NodeKind::TNode(TNodeTmp {
                             p_self,
                             p_driver,
-                            p_lnode: *p_lnode,
+                            p_tnode: *p_tnode,
                         })
                     }
                     Referent::Note(p_note) => {

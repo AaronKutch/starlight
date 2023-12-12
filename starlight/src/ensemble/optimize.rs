@@ -10,7 +10,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{Ensemble, PBack, PLNode, PTNode, Referent, TNode, Value},
+    ensemble::{Ensemble, LNode, PBack, PLNode, PTNode, Referent, Value},
     triple_arena::{ptr_struct, OrdArena},
     SmallMap,
 };
@@ -28,33 +28,33 @@ pub enum Optimization {
     Preinvestigate(PBack),
     /// Removes an entire equivalence class because it is unused
     RemoveEquiv(PBack),
-    /// This needs to point to the `Referent::ThisTNode` of the identity
-    /// `TNode`. If an equivalence is an identity function, any referents should
+    /// This needs to point to the `Referent::ThisLNode` of the identity
+    /// `LNode`. If an equivalence is an identity function, any referents should
     /// use its inputs instead. This is high priority because the principle
     /// source of a value needs to be known for various optimizations
     /// involving deduplication to work (such as early LUT simplification), and
     /// also because it eliminates useless identities early.
     ForwardEquiv(PBack),
-    /// Removes all `TNode`s from an equivalence that has had a constant
+    /// Removes all `LNode`s from an equivalence that has had a constant
     /// assigned to it, and notifies all referents.
     ConstifyEquiv(PBack),
-    /// Removes a `TNode` because there is at least one other `TNode` in the
+    /// Removes a `LNode` because there is at least one other `LNode` in the
     /// equivalence that is stricly better
-    RemoveTNode(PBack),
+    RemoveLNode(PBack),
     /// If a backref is removed, investigate this equivalence. Note that
     /// `InvestigateUsed`s overwrite each other when multiple ones are fired on
     /// the same equivalence.
     // TODO should this one be moved up? Needs to be benchmarked.
     InvestigateUsed(PBack),
     /// If an input was constified
-    InvestigateConst(PTNode),
+    InvestigateConst(PLNode),
     /// If a driver was constified
-    InvestigateLoopDriverConst(PLNode),
+    InvestigateLoopDriverConst(PTNode),
     /// The optimization state that equivalences are set to after the
     /// preinvestigation finds nothing
     InvestigateEquiv0(PBack),
     //InvertInput
-    // (?) not sure if fusion + ordinary `const_eval_tnode` handles all cases cleanly,
+    // (?) not sure if fusion + ordinary `const_eval_lnode` handles all cases cleanly,
     // might only do fission for routing
     //Fission
     // A fusion involving the number of inputs that will result
@@ -84,23 +84,23 @@ impl Ensemble {
     /// Removes all `Const` inputs and assigns `Const` result if possible.
     /// Returns if a `Const` result was assigned (`Optimization::ConstifyEquiv`
     /// needs to be run by the caller).
-    pub fn const_eval_tnode(&mut self, p_tnode: PTNode) -> bool {
-        let tnode = self.tnodes.get_mut(p_tnode).unwrap();
-        if let Some(original_lut) = &tnode.lut {
+    pub fn const_eval_lnode(&mut self, p_lnode: PLNode) -> bool {
+        let lnode = self.lnodes.get_mut(p_lnode).unwrap();
+        if let Some(original_lut) = &lnode.lut {
             let mut lut = original_lut.clone();
             // acquire LUT inputs, for every constant input reduce the LUT
-            let len = usize::from(u8::try_from(tnode.inp.len()).unwrap());
+            let len = usize::from(u8::try_from(lnode.inp.len()).unwrap());
             for i in (0..len).rev() {
-                let p_inp = tnode.inp[i];
+                let p_inp = lnode.inp[i];
                 let equiv = self.backrefs.get_val(p_inp).unwrap();
                 if let Value::Const(val) = equiv.val {
                     // we will be removing the input, mark it to be investigated
                     self.optimizer
                         .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
                     self.backrefs.remove_key(p_inp).unwrap();
-                    tnode.inp.remove(i);
+                    lnode.inp.remove(i);
 
-                    lut = TNode::reduce_lut(&lut, i, val);
+                    lut = LNode::reduce_lut(&lut, i, val);
                 }
             }
 
@@ -109,8 +109,8 @@ impl Ensemble {
                 // we have to reset every time because the removals can mess up any range of
                 // indexes
                 let mut set = SmallMap::new();
-                for i in 0..tnode.inp.len() {
-                    let p_inp = tnode.inp[i];
+                for i in 0..lnode.inp.len() {
+                    let p_inp = lnode.inp[i];
                     let equiv = self.backrefs.get_val(p_inp).unwrap();
                     match set.insert(equiv.p_self_equiv.inx(), i) {
                         Ok(()) => (),
@@ -127,8 +127,8 @@ impl Ensemble {
                             }
                             self.optimizer
                                 .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                            self.backrefs.remove_key(tnode.inp[j]).unwrap();
-                            tnode.inp.remove(j);
+                            self.backrefs.remove_key(lnode.inp[j]).unwrap();
+                            lnode.inp.remove(j);
                             lut = next_lut;
                             continue 'outer
                         }
@@ -138,13 +138,13 @@ impl Ensemble {
             }
 
             // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
-            let len = tnode.inp.len();
+            let len = lnode.inp.len();
             for i in (0..len).rev() {
                 if lut.bw() > 1 {
-                    if let Some(reduced) = TNode::reduce_independent_lut(&lut, i) {
+                    if let Some(reduced) = LNode::reduce_independent_lut(&lut, i) {
                         // independent of the `i`th bit
                         lut = reduced;
-                        let p_inp = tnode.inp.remove(i);
+                        let p_inp = lnode.inp.remove(i);
                         let equiv = self.backrefs.get_val(p_inp).unwrap();
                         self.optimizer
                             .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
@@ -152,41 +152,41 @@ impl Ensemble {
                     }
                 }
             }
-            // sort inputs so that `TNode`s can be compared later
+            // sort inputs so that `LNode`s can be compared later
             // TODO?
 
             // input independence automatically reduces all zeros and all ones LUTs, so just
             // need to check if the LUT is one bit for constant generation
             if lut.bw() == 1 {
-                let equiv = self.backrefs.get_val_mut(tnode.p_self).unwrap();
+                let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
                 equiv.val = Value::Const(lut.to_bool());
                 // fix the `lut` to its new state, do this even if we are doing the constant
                 // optimization
-                tnode.lut = Some(lut);
+                lnode.lut = Some(lut);
                 true
             } else if (lut.bw() == 2) && lut.get(1).unwrap() {
                 // the only `lut.bw() == 2` cases that survive independence removal is identity
                 // and inversion. If it is identity, register this for forwarding
-                tnode.lut = None;
+                lnode.lut = None;
                 self.optimizer
-                    .insert(Optimization::ForwardEquiv(tnode.p_self));
+                    .insert(Optimization::ForwardEquiv(lnode.p_self));
                 false
             } else {
-                tnode.lut = Some(lut);
+                lnode.lut = Some(lut);
                 false
             }
-        } else if tnode.inp.len() == 1 {
+        } else if lnode.inp.len() == 1 {
             // wire propogation
-            let input_equiv = self.backrefs.get_val_mut(tnode.inp[0]).unwrap();
+            let input_equiv = self.backrefs.get_val_mut(lnode.inp[0]).unwrap();
             if let Value::Const(val) = input_equiv.val {
-                let equiv = self.backrefs.get_val_mut(tnode.p_self).unwrap();
+                let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
                 equiv.val = Value::Const(val);
                 self.optimizer
                     .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv));
                 true
             } else {
                 self.optimizer
-                    .insert(Optimization::ForwardEquiv(tnode.p_self));
+                    .insert(Optimization::ForwardEquiv(lnode.p_self));
                 false
             }
         } else {
@@ -196,10 +196,10 @@ impl Ensemble {
 
     /// Assigns `Const` result if possible.
     /// Returns if a `Const` result was assigned.
-    pub fn const_eval_lnode(&mut self, p_lnode: PLNode) -> bool {
-        let lnode = self.lnodes.get(p_lnode).unwrap();
-        let p_self = lnode.p_self;
-        let p_driver = lnode.p_driver;
+    pub fn const_eval_tnode(&mut self, p_tnode: PTNode) -> bool {
+        let tnode = self.tnodes.get(p_tnode).unwrap();
+        let p_self = tnode.p_self;
+        let p_driver = tnode.p_driver;
         let equiv = self.backrefs.get_val(p_driver).unwrap();
         if let Value::Const(val) = equiv.val {
             self.backrefs.get_val_mut(p_self).unwrap().val = Value::Const(val);
@@ -222,21 +222,21 @@ impl Ensemble {
             let referent = *self.backrefs.get_key(p_back).unwrap();
             match referent {
                 Referent::ThisEquiv => (),
-                Referent::ThisLNode(p_lnode) => {
-                    // avoid checking more if it was already determined to be constant
-                    if !is_const && self.const_eval_lnode(p_lnode) {
-                        is_const = true;
-                    }
-                }
                 Referent::ThisTNode(p_tnode) => {
                     // avoid checking more if it was already determined to be constant
                     if !is_const && self.const_eval_tnode(p_tnode) {
                         is_const = true;
                     }
                 }
+                Referent::ThisLNode(p_lnode) => {
+                    // avoid checking more if it was already determined to be constant
+                    if !is_const && self.const_eval_lnode(p_lnode) {
+                        is_const = true;
+                    }
+                }
                 Referent::ThisStateBit(p_state, _) => {
                     let state = &self.stator.states[p_state];
-                    // the state bits can always be disregarded on a per-tnode basis unless they are
+                    // the state bits can always be disregarded on a per-lnode basis unless they are
                     // being used externally
                     if state.extern_rc != 0 {
                         non_self_rc += 1;
@@ -247,7 +247,7 @@ impl Ensemble {
                     // the way `LoopDriver` networks with no real dependencies will work, is
                     // that const propogation and other simplifications will eventually result
                     // in a single node equivalence that drives itself, which we can remove
-                    let p_back_driver = self.lnodes.get(p_driver).unwrap().p_self;
+                    let p_back_driver = self.tnodes.get(p_driver).unwrap().p_self;
                     if !self.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
                         non_self_rc += 1;
                     }
@@ -269,7 +269,7 @@ impl Ensemble {
     }
 
     /// Does not perform the final step
-    /// `ensemble.backrefs.remove(tnode.p_self).unwrap()` which is important for
+    /// `ensemble.backrefs.remove(lnode.p_self).unwrap()` which is important for
     /// `Advancer`s.
     pub fn remove_state_bit_not_p_self(&mut self, p_state: PState, i_bit: usize) {
         let p_bit = self
@@ -288,11 +288,11 @@ impl Ensemble {
     }
 
     /// Does not perform the final step
-    /// `ensemble.backrefs.remove(tnode.p_self).unwrap()` which is important for
+    /// `ensemble.backrefs.remove(lnode.p_self).unwrap()` which is important for
     /// `Advancer`s.
-    pub fn remove_tnode_not_p_self(&mut self, p_tnode: PTNode) {
-        let tnode = self.tnodes.remove(p_tnode).unwrap();
-        for inp in tnode.inp {
+    pub fn remove_lnode_not_p_self(&mut self, p_lnode: PLNode) {
+        let lnode = self.lnodes.remove(p_lnode).unwrap();
+        for inp in lnode.inp {
             let p_equiv = self.backrefs.get_val(inp).unwrap().p_self_equiv;
             self.optimizer
                 .insert(Optimization::InvestigateUsed(p_equiv));
@@ -301,14 +301,14 @@ impl Ensemble {
     }
 
     /// Does not perform the final step
-    /// `ensemble.backrefs.remove(lnode.p_self).unwrap()` which is important for
+    /// `ensemble.backrefs.remove(tnode.p_self).unwrap()` which is important for
     /// `Advancer`s.
-    pub fn remove_lnode_not_p_self(&mut self, p_lnode: PLNode) {
-        let lnode = self.lnodes.remove(p_lnode).unwrap();
-        let p_equiv = self.backrefs.get_val(lnode.p_driver).unwrap().p_self_equiv;
+    pub fn remove_tnode_not_p_self(&mut self, p_tnode: PTNode) {
+        let tnode = self.tnodes.remove(p_tnode).unwrap();
+        let p_equiv = self.backrefs.get_val(tnode.p_driver).unwrap().p_self_equiv;
         self.optimizer
             .insert(Optimization::InvestigateUsed(p_equiv));
-        self.backrefs.remove_key(lnode.p_driver).unwrap();
+        self.backrefs.remove_key(tnode.p_driver).unwrap();
     }
 
     /// Also removes all states
@@ -343,7 +343,7 @@ impl Ensemble {
                 } else {
                     return
                 };
-                // remove all associated TNodes first
+                // remove all associated LNodes first
                 let mut adv = self.backrefs.advancer_surject(p_back);
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     match self.backrefs.get_key(p_back).unwrap() {
@@ -351,11 +351,11 @@ impl Ensemble {
                         Referent::ThisStateBit(p_state, bit_i) => {
                             self.remove_state_bit_not_p_self(*p_state, *bit_i);
                         }
-                        Referent::ThisTNode(p_tnode) => {
-                            self.remove_tnode_not_p_self(*p_tnode);
-                        }
                         Referent::ThisLNode(p_lnode) => {
                             self.remove_lnode_not_p_self(*p_lnode);
+                        }
+                        Referent::ThisTNode(p_tnode) => {
+                            self.remove_tnode_not_p_self(*p_tnode);
                         }
                         _ => unreachable!(),
                     }
@@ -365,12 +365,12 @@ impl Ensemble {
             }
             Optimization::ForwardEquiv(p_ident) => {
                 let p_source = if let Some(referent) = self.backrefs.get_key(p_ident) {
-                    if let Referent::ThisTNode(p_tnode) = referent {
-                        let tnode = &self.tnodes[p_tnode];
-                        assert_eq!(tnode.inp.len(), 1);
+                    if let Referent::ThisLNode(p_lnode) = referent {
+                        let lnode = &self.lnodes[p_lnode];
+                        assert_eq!(lnode.inp.len(), 1);
                         // do not use directly, use the `p_self_equiv` since this backref will be
                         // removed when `p_ident` is process in the loop
-                        let p_back = tnode.inp[0];
+                        let p_back = lnode.inp[0];
                         self.backrefs.get_val(p_back).unwrap().p_self_equiv
                     } else {
                         unreachable!()
@@ -383,11 +383,11 @@ impl Ensemble {
                     let referent = *self.backrefs.get_key(p_back).unwrap();
                     match referent {
                         Referent::ThisEquiv => (),
-                        Referent::ThisTNode(p_tnode) => {
-                            self.remove_tnode_not_p_self(p_tnode);
-                        }
                         Referent::ThisLNode(p_lnode) => {
                             self.remove_lnode_not_p_self(p_lnode);
+                        }
+                        Referent::ThisTNode(p_tnode) => {
+                            self.remove_tnode_not_p_self(p_tnode);
                         }
                         Referent::ThisStateBit(p_state, i_bit) => {
                             let p_bit = self.stator.states[p_state].p_self_bits[i_bit]
@@ -400,9 +400,9 @@ impl Ensemble {
                             *p_bit = p_back_new;
                         }
                         Referent::Input(p_input) => {
-                            let tnode = self.tnodes.get_mut(p_input).unwrap();
+                            let lnode = self.lnodes.get_mut(p_input).unwrap();
                             let mut found = false;
-                            for inp in &mut tnode.inp {
+                            for inp in &mut lnode.inp {
                                 if *inp == p_back {
                                     let p_back_new = self
                                         .backrefs
@@ -416,13 +416,13 @@ impl Ensemble {
                             assert!(found);
                         }
                         Referent::LoopDriver(p_driver) => {
-                            let lnode = self.lnodes.get_mut(p_driver).unwrap();
-                            assert_eq!(lnode.p_driver, p_back);
+                            let tnode = self.tnodes.get_mut(p_driver).unwrap();
+                            assert_eq!(tnode.p_driver, p_back);
                             let p_back_new = self
                                 .backrefs
                                 .insert_key(p_source, Referent::LoopDriver(p_driver))
                                 .unwrap();
-                            lnode.p_driver = p_back_new;
+                            tnode.p_driver = p_back_new;
                         }
                         Referent::Note(p_note) => {
                             // here we see a major advantage of the backref system
@@ -453,19 +453,19 @@ impl Ensemble {
                 if !self.backrefs.contains(p_back) {
                     return
                 };
-                // for removing `ThisTNode` safely
+                // for removing `ThisLNode` safely
                 let mut remove = SmallVec::<[PBack; 16]>::new();
-                // remove all associated TNodes
+                // remove all associated LNodes
                 let mut adv = self.backrefs.advancer_surject(p_back);
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     match self.backrefs.get_key(p_back).unwrap() {
                         Referent::ThisEquiv => (),
-                        Referent::ThisTNode(p_tnode) => {
-                            self.remove_tnode_not_p_self(*p_tnode);
-                            remove.push(p_back);
-                        }
                         Referent::ThisLNode(p_lnode) => {
                             self.remove_lnode_not_p_self(*p_lnode);
+                            remove.push(p_back);
+                        }
+                        Referent::ThisTNode(p_tnode) => {
+                            self.remove_tnode_not_p_self(*p_tnode);
                             remove.push(p_back);
                         }
                         Referent::ThisStateBit(..) => (),
@@ -484,7 +484,7 @@ impl Ensemble {
                     self.backrefs.remove_key(p_back).unwrap();
                 }
             }
-            Optimization::RemoveTNode(p_back) => {
+            Optimization::RemoveLNode(p_back) => {
                 if !self.backrefs.contains(p_back) {
                     return
                 }
@@ -500,11 +500,11 @@ impl Ensemble {
                     let referent = *self.backrefs.get_key(p_back).unwrap();
                     match referent {
                         Referent::ThisEquiv => (),
-                        Referent::ThisTNode(_) => (),
                         Referent::ThisLNode(_) => (),
+                        Referent::ThisTNode(_) => (),
                         Referent::ThisStateBit(p_state, _) => {
                             let state = &self.stator.states[p_state];
-                            // the state bits can always be disregarded on a per-tnode basis unless
+                            // the state bits can always be disregarded on a per-lnode basis unless
                             // they are being used externally
                             if state.extern_rc != 0 {
                                 found_use = true;
@@ -515,7 +515,7 @@ impl Ensemble {
                             break
                         }
                         Referent::LoopDriver(p_driver) => {
-                            let p_back_driver = self.lnodes.get(p_driver).unwrap().p_self;
+                            let p_back_driver = self.tnodes.get(p_driver).unwrap().p_self;
                             if !self.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
                                 found_use = true;
                                 break
@@ -531,17 +531,7 @@ impl Ensemble {
                     self.optimizer.insert(Optimization::RemoveEquiv(p_back));
                 }
             }
-            Optimization::InvestigateConst(p_tnode) => {
-                if !self.tnodes.contains(p_tnode) {
-                    return
-                };
-                if self.const_eval_tnode(p_tnode) {
-                    self.optimizer.insert(Optimization::ConstifyEquiv(
-                        self.tnodes.get(p_tnode).unwrap().p_self,
-                    ));
-                }
-            }
-            Optimization::InvestigateLoopDriverConst(p_lnode) => {
+            Optimization::InvestigateConst(p_lnode) => {
                 if !self.lnodes.contains(p_lnode) {
                     return
                 };
@@ -551,13 +541,23 @@ impl Ensemble {
                     ));
                 }
             }
+            Optimization::InvestigateLoopDriverConst(p_tnode) => {
+                if !self.tnodes.contains(p_tnode) {
+                    return
+                };
+                if self.const_eval_tnode(p_tnode) {
+                    self.optimizer.insert(Optimization::ConstifyEquiv(
+                        self.tnodes.get(p_tnode).unwrap().p_self,
+                    ));
+                }
+            }
             Optimization::InvestigateEquiv0(_p_back) => {
                 /*if !self.backrefs.contains(p_back) {
                     return
                 };*/
-                // TODO eliminate equal TNodes, combine equal equivalences etc.
+                // TODO eliminate equal LNodes, combine equal equivalences etc.
 
-                // TODO compare TNodes
+                // TODO compare LNodes
                 // TODO compress inverters by inverting inx table
                 // TODO fusion of structures like
                 // H(F(a, b), G(a, b)) definitely or any case like H(F(a, b), a)
