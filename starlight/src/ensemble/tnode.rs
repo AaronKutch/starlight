@@ -5,7 +5,7 @@ use crate::ensemble::PBack;
 // We use this because our algorithms depend on generation counters
 ptr_struct!(PTNode);
 
-/// A temporal loopback node
+/// A temporal node, currently just used for loopbacks
 #[derive(Debug, Clone)]
 pub struct TNode {
     pub p_self: PBack,
