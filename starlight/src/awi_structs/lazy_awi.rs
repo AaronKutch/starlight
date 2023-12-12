@@ -13,7 +13,7 @@ use awint::{
 
 use crate::{
     awi,
-    ensemble::{Ensemble, PNote},
+    ensemble::{Ensemble, PRNode},
     epoch::get_current_epoch,
 };
 
@@ -34,7 +34,7 @@ use crate::{
 /// current `Epoch`
 pub struct LazyAwi {
     opaque: dag::Awi,
-    p_note: PNote,
+    p_rnode: PRNode,
 }
 
 impl Drop for LazyAwi {
@@ -46,7 +46,7 @@ impl Drop for LazyAwi {
                     .epoch_data
                     .borrow_mut()
                     .ensemble
-                    .remove_note(self.p_note);
+                    .remove_rnode(self.p_rnode);
                 if res.is_err() {
                     panic!("most likely, a `LazyAwi` created in one `Epoch` was dropped in another")
                 }
@@ -68,7 +68,7 @@ impl LazyAwi {
     }
 
     pub fn nzbw(&self) -> NonZeroUsize {
-        Ensemble::get_thread_local_note_nzbw(self.p_note).unwrap()
+        Ensemble::get_thread_local_rnode_nzbw(self.p_rnode).unwrap()
     }
 
     pub fn bw(&self) -> usize {
@@ -77,14 +77,14 @@ impl LazyAwi {
 
     pub fn opaque(w: NonZeroUsize) -> Self {
         let opaque = dag::Awi::opaque(w);
-        let p_note = get_current_epoch()
+        let p_rnode = get_current_epoch()
             .unwrap()
             .epoch_data
             .borrow_mut()
             .ensemble
-            .note_pstate(opaque.state())
+            .make_rnode_for_pstate(opaque.state())
             .unwrap();
-        Self { opaque, p_note }
+        Self { opaque, p_rnode }
     }
 
     // TODO it probably does need to be an extra `Awi` in the `Opaque` variant,
@@ -121,7 +121,7 @@ impl LazyAwi {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_note_value(self.p_note, rhs)
+        Ensemble::change_thread_local_rnode_value(self.p_rnode, rhs)
     }
 }
 
@@ -166,7 +166,7 @@ forward_debug_fmt!(LazyAwi);
 #[derive(Clone, Copy)]
 pub struct LazyInlAwi<const BW: usize, const LEN: usize> {
     opaque: dag::InlAwi<BW, LEN>,
-    p_note: PNote,
+    p_rnode: PRNode,
 }
 
 #[macro_export]
@@ -202,27 +202,27 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
         self.nzbw().get()
     }
 
-    pub fn p_note(&self) -> PNote {
-        self.p_note
+    pub fn p_rnode(&self) -> PRNode {
+        self.p_rnode
     }
 
     pub fn opaque() -> Self {
         let opaque = dag::InlAwi::opaque();
-        let p_note = get_current_epoch()
+        let p_rnode = get_current_epoch()
             .unwrap()
             .epoch_data
             .borrow_mut()
             .ensemble
-            .note_pstate(opaque.state())
+            .make_rnode_for_pstate(opaque.state())
             .unwrap();
-        Self { opaque, p_note }
+        Self { opaque, p_rnode }
     }
 
     /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_note_value(self.p_note, rhs)
+        Ensemble::change_thread_local_rnode_value(self.p_rnode, rhs)
     }
 }
 

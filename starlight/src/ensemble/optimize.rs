@@ -255,7 +255,7 @@ impl Ensemble {
                     // TODO check for const through loop, but there should be a
                     // parameter to enable
                 }
-                Referent::Note(_) => non_self_rc += 1,
+                Referent::ThisRNode(_) => non_self_rc += 1,
             }
         }
         if non_self_rc == 0 {
@@ -424,16 +424,16 @@ impl Ensemble {
                                 .unwrap();
                             tnode.p_driver = p_back_new;
                         }
-                        Referent::Note(p_note) => {
+                        Referent::ThisRNode(p_rnode) => {
                             // here we see a major advantage of the backref system
-                            let note = self.notes.get_mut(p_note).unwrap();
+                            let rnode = self.rnodes.get_mut(p_rnode).unwrap();
                             let mut found = false;
-                            for bit in &mut note.bits {
+                            for bit in &mut rnode.bits {
                                 if let Some(bit) = bit {
                                     if *bit == p_back {
                                         let p_back_new = self
                                             .backrefs
-                                            .insert_key(p_source, Referent::Note(p_note))
+                                            .insert_key(p_source, Referent::ThisRNode(p_rnode))
                                             .unwrap();
                                         *bit = p_back_new;
                                         found = true;
@@ -477,7 +477,7 @@ impl Ensemble {
                             self.optimizer
                                 .insert(Optimization::InvestigateLoopDriverConst(*p_driver));
                         }
-                        Referent::Note(_) => (),
+                        Referent::ThisRNode(_) => (),
                     }
                 }
                 for p_back in remove {
@@ -521,7 +521,7 @@ impl Ensemble {
                                 break
                             }
                         }
-                        Referent::Note(_) => {
+                        Referent::ThisRNode(_) => {
                             found_use = true;
                             break
                         }

@@ -30,7 +30,7 @@ fn lazy_awi() -> Option<()> {
     }
 
     // cleans up everything not still used by `LazyAwi`s, `LazyAwi`s deregister
-    // notes when dropped
+    // rnodes when dropped
     drop(epoch0);
 
     Some(())

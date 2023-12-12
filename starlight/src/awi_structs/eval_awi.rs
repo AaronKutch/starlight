@@ -7,7 +7,7 @@ use awint::{
 
 use crate::{
     awi,
-    ensemble::{Ensemble, PNote},
+    ensemble::{Ensemble, PRNode},
     epoch::get_current_epoch,
 };
 
@@ -27,7 +27,7 @@ use crate::{
 /// current `Epoch`.
 pub struct EvalAwi {
     p_state: PState,
-    p_note: PNote,
+    p_rnode: PRNode,
 }
 
 impl Drop for EvalAwi {
@@ -36,7 +36,7 @@ impl Drop for EvalAwi {
         if !panicking() {
             if let Some(epoch) = get_current_epoch() {
                 let mut lock = epoch.epoch_data.borrow_mut();
-                let res = lock.ensemble.remove_note(self.p_note);
+                let res = lock.ensemble.remove_rnode(self.p_rnode);
                 if res.is_err() {
                     panic!(
                         "most likely, an `EvalAwi` created in one `Epoch` was dropped in another"
@@ -58,7 +58,7 @@ impl Lineage for EvalAwi {
 }
 
 impl Clone for EvalAwi {
-    /// This makes another note to the same state that `self` pointed to.
+    /// This makes another rnode to the same state that `self` pointed to.
     #[track_caller]
     fn clone(&self) -> Self {
         Self::from_state(self.p_state)
@@ -94,15 +94,15 @@ impl EvalAwi {
     );
 
     pub fn nzbw(&self) -> NonZeroUsize {
-        Ensemble::get_thread_local_note_nzbw(self.p_note).unwrap()
+        Ensemble::get_thread_local_rnode_nzbw(self.p_rnode).unwrap()
     }
 
     pub fn bw(&self) -> usize {
         self.nzbw().get()
     }
 
-    pub fn p_note(&self) -> PNote {
-        self.p_note
+    pub fn p_rnode(&self) -> PRNode {
+        self.p_rnode
     }
 
     /// Used internally to create `EvalAwi`s
@@ -114,15 +114,15 @@ impl EvalAwi {
     pub fn from_state(p_state: PState) -> Self {
         if let Some(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
-            match lock.ensemble.note_pstate(p_state) {
-                Some(p_note) => {
+            match lock.ensemble.make_rnode_for_pstate(p_state) {
+                Some(p_rnode) => {
                     lock.ensemble
                         .stator
                         .states
                         .get_mut(p_state)
                         .unwrap()
                         .inc_extern_rc();
-                    Self { p_state, p_note }
+                    Self { p_state, p_rnode }
                 }
                 None => {
                     panic!(
@@ -146,7 +146,7 @@ impl EvalAwi {
         let nzbw = self.nzbw();
         let mut res = awi::Awi::zero(nzbw);
         for bit_i in 0..res.bw() {
-            let val = Ensemble::calculate_thread_local_note_value(self.p_note, bit_i)?;
+            let val = Ensemble::calculate_thread_local_rnode_value(self.p_rnode, bit_i)?;
             if let Some(val) = val.known_value() {
                 res.set(bit_i, val).unwrap();
             } else {

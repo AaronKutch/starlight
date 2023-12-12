@@ -10,7 +10,7 @@ use awint::{
 
 use crate::{
     ensemble::{
-        value::Evaluator, LNode, Note, Optimizer, PLNode, PNote, PTNode, State, Stator, TNode,
+        value::Evaluator, LNode, Optimizer, PLNode, PRNode, PTNode, RNode, State, Stator, TNode,
         Value,
     },
     triple_arena::{ptr_struct, Arena, SurjectArena},
@@ -54,14 +54,14 @@ pub enum Referent {
     Input(PLNode),
     /// Referent is using this for a loop driver
     LoopDriver(PTNode),
-    /// Referent is a note
-    Note(PNote),
+    /// Referent is an `RNode`
+    ThisRNode(PRNode),
 }
 
 #[derive(Debug, Clone)]
 pub struct Ensemble {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
-    pub notes: Arena<PNote, Note>,
+    pub rnodes: Arena<PRNode, RNode>,
     pub stator: Stator,
     pub lnodes: Arena<PLNode, LNode>,
     pub tnodes: Arena<PTNode, TNode>,
@@ -74,7 +74,7 @@ impl Ensemble {
     pub fn new() -> Self {
         Self {
             backrefs: SurjectArena::new(),
-            notes: Arena::new(),
+            rnodes: Arena::new(),
             stator: Stator::new(),
             lnodes: Arena::new(),
             tnodes: Arena::new(),
@@ -183,7 +183,7 @@ impl Ensemble {
                 Referent::ThisStateBit(..) => false,
                 Referent::Input(p_input) => !self.lnodes.contains(*p_input),
                 Referent::LoopDriver(p_driver) => !self.tnodes.contains(*p_driver),
-                Referent::Note(p_note) => !self.notes.contains(*p_note),
+                Referent::ThisRNode(p_rnode) => !self.rnodes.contains(*p_rnode),
             };
             if invalid {
                 return Err(EvalError::OtherString(format!("{referent:?} is invalid")))
@@ -234,23 +234,23 @@ impl Ensemble {
                 )))
             }
         }
-        for note in self.notes.vals() {
-            for p_back in &note.bits {
+        for rnode in self.rnodes.vals() {
+            for p_back in &rnode.bits {
                 if let Some(p_back) = p_back {
                     if let Some(referent) = self.backrefs.get_key(*p_back) {
-                        if let Referent::Note(p_note) = referent {
-                            if !self.notes.contains(*p_note) {
+                        if let Referent::ThisRNode(p_rnode) = referent {
+                            if !self.rnodes.contains(*p_rnode) {
                                 return Err(EvalError::OtherString(format!(
-                                    "{note:?} backref {p_note} is invalid"
+                                    "{rnode:?} backref {p_rnode} is invalid"
                                 )))
                             }
                         } else {
                             return Err(EvalError::OtherString(format!(
-                                "{note:?} backref {p_back} has incorrect referrent"
+                                "{rnode:?} backref {p_back} has incorrect referrent"
                             )))
                         }
                     } else {
-                        return Err(EvalError::OtherString(format!("note {p_back} is invalid")))
+                        return Err(EvalError::OtherString(format!("rnode {p_back} is invalid")))
                     }
                 }
             }
@@ -293,10 +293,10 @@ impl Ensemble {
                     let tnode = self.tnodes.get(*p_tnode).unwrap();
                     tnode.p_driver != p_back
                 }
-                Referent::Note(p_note) => {
-                    let note = self.notes.get(*p_note).unwrap();
+                Referent::ThisRNode(p_rnode) => {
+                    let rnode = self.rnodes.get(*p_rnode).unwrap();
                     let mut found = false;
-                    for bit in &note.bits {
+                    for bit in &rnode.bits {
                         if *bit == Some(p_back) {
                             found = true;
                             break

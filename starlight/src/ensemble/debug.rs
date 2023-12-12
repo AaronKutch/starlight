@@ -6,7 +6,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{Ensemble, Equiv, LNode, PBack, PNote, PTNode, Referent, State},
+    ensemble::{Ensemble, Equiv, LNode, PBack, PRNode, PTNode, Referent, State},
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
     Epoch,
@@ -84,10 +84,10 @@ pub struct TNodeTmp {
 }
 
 #[derive(Debug, Clone)]
-pub struct NoteTmp {
+pub struct RNodeTmp {
     p_self: PBack,
     p_equiv: PBack,
-    p_note: PNote,
+    p_rnode: PRNode,
     i: u64,
 }
 
@@ -97,7 +97,7 @@ pub enum NodeKind {
     LNode(LNode),
     TNode(TNodeTmp),
     Equiv(Equiv, Vec<PBack>),
-    Note(NoteTmp),
+    RNode(RNodeTmp),
     Remove,
 }
 
@@ -160,12 +160,12 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 },
                 sinks: vec![],
             },
-            NodeKind::Note(note) => DebugNode {
-                sources: vec![(note.p_equiv, String::new())],
+            NodeKind::RNode(rnode) => DebugNode {
+                sources: vec![(rnode.p_equiv, String::new())],
                 center: {
                     vec![
-                        format!("{}", note.p_self),
-                        format!("{} [{}]", note.p_note, note.i),
+                        format!("{}", rnode.p_self),
+                        format!("{} [{}]", rnode.p_rnode, rnode.i),
                     ]
                 },
                 sinks: vec![],
@@ -238,19 +238,19 @@ impl Ensemble {
                             p_tnode: *p_tnode,
                         })
                     }
-                    Referent::Note(p_note) => {
-                        let note = self.notes.get(*p_note).unwrap();
+                    Referent::ThisRNode(p_rnode) => {
+                        let rnode = self.rnodes.get(*p_rnode).unwrap();
                         let mut inx = u64::MAX;
-                        for (i, bit) in note.bits.iter().enumerate() {
+                        for (i, bit) in rnode.bits.iter().enumerate() {
                             if *bit == Some(p_self) {
                                 inx = u64::try_from(i).unwrap();
                             }
                         }
                         let equiv = self.backrefs.get_val(p_self).unwrap();
-                        NodeKind::Note(NoteTmp {
+                        NodeKind::RNode(RNodeTmp {
                             p_self,
                             p_equiv: equiv.p_self_equiv,
-                            p_note: *p_note,
+                            p_rnode: *p_rnode,
                             i: inx,
                         })
                     }

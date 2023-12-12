@@ -507,7 +507,7 @@ impl Ensemble {
                                 self.evaluator.insert(Eval::ChangeTNode(p_tnode));
                             }
                         }
-                        Referent::Note(_) => (),
+                        Referent::ThisRNode(_) => (),
                     }
                 }
             }
@@ -583,7 +583,7 @@ impl Ensemble {
                 }
                 Referent::Input(_) => (),
                 Referent::LoopDriver(_) => (),
-                Referent::Note(_) => (),
+                Referent::ThisRNode(_) => (),
             }
         }
         if !saw_node {
