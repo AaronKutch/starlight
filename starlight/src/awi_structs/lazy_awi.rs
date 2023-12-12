@@ -37,6 +37,7 @@ pub struct LazyAwi {
     p_rnode: PRNode,
 }
 
+// NOTE: when changing this also remember to change `LazyInlAwi`
 impl Drop for LazyAwi {
     fn drop(&mut self) {
         // prevent invoking recursive panics and a buffer overrun
@@ -163,7 +164,7 @@ forward_debug_fmt!(LazyAwi);
 
 /// The same as [LazyAwi](crate::LazyAwi), except that it allows for checking
 /// bitwidths at compile time.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct LazyInlAwi<const BW: usize, const LEN: usize> {
     opaque: dag::InlAwi<BW, LEN>,
     p_rnode: PRNode,
@@ -183,6 +184,27 @@ macro_rules! lazy_inlawi_ty {
     };
 }
 
+impl<const BW: usize, const LEN: usize> Drop for LazyInlAwi<BW, LEN> {
+    fn drop(&mut self) {
+        // prevent invoking recursive panics and a buffer overrun
+        if !panicking() {
+            if let Some(epoch) = get_current_epoch() {
+                let res = epoch
+                    .epoch_data
+                    .borrow_mut()
+                    .ensemble
+                    .remove_rnode(self.p_rnode);
+                if res.is_err() {
+                    panic!(
+                        "most likely, a `LazyInlAwi` created in one `Epoch` was dropped in another"
+                    )
+                }
+            }
+            // else the epoch has been dropped
+        }
+    }
+}
+
 impl<const BW: usize, const LEN: usize> Lineage for LazyInlAwi<BW, LEN> {
     fn state(&self) -> PState {
         self.opaque.state()
@@ -195,15 +217,11 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
     }
 
     pub fn nzbw(&self) -> NonZeroUsize {
-        self.opaque.nzbw()
+        Ensemble::get_thread_local_rnode_nzbw(self.p_rnode).unwrap()
     }
 
     pub fn bw(&self) -> usize {
         self.nzbw().get()
-    }
-
-    pub fn p_rnode(&self) -> PRNode {
-        self.p_rnode
     }
 
     pub fn opaque() -> Self {
