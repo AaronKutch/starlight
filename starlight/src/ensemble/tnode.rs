@@ -11,7 +11,7 @@ use crate::{ensemble::PBack, triple_arena::ptr_struct};
 // We use this because our algorithms depend on generation counters
 ptr_struct!(PTNode);
 
-/// A "table" node meant to evoke some kind of one-way table in a DAG.
+/// A lookup table node
 #[derive(Debug, Clone)]
 pub struct TNode {
     pub p_self: PBack,
@@ -19,11 +19,6 @@ pub struct TNode {
     pub inp: SmallVec<[PBack; 4]>,
     /// Lookup Table that outputs one bit
     pub lut: Option<Awi>,
-    // If the value cannot be temporally changed with respect to what the
-    // simplification algorithms can assume.
-    //pub is_permanent: bool,
-    /// If the value is temporally driven by a `Loop`
-    pub loop_driver: Option<PBack>,
     pub lowered_from: Option<PState>,
 }
 
@@ -33,7 +28,6 @@ impl TNode {
             p_self,
             inp: SmallVec::new(),
             lut: None,
-            loop_driver: None,
             lowered_from,
         }
     }

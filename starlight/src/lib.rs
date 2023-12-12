@@ -2,9 +2,7 @@
 //! typical DSL (Domain Specific Language) approach, this allows RTL
 //! descriptions in ordinary Rust code with all the features that Rust provides.
 //!
-//! This crate is still a WIP, but it currently can describe most combinational
-//! logic. The temporal structs (`Loop` and `Net`) need more development before
-//! they will work properly. Many optimizations are planned in the near future.
+//! This crate still has a considerable amount of WIP stuff
 //!
 //! See the documentation of `awint`/`awint_dag` which is used as the backend
 //! for this.
@@ -163,11 +161,9 @@
 mod awi_structs;
 /// Internals used by this crate to deal with states and TNode DAGs
 pub mod ensemble;
-pub(crate) mod lower;
+pub mod lower;
 mod misc;
-pub use awi_structs::{
-    epoch, Assertions, Epoch, EvalAwi, LazyAwi, LazyInlAwi, Loop, LoopHandle, Net,
-};
+pub use awi_structs::{epoch, Assertions, Epoch, EvalAwi, LazyAwi, LazyInlAwi, Loop, Net};
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
 pub use awint::{self, awint_dag, awint_dag::triple_arena};
@@ -191,8 +187,10 @@ pub mod dag {
         *,
     };
 
-    pub use crate::{Loop, LoopHandle, Net};
+    pub use crate::{Loop, Net};
 }
+
+// TODO fix the EvalError enum situation
 
 // TODO use modified Lagrangians that appear different to nets with different
 // requirements on critical path, plus small differencing values to prevent

@@ -2,16 +2,57 @@
 
 use std::{cmp::min, mem, num::NonZeroUsize};
 
+use awint::{
+    awint_dag::{
+        smallvec::{smallvec, SmallVec},
+        ConcatFieldsType,
+    },
+    bw,
+};
+
 use crate::{
     awi,
+    awint_dag::{ConcatType, Lineage, Op},
     dag::{awi, inlawi, inlawi_ty, Awi, Bits, InlAwi},
 };
 
 const USIZE_BITS: usize = usize::BITS as usize;
 
 // This code here is especially messy because we do not want to get into
-// infinite lowering loops. These first few functions need to use manual `get`
-// and `set` and only literal macros within loop blocks.
+// infinite lowering loops. These first few functions need to use manual
+// concatenation and only literal macros within loop blocks.
+
+// Everything used to be done through `get` and `set`, but going straight to
+// `StaticLut` or `Concat` or `ConcatFields` is a massive performance boost.
+
+// TODO In the future if we want something more, we should have some kind of
+// caching for known optimization results.
+
+// note that the $inx arguments are in order from least to most significant
+macro_rules! static_lut {
+    ($lhs:ident; $lut:expr; $($inx:expr),*) => {{
+        let nzbw = $lhs.state_nzbw();
+        let op = Op::StaticLut(
+            ConcatType::from_iter([$(
+                $inx.state(),
+            )*]),
+            {use awi::*; awi!($lut)}
+        );
+        $lhs.update_state(
+            nzbw,
+            op,
+        ).unwrap_at_runtime()
+    }};
+}
+
+pub fn reverse(x: &Bits) -> Awi {
+    let nzbw = x.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
+    for i in 0..x.bw() {
+        out.push(x.get(x.bw() - 1 - i).unwrap().state())
+    }
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
+}
 
 /// Given `inx.bw()` bits, this returns `2^inx.bw()` signals for every possible
 /// state of `inx`. The `i`th signal is true only if `inx.to_usize() == i`.
@@ -28,19 +69,14 @@ pub fn selector(inx: &Bits, cap: Option<usize>) -> Vec<inlawi_ty!(1)> {
     }
     let lb_num = num.next_power_of_two().trailing_zeros() as usize;
     let mut signals = vec![];
-    let lut0 = inlawi!(0100);
-    let lut1 = inlawi!(1000);
     for i in 0..num {
         let mut signal = inlawi!(1);
         for j in 0..lb_num {
-            let mut tmp = inlawi!(00);
-            tmp.set(0, inx.get(j).unwrap()).unwrap();
-            tmp.set(1, signal.to_bool()).unwrap();
             // depending on the `j`th bit of `i`, keep the signal line true
             if (i & (1 << j)) == 0 {
-                signal.lut_(&lut0, &tmp).unwrap();
+                static_lut!(signal; 0100; inx.get(j).unwrap(), signal);
             } else {
-                signal.lut_(&lut1, &tmp).unwrap();
+                static_lut!(signal; 1000; inx.get(j).unwrap(), signal);
             }
         }
         signals.push(signal);
@@ -58,25 +94,21 @@ pub fn selector_awi(inx: &Bits, cap: Option<usize>) -> Awi {
         return awi!(1)
     }
     let lb_num = num.next_power_of_two().trailing_zeros() as usize;
-    let mut signals = Awi::zero(NonZeroUsize::new(num).unwrap());
-    let lut0 = inlawi!(0100);
-    let lut1 = inlawi!(1000);
+    let nzbw = NonZeroUsize::new(num).unwrap();
+    let mut signals = SmallVec::with_capacity(num);
     for i in 0..num {
         let mut signal = inlawi!(1);
         for j in 0..lb_num {
-            let mut tmp = inlawi!(00);
-            tmp.set(0, inx.get(j).unwrap()).unwrap();
-            tmp.set(1, signal.to_bool()).unwrap();
             // depending on the `j`th bit of `i`, keep the signal line true
             if (i & (1 << j)) == 0 {
-                signal.lut_(&lut0, &tmp).unwrap();
+                static_lut!(signal; 0100; inx.get(j).unwrap(), signal);
             } else {
-                signal.lut_(&lut1, &tmp).unwrap();
+                static_lut!(signal; 1000; inx.get(j).unwrap(), signal);
             }
         }
-        signals.set(i, signal.to_bool()).unwrap();
+        signals.push(signal.state());
     }
-    signals
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(signals)))
 }
 
 /// Trailing smear, given the value of `inx` it will set all bits in the vector
@@ -92,9 +124,6 @@ pub fn tsmear_inx(inx: &Bits, num_signals: usize) -> Vec<inlawi_ty!(1)> {
         lb_num += 1;
     }
     let mut signals = vec![];
-    let lut_s0 = inlawi!(10010000);
-    let lut_and = inlawi!(1000);
-    let lut_or = inlawi!(1110);
     for i in 0..num_signals {
         // if `inx < i`
         let mut signal = inlawi!(0);
@@ -105,25 +134,15 @@ pub fn tsmear_inx(inx: &Bits, num_signals: usize) -> Vec<inlawi_ty!(1)> {
             if (i & (1 << j)) == 0 {
                 // update equality, and if the prefix is true and the `j` bit of `inx` is set
                 // then the signal is set
-                let mut tmp0 = inlawi!(00);
-                tmp0.set(0, inx.get(j).unwrap()).unwrap();
-                tmp0.set(1, prefix_equal.to_bool()).unwrap();
-                let mut tmp1 = inlawi!(00);
-                tmp1.lut_(&lut_s0, &tmp0).unwrap();
-                prefix_equal.set(0, tmp1.get(0).unwrap()).unwrap();
 
-                // or into `signal`
-                let mut tmp = inlawi!(00);
-                tmp.set(0, tmp1.get(1).unwrap()).unwrap();
-                tmp.set(1, signal.to_bool()).unwrap();
-                signal.lut_(&lut_or, &tmp).unwrap();
+                let inx_j = inx.get(j).unwrap();
+                static_lut!(signal; 11111000; inx_j, prefix_equal, signal);
+
+                static_lut!(prefix_equal; 0100; inx_j, prefix_equal);
             } else {
                 // just update equality, the `j`th bit of `i` is 1 and cannot be less than
                 // whatever the `inx` bit is
-                let mut tmp = inlawi!(00);
-                tmp.set(0, inx.get(j).unwrap()).unwrap();
-                tmp.set(1, prefix_equal.to_bool()).unwrap();
-                prefix_equal.lut_(&lut_and, &tmp).unwrap();
+                static_lut!(prefix_equal; 1000; inx.get(j).unwrap(), prefix_equal);
             }
         }
         signals.push(signal);
@@ -138,10 +157,8 @@ pub fn tsmear_awi(inx: &Bits, num_signals: usize) -> Awi {
         // need extra bit to get all `n + 1`
         lb_num += 1;
     }
-    let mut signals = Awi::zero(NonZeroUsize::new(num_signals).unwrap());
-    let lut_s0 = inlawi!(10010000);
-    let lut_and = inlawi!(1000);
-    let lut_or = inlawi!(1110);
+    let nzbw = NonZeroUsize::new(num_signals).unwrap();
+    let mut signals = SmallVec::with_capacity(num_signals);
     for i in 0..num_signals {
         // if `inx < i`
         let mut signal = inlawi!(0);
@@ -152,47 +169,33 @@ pub fn tsmear_awi(inx: &Bits, num_signals: usize) -> Awi {
             if (i & (1 << j)) == 0 {
                 // update equality, and if the prefix is true and the `j` bit of `inx` is set
                 // then the signal is set
-                let mut tmp0 = inlawi!(00);
-                tmp0.set(0, inx.get(j).unwrap()).unwrap();
-                tmp0.set(1, prefix_equal.to_bool()).unwrap();
-                let mut tmp1 = inlawi!(00);
-                tmp1.lut_(&lut_s0, &tmp0).unwrap();
-                prefix_equal.set(0, tmp1.get(0).unwrap()).unwrap();
 
-                // or into `signal`
-                let mut tmp = inlawi!(00);
-                tmp.set(0, tmp1.get(1).unwrap()).unwrap();
-                tmp.set(1, signal.to_bool()).unwrap();
-                signal.lut_(&lut_or, &tmp).unwrap();
+                let inx_j = inx.get(j).unwrap();
+                static_lut!(signal; 11111000; inx_j, prefix_equal, signal);
+
+                static_lut!(prefix_equal; 0100; inx_j, prefix_equal);
             } else {
                 // just update equality, the `j`th bit of `i` is 1 and cannot be less than
                 // whatever the `inx` bit is
-                let mut tmp = inlawi!(00);
-                tmp.set(0, inx.get(j).unwrap()).unwrap();
-                tmp.set(1, prefix_equal.to_bool()).unwrap();
-                prefix_equal.lut_(&lut_and, &tmp).unwrap();
+                static_lut!(prefix_equal; 1000; inx.get(j).unwrap(), prefix_equal);
             }
         }
-        signals.set(i, signal.to_bool()).unwrap();
+        signals.push(signal.state());
     }
-    signals
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(signals)))
 }
 
 pub fn mux_(x0: &Bits, x1: &Bits, inx: &Bits) -> Awi {
     assert_eq!(x0.bw(), x1.bw());
     assert_eq!(inx.bw(), 1);
-    let mut out = Awi::zero(x0.nzbw());
-    let lut = inlawi!(1100_1010);
+    let nzbw = x0.nzbw();
+    let mut signals = SmallVec::with_capacity(nzbw.get());
     for i in 0..x0.bw() {
-        let mut tmp0 = inlawi!(000);
-        tmp0.set(0, x0.get(i).unwrap()).unwrap();
-        tmp0.set(1, x1.get(i).unwrap()).unwrap();
-        tmp0.set(2, inx.to_bool()).unwrap();
-        let mut tmp1 = inlawi!(0);
-        tmp1.lut_(&lut, &tmp0).unwrap();
-        out.set(i, tmp1.to_bool()).unwrap();
+        let mut tmp = inlawi!(0);
+        static_lut!(tmp; 1100_1010; x0.get(i).unwrap(), x1.get(i).unwrap(), inx);
+        signals.push(tmp.state());
     }
-    out
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(signals)))
 }
 
 /*
@@ -218,19 +221,17 @@ pub fn dynamic_to_static_lut(out: &mut Bits, table: &Bits, inx: &Bits) {
     // if this is broken it breaks a lot of stuff
     assert!(table.bw() == (out.bw().checked_mul(1 << inx.bw()).unwrap()));
     let signals = selector(inx, None);
-    let lut = inlawi!(1111_1000);
+    let nzbw = out.nzbw();
+    let mut tmp_output = SmallVec::with_capacity(nzbw.get());
     for j in 0..out.bw() {
         let mut column = inlawi!(0);
         for (i, signal) in signals.iter().enumerate() {
-            let mut tmp = inlawi!(000);
-            tmp.set(0, signal.to_bool()).unwrap();
-            tmp.set(1, table.get((i * out.bw()) + j).unwrap()).unwrap();
-            tmp.set(2, column.to_bool()).unwrap();
-            // if the column is set or both the cell and signal are set
-            column.lut_(&lut, &tmp).unwrap();
+            static_lut!(column; 1111_1000; signal, table.get((i * out.bw()) + j).unwrap(), column);
         }
-        out.set(j, column.to_bool()).unwrap();
+        tmp_output.push(column.state());
     }
+    out.update_state(nzbw, Op::Concat(ConcatType::from_smallvec(tmp_output)))
+        .unwrap_at_runtime();
 }
 
 pub fn dynamic_to_static_get(bits: &Bits, inx: &Bits) -> inlawi_ty!(1) {
@@ -238,15 +239,9 @@ pub fn dynamic_to_static_get(bits: &Bits, inx: &Bits) -> inlawi_ty!(1) {
         return InlAwi::from(bits.to_bool())
     }
     let signals = selector(inx, Some(bits.bw()));
-    let lut = inlawi!(1111_1000);
     let mut out = inlawi!(0);
     for (i, signal) in signals.iter().enumerate() {
-        let mut tmp = inlawi!(000);
-        tmp.set(0, signal.to_bool()).unwrap();
-        tmp.set(1, bits.get(i).unwrap()).unwrap();
-        tmp.set(2, out.to_bool()).unwrap();
-        // horizontally OR the product of the signals and `bits`
-        out.lut_(&lut, &tmp).unwrap();
+        static_lut!(out; 1111_1000; signal, bits.get(i).unwrap(), out);
     }
     out
 }
@@ -256,97 +251,146 @@ pub fn dynamic_to_static_set(bits: &Bits, inx: &Bits, bit: &Bits) -> Awi {
         return Awi::from(bit)
     }
     let signals = selector(inx, Some(bits.bw()));
-    let mut out = Awi::zero(bits.nzbw());
-    let lut = inlawi!(1101_1000);
+    let nzbw = bits.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     for (i, signal) in signals.iter().enumerate() {
-        let mut tmp0 = inlawi!(000);
-        tmp0.set(0, signal.to_bool()).unwrap();
-        tmp0.set(1, bit.to_bool()).unwrap();
-        tmp0.set(2, bits.get(i).unwrap()).unwrap();
-        let mut tmp1 = inlawi!(0);
         // multiplex between using `bits` or the `bit` depending on the signal
-        tmp1.lut_(&lut, &tmp0).unwrap();
-        out.set(i, tmp1.to_bool()).unwrap();
+        let mut tmp = inlawi!(0);
+        static_lut!(tmp; 1101_1000; signal, bit, bits.get(i).unwrap());
+        out.push(tmp.state());
     }
-    out
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
 }
 
 pub fn resize(x: &Bits, w: NonZeroUsize, signed: bool) -> Awi {
-    let mut out = Awi::zero(w);
-    if out.nzbw() == x.nzbw() {
-        out.copy_(x).unwrap();
-    } else if out.nzbw() < x.nzbw() {
-        for i in 0..out.bw() {
-            out.set(i, x.get(i).unwrap()).unwrap();
-        }
+    if w == x.nzbw() {
+        Awi::from_bits(x)
+    } else if w < x.nzbw() {
+        Awi::new(
+            w,
+            Op::ConcatFields(ConcatFieldsType::from_iter([(x.state(), 0usize, w)])),
+        )
+    } else if signed {
+        let extension = Awi::new(
+            NonZeroUsize::new(w.get() - x.bw()).unwrap(),
+            Op::Repeat([x.msb().state()]),
+        );
+        Awi::new(
+            w,
+            Op::Concat(ConcatType::from_smallvec(smallvec![
+                x.state(),
+                extension.state()
+            ])),
+        )
     } else {
-        for i in 0..x.bw() {
-            out.set(i, x.get(i).unwrap()).unwrap();
-        }
-        if signed {
-            for i in x.bw()..out.bw() {
-                out.set(i, x.get(x.bw() - 1).unwrap()).unwrap();
-            }
-        } // else the bits in `out` are automatically zero
+        let zero = Awi::zero(NonZeroUsize::new(w.get() - x.bw()).unwrap());
+        Awi::new(
+            w,
+            Op::Concat(ConcatType::from_smallvec(smallvec![
+                x.state(),
+                zero.state()
+            ])),
+        )
     }
-    out
 }
 
 pub fn resize_cond(x: &Bits, w: NonZeroUsize, signed: &Bits) -> Awi {
     assert_eq!(signed.bw(), 1);
-    let mut out = Awi::zero(w);
-    if out.nzbw() == x.nzbw() {
-        out.copy_(x).unwrap();
-    } else if out.nzbw() < x.nzbw() {
-        for i in 0..out.bw() {
-            out.set(i, x.get(i).unwrap()).unwrap();
-        }
+    if w == x.nzbw() {
+        Awi::from_bits(x)
+    } else if w < x.nzbw() {
+        Awi::new(
+            w,
+            Op::ConcatFields(ConcatFieldsType::from_iter([(x.state(), 0usize, w)])),
+        )
     } else {
-        for i in 0..x.bw() {
-            out.set(i, x.get(i).unwrap()).unwrap();
-        }
-        let signed = signed.to_bool();
-        for i in x.bw()..out.bw() {
-            out.set(i, signed).unwrap();
-        }
+        let extension = Awi::new(
+            NonZeroUsize::new(w.get() - x.bw()).unwrap(),
+            Op::Repeat([signed.state()]),
+        );
+        Awi::new(
+            w,
+            Op::Concat(ConcatType::from_smallvec(smallvec![
+                x.state(),
+                extension.state()
+            ])),
+        )
     }
-    out
 }
 
 /// Returns (`lhs`, true) if there are invalid values
 pub fn static_field(lhs: &Bits, to: usize, rhs: &Bits, from: usize, width: usize) -> (Awi, bool) {
-    let mut out = Awi::from_bits(lhs);
     if (width > lhs.bw())
         || (width > rhs.bw())
         || (to > (lhs.bw() - width))
         || (from > (rhs.bw() - width))
     {
-        (out, true)
-    } else {
-        for i in 0..width {
-            out.set(i + to, rhs.get(i + from).unwrap()).unwrap();
-        }
-        (out, false)
+        return (Awi::from_bits(lhs), true);
     }
+    let res = if let Some(width) = NonZeroUsize::new(width) {
+        if let Some(lhs_rem_lo) = NonZeroUsize::new(to) {
+            if let Some(lhs_rem_hi) = NonZeroUsize::new(from) {
+                Awi::new(
+                    lhs.nzbw(),
+                    Op::ConcatFields(ConcatFieldsType::from_iter([
+                        (lhs.state(), 0usize, lhs_rem_lo),
+                        (rhs.state(), from, width),
+                        (lhs.state(), to + width.get(), lhs_rem_hi),
+                    ])),
+                )
+            } else {
+                Awi::new(
+                    lhs.nzbw(),
+                    Op::ConcatFields(ConcatFieldsType::from_iter([
+                        (lhs.state(), 0usize, lhs_rem_lo),
+                        (rhs.state(), from, width),
+                    ])),
+                )
+            }
+        } else if let Some(lhs_rem_hi) = NonZeroUsize::new(lhs.bw() - width.get()) {
+            Awi::new(
+                lhs.nzbw(),
+                Op::ConcatFields(ConcatFieldsType::from_iter([
+                    (rhs.state(), from, width),
+                    (lhs.state(), width.get(), lhs_rem_hi),
+                ])),
+            )
+        } else {
+            Awi::new(
+                lhs.nzbw(),
+                Op::ConcatFields(ConcatFieldsType::from_iter([(rhs.state(), from, width)])),
+            )
+        }
+    } else {
+        Awi::from_bits(lhs)
+    };
+    (res, false)
 }
 
 /// This does not handle invalid arguments; set `width` to zero to cause no-ops
 pub fn field_width(lhs: &Bits, rhs: &Bits, width: &Bits) -> Awi {
-    let mut out = Awi::from_bits(lhs);
     let min_w = min(lhs.bw(), rhs.bw());
     let signals = tsmear_inx(width, min_w);
-    let lut = inlawi!(1100_1010);
+    let nzbw = NonZeroUsize::new(signals.len()).unwrap();
+    let mut mux_part = SmallVec::with_capacity(nzbw.get());
     for (i, signal) in signals.into_iter().enumerate() {
         // mux_ between `lhs` or `rhs` based on the signal
-        let mut tmp0 = inlawi!(000);
-        tmp0.set(0, lhs.get(i).unwrap()).unwrap();
-        tmp0.set(1, rhs.get(i).unwrap()).unwrap();
-        tmp0.set(2, signal.to_bool()).unwrap();
-        let mut tmp1 = inlawi!(0);
-        tmp1.lut_(&lut, &tmp0).unwrap();
-        out.set(i, tmp1.to_bool()).unwrap();
+        let mut tmp = inlawi!(0);
+        static_lut!(tmp; 1100_1010; lhs.get(i).unwrap(), rhs.get(i).unwrap(), signal);
+        mux_part.push(tmp.state());
     }
-    out
+    let mux_part = Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(mux_part)));
+    if let Some(lhs_rem_hi) = NonZeroUsize::new(lhs.bw() - nzbw.get()) {
+        Awi::new(
+            lhs.nzbw(),
+            Op::ConcatFields(ConcatFieldsType::from_iter([
+                (mux_part.state(), 0usize, nzbw),
+                (lhs.state(), nzbw.get(), lhs_rem_hi),
+            ])),
+        )
+    } else {
+        mux_part
+    }
 }
 
 /// Given the diagonal control lines and input of a crossbar with output width
@@ -362,22 +406,27 @@ pub fn crossbar(
 ) {
     assert!(signal_range.0 < signal_range.1);
     assert_eq!(signal_range.1 - signal_range.0, signals.len());
+
+    let nzbw = output.nzbw();
+    let mut tmp_output = SmallVec::with_capacity(nzbw.get());
     for j in 0..output.bw() {
         // output bar for ORing
         let mut out_bar = inlawi!(0);
         for i in 0..input.bw() {
             let signal_inx = output.bw() - 1 + i - j;
             if (signal_inx >= signal_range.0) && (signal_inx < signal_range.1) {
-                let mut inx = inlawi!(000);
-                inx.set(0, input.get(i).unwrap()).unwrap();
-                inx.set(1, signals[signal_inx - signal_range.0].to_bool())
-                    .unwrap();
-                inx.set(2, out_bar.to_bool()).unwrap();
-                out_bar.lut_(&inlawi!(1111_1000), &inx).unwrap();
+                static_lut!(out_bar; 1111_1000;
+                    input.get(i).unwrap(),
+                    signals[signal_inx - signal_range.0],
+                    out_bar
+                );
             }
         }
-        output.set(j, out_bar.to_bool()).unwrap();
+        tmp_output.push(out_bar.state());
     }
+    output
+        .update_state(nzbw, Op::Concat(ConcatType::from_smallvec(tmp_output)))
+        .unwrap_at_runtime();
 }
 
 pub fn funnel_(x: &Bits, s: &Bits) -> Awi {
@@ -436,6 +485,7 @@ pub fn ashr(x: &Bits, s: &Bits) -> Awi {
     // Not sure if there is a better way to do this. If we try to use the crossbar
     // signals in some way, we are guaranteed some kind of > O(1) time thing.
 
+    let msb = x.msb();
     // get the `lb_num` that `tsmear_inx` uses, it can be `x.bw() - 1` because of
     // the `s < x.bw()` requirement, this single bit of difference is important
     // for powers of two because of the `lb_num += 1` condition it avoids.
@@ -448,26 +498,18 @@ pub fn ashr(x: &Bits, s: &Bits) -> Awi {
     }
     if let Some(w) = NonZeroUsize::new(lb_num) {
         let mut gated_s = Awi::zero(w);
-        let lut_and = inlawi!(1000);
         // `gated_s` will be zero if `x.msb()` is zero, in which case `tsmear_inx`
         // produces all zeros to be ORed
         for i in 0..gated_s.bw() {
-            let mut tmp0 = inlawi!(00);
-            tmp0.set(0, s.get(i).unwrap()).unwrap();
-            tmp0.set(1, x.msb()).unwrap();
             let mut tmp1 = inlawi!(0);
-            tmp1.lut_(&lut_and, &tmp0).unwrap();
+            static_lut!(tmp1; 1000; s.get(i).unwrap(), msb);
             gated_s.set(i, tmp1.to_bool()).unwrap();
         }
         let or_mask = tsmear_awi(&gated_s, num);
-        let lut_or = inlawi!(1110);
         for i in 0..or_mask.bw() {
             let out_i = out.bw() - 1 - i;
-            let mut tmp0 = inlawi!(00);
-            tmp0.set(0, out.get(out_i).unwrap()).unwrap();
-            tmp0.set(1, or_mask.get(i).unwrap()).unwrap();
             let mut tmp1 = inlawi!(0);
-            tmp1.lut_(&lut_or, &tmp0).unwrap();
+            static_lut!(tmp1; 1110; out.get(out_i).unwrap(), or_mask.get(i).unwrap());
             out.set(out_i, tmp1.to_bool()).unwrap();
         }
     }
@@ -509,50 +551,64 @@ pub fn rotr(x: &Bits, s: &Bits) -> Awi {
 }
 
 pub fn bitwise_not(x: &Bits) -> Awi {
-    let mut out = Awi::zero(x.nzbw());
+    let nzbw = x.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     for i in 0..x.bw() {
         let mut tmp = inlawi!(0);
-        let inx = InlAwi::from(x.get(i).unwrap());
-        tmp.lut_(&inlawi!(01), &inx).unwrap();
-        out.set(i, tmp.to_bool()).unwrap();
+        static_lut!(tmp; 01; x.get(i).unwrap());
+        out.push(tmp.state());
     }
-    out
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
 }
 
-pub fn bitwise(lhs: &Bits, rhs: &Bits, lut: inlawi_ty!(4)) -> Awi {
+pub fn bitwise(lhs: &Bits, rhs: &Bits, lut: awi::Awi) -> Awi {
     assert_eq!(lhs.bw(), rhs.bw());
-    let mut out = Awi::zero(lhs.nzbw());
+    assert_eq!(lut.bw(), 4);
+    let nzbw = lhs.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     for i in 0..lhs.bw() {
         let mut tmp = inlawi!(0);
-        let mut inx = inlawi!(00);
-        inx.set(0, lhs.get(i).unwrap()).unwrap();
-        inx.set(1, rhs.get(i).unwrap()).unwrap();
-        tmp.lut_(&lut, &inx).unwrap();
-        out.set(i, tmp.to_bool()).unwrap();
+        tmp.update_state(
+            bw(1),
+            Op::StaticLut(
+                ConcatType::from_iter([lhs.get(i).unwrap().state(), rhs.get(i).unwrap().state()]),
+                lut.clone(),
+            ),
+        )
+        .unwrap_at_runtime();
+        out.push(tmp.state());
     }
-    out
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
 }
 
 pub fn incrementer(x: &Bits, cin: &Bits, dec: bool) -> (Awi, inlawi_ty!(1)) {
     assert_eq!(cin.bw(), 1);
-    // half adder or subtractor
-    let lut = if dec {
-        inlawi!(1110_1001)
-    } else {
-        inlawi!(1001_0100)
-    };
-    let mut out = Awi::zero(x.nzbw());
+    let nzbw = x.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(cin.to_bool());
-    for i in 0..x.bw() {
-        let mut carry_sum = inlawi!(00);
-        let mut inx = inlawi!(00);
-        inx.set(0, carry.to_bool()).unwrap();
-        inx.set(1, x.get(i).unwrap()).unwrap();
-        carry_sum.lut_(&lut, &inx).unwrap();
-        out.set(i, carry_sum.get(0).unwrap()).unwrap();
-        carry.bool_(carry_sum.get(1).unwrap());
+    if dec {
+        for i in 0..x.bw() {
+            let mut tmp = inlawi!(0);
+            let b = x.get(i).unwrap();
+            // half subtractor
+            static_lut!(tmp; 1001; carry, b);
+            out.push(tmp.state());
+            static_lut!(carry; 1110; carry, b);
+        }
+    } else {
+        for i in 0..x.bw() {
+            let mut tmp = inlawi!(0);
+            let b = x.get(i).unwrap();
+            // half adder
+            static_lut!(tmp; 0110; carry, b);
+            out.push(tmp.state());
+            static_lut!(carry; 1000; carry, b);
+        }
     }
-    (out, carry)
+    (
+        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out))),
+        carry,
+    )
 }
 
 // TODO select carry adder
@@ -577,46 +633,52 @@ pub fn cin_sum(cin: &Bits, lhs: &Bits, rhs: &Bits) -> (Awi, inlawi_ty!(1), inlaw
     assert_eq!(cin.bw(), 1);
     assert_eq!(lhs.bw(), rhs.bw());
     let w = lhs.bw();
-    // full adder
-    let lut = inlawi!(1110_1001_1001_0100);
-    let mut out = Awi::zero(lhs.nzbw());
+    let nzbw = lhs.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(cin.to_bool());
     for i in 0..w {
         let mut carry_sum = inlawi!(00);
-        let mut inx = inlawi!(000);
-        inx.set(0, carry.to_bool()).unwrap();
-        inx.set(1, lhs.get(i).unwrap()).unwrap();
-        inx.set(2, rhs.get(i).unwrap()).unwrap();
-        carry_sum.lut_(&lut, &inx).unwrap();
-        out.set(i, carry_sum.get(0).unwrap()).unwrap();
+        static_lut!(carry_sum; 1110_1001_1001_0100;
+            carry,
+            lhs.get(i).unwrap(),
+            rhs.get(i).unwrap()
+        );
+        out.push(carry_sum.get(0).unwrap().state());
         carry.bool_(carry_sum.get(1).unwrap());
     }
     let mut signed_overflow = inlawi!(0);
-    let mut inx = inlawi!(000);
-    inx.set(0, lhs.get(w - 1).unwrap()).unwrap();
-    inx.set(1, rhs.get(w - 1).unwrap()).unwrap();
-    inx.set(2, out.get(w - 1).unwrap()).unwrap();
-    signed_overflow.lut_(&inlawi!(0001_1000), &inx).unwrap();
-    (out, carry, signed_overflow)
+    let a = lhs.get(w - 1).unwrap().state();
+    let b = rhs.get(w - 1).unwrap().state();
+    let c = *out.get(w - 1).unwrap();
+    signed_overflow
+        .update_state(
+            bw(1),
+            Op::StaticLut(ConcatType::from_iter([a, b, c]), {
+                use awi::*;
+                awi!(0001_1000)
+            }),
+        )
+        .unwrap_at_runtime();
+    (
+        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out))),
+        carry,
+        signed_overflow,
+    )
 }
 
 pub fn negator(x: &Bits, neg: &Bits) -> Awi {
     assert_eq!(neg.bw(), 1);
-    // half adder with input inversion control
-    let lut = inlawi!(0100_1001_1001_0100);
-    let mut out = Awi::zero(x.nzbw());
+    let nzbw = x.nzbw();
+    let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(neg.to_bool());
     for i in 0..x.bw() {
         let mut carry_sum = inlawi!(00);
-        let mut inx = inlawi!(000);
-        inx.set(0, carry.to_bool()).unwrap();
-        inx.set(1, x.get(i).unwrap()).unwrap();
-        inx.set(2, neg.to_bool()).unwrap();
-        carry_sum.lut_(&lut, &inx).unwrap();
-        out.set(i, carry_sum.get(0).unwrap()).unwrap();
+        // half adder with input inversion control
+        static_lut!(carry_sum; 0100_1001_1001_0100; carry, x.get(i).unwrap(), neg);
+        out.push(carry_sum.get(0).unwrap().state());
         carry.bool_(carry_sum.get(1).unwrap());
     }
-    out
+    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
 }
 
 /// Setting `width` to 0 guarantees that nothing happens even with other
@@ -653,19 +715,20 @@ pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
         let mut lmask = tsmear_inx(&tmp, lhs.bw());
         lmask.reverse();
 
-        let mut out = Awi::from_bits(lhs);
-        let lut = inlawi!(1011_1111_1000_0000);
+        let nzbw = lhs.nzbw();
+        let mut out = SmallVec::with_capacity(nzbw.get());
+        // when `tmask` and `lmask` are both set, mux_ in `rhs`
         for i in 0..lhs.bw() {
-            let mut tmp = inlawi!(0000);
-            tmp.set(0, rhs_to_lhs.get(i).unwrap()).unwrap();
-            tmp.set(1, tmask[i].to_bool()).unwrap();
-            tmp.set(2, lmask[i].to_bool()).unwrap();
-            tmp.set(3, lhs.get(i).unwrap()).unwrap();
             let mut lut_out = inlawi!(0);
-            lut_out.lut_(&lut, &tmp).unwrap();
-            out.set(i, lut_out.to_bool()).unwrap();
+            static_lut!(lut_out; 1011_1111_1000_0000;
+                rhs_to_lhs.get(i).unwrap(),
+                tmask[i],
+                lmask[i],
+                lhs.get(i).unwrap()
+            );
+            out.push(lut_out.state());
         }
-        out
+        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
     } else {
         let lut = inlawi!(rhs[0], lhs[0]).unwrap();
         let mut out = awi!(0);
@@ -720,20 +783,20 @@ pub fn field(lhs: &Bits, to: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Aw
         let mut lmask = tsmear_inx(&tmp, lhs.bw());
         lmask.reverse();
 
-        let mut out = Awi::from_bits(lhs);
+        let nzbw = lhs.nzbw();
+        let mut out = SmallVec::with_capacity(nzbw.get());
         // when `tmask` and `lmask` are both set, mux_ in `rhs`
-        let lut = inlawi!(1011_1111_1000_0000);
         for i in 0..lhs.bw() {
-            let mut tmp = inlawi!(0000);
-            tmp.set(0, rhs_to_lhs.get(i).unwrap()).unwrap();
-            tmp.set(1, tmask[i].to_bool()).unwrap();
-            tmp.set(2, lmask[i].to_bool()).unwrap();
-            tmp.set(3, lhs.get(i).unwrap()).unwrap();
             let mut lut_out = inlawi!(0);
-            lut_out.lut_(&lut, &tmp).unwrap();
-            out.set(i, lut_out.to_bool()).unwrap();
+            static_lut!(lut_out; 1011_1111_1000_0000;
+                rhs_to_lhs.get(i).unwrap(),
+                tmask[i],
+                lmask[i],
+                lhs.get(i).unwrap()
+            );
+            out.push(lut_out.state());
         }
-        out
+        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
     } else {
         // `lhs.bw() == 1`, `rhs.bw() == 1`, `width` is the only thing that matters
         let lut = inlawi!(rhs[0], lhs[0]).unwrap();
@@ -745,17 +808,12 @@ pub fn field(lhs: &Bits, to: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Aw
 
 pub fn equal(lhs: &Bits, rhs: &Bits) -> inlawi_ty!(1) {
     let mut ranks = vec![vec![]];
-    let lut_xnor = inlawi!(1001);
     for i in 0..lhs.bw() {
-        let mut tmp0 = inlawi!(00);
-        tmp0.set(0, lhs.get(i).unwrap()).unwrap();
-        tmp0.set(1, rhs.get(i).unwrap()).unwrap();
         let mut tmp1 = inlawi!(0);
-        tmp1.lut_(&lut_xnor, &tmp0).unwrap();
+        static_lut!(tmp1; 1001; lhs.get(i).unwrap(), rhs.get(i).unwrap());
         ranks[0].push(tmp1);
     }
     // binary tree reduce
-    let lut_and = inlawi!(1000);
     loop {
         let prev_rank = ranks.last().unwrap();
         let rank_len = prev_rank.len();
@@ -764,11 +822,8 @@ pub fn equal(lhs: &Bits, rhs: &Bits) -> inlawi_ty!(1) {
         }
         let mut next_rank = vec![];
         for i in 0..(rank_len / 2) {
-            let mut tmp0 = inlawi!(00);
-            tmp0.set(0, prev_rank[2 * i].to_bool()).unwrap();
-            tmp0.set(1, prev_rank[2 * i + 1].to_bool()).unwrap();
             let mut tmp1 = inlawi!(0);
-            tmp1.lut_(&lut_and, &tmp0).unwrap();
+            static_lut!(tmp1; 1000; prev_rank[2 * i], prev_rank[2 * i + 1]);
             next_rank.push(tmp1);
         }
         if (rank_len & 1) != 0 {
@@ -877,17 +932,16 @@ pub fn lut_set(table: &Bits, entry: &Bits, inx: &Bits) -> Awi {
     assert_eq!(table.bw(), entry.bw() * num_entries);
     let signals = selector(inx, Some(num_entries));
     let mut out = Awi::from_bits(table);
-    let lut_mux = inlawi!(1100_1010);
     for (j, signal) in signals.into_iter().enumerate() {
         for i in 0..entry.bw() {
             let lut_inx = i + (j * entry.bw());
             // mux_ between `lhs` or `entry` based on the signal
-            let mut tmp0 = inlawi!(000);
-            tmp0.set(0, table.get(lut_inx).unwrap()).unwrap();
-            tmp0.set(1, entry.get(i).unwrap()).unwrap();
-            tmp0.set(2, signal.to_bool()).unwrap();
             let mut tmp1 = inlawi!(0);
-            tmp1.lut_(&lut_mux, &tmp0).unwrap();
+            static_lut!(tmp1; 1100_1010;
+                table.get(lut_inx).unwrap(),
+                entry.get(i).unwrap(),
+                signal
+            );
             out.set(lut_inx, tmp1.to_bool()).unwrap();
         }
     }
@@ -902,7 +956,6 @@ pub fn mul_add(out_w: NonZeroUsize, add: Option<&Bits>, lhs: &Bits, rhs: &Bits) 
         (lhs, rhs)
     };
 
-    let and = inlawi!(1000);
     let place_map0: &mut Vec<Vec<inlawi_ty!(1)>> = &mut vec![];
     let place_map1: &mut Vec<Vec<inlawi_ty!(1)>> = &mut vec![];
     for _ in 0..out_w.get() {
@@ -910,13 +963,11 @@ pub fn mul_add(out_w: NonZeroUsize, add: Option<&Bits>, lhs: &Bits, rhs: &Bits) 
         place_map1.push(vec![]);
     }
     for j in 0..rhs.bw() {
+        let rhs_j = rhs.get(j).unwrap();
         for i in 0..lhs.bw() {
             if let Some(place) = place_map0.get_mut(i + j) {
-                let mut tmp = inlawi!(00);
-                tmp.set(0, rhs.get(j).unwrap()).unwrap();
-                tmp.set(1, lhs.get(i).unwrap()).unwrap();
                 let mut ji = inlawi!(0);
-                ji.lut_(&and, &tmp).unwrap();
+                static_lut!(ji; 1000; rhs_j, lhs.get(i).unwrap());
                 place.push(ji);
             }
         }

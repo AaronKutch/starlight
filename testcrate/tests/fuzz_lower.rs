@@ -148,10 +148,11 @@ impl Mem {
         &mut self.a[inx].dag
     }
 
-    pub fn finish(&mut self, _epoch: &Epoch) {
+    pub fn finish(&mut self, epoch: &Epoch) {
         for pair in self.a.vals_mut() {
             pair.eval = Some(EvalAwi::from(&pair.dag))
         }
+        epoch.prune().unwrap();
     }
 
     pub fn eval_and_verify_equal(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
@@ -165,6 +166,7 @@ impl Mem {
 
         // lower
         epoch.lower().unwrap();
+        epoch.assert_assertions().unwrap();
 
         // set remaining lazy roots
         for (lazy, lit) in self.roots.drain(..) {
@@ -172,6 +174,7 @@ impl Mem {
         }
 
         // evaluate all
+        epoch.assert_assertions_strict().unwrap();
         for pair in self.a.vals() {
             assert_eq!(pair.eval.as_ref().unwrap().eval().unwrap(), pair.awi);
         }
@@ -766,12 +769,12 @@ fn fuzz_lower() {
 
     for _ in 0..N.1 {
         let epoch = Epoch::new();
-        m.clear();
         for _ in 0..N.0 {
             num_dag_duo(&mut rng, &mut m)
         }
         m.finish(&epoch);
         m.eval_and_verify_equal(&epoch).unwrap();
+        m.clear();
         drop(epoch);
     }
 }

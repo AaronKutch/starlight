@@ -8,7 +8,7 @@ use std::{cell::RefCell, mem, num::NonZeroUsize, rc::Rc, thread::panicking};
 use awint::{
     awint_dag::{
         epoch::{EpochCallback, EpochKey},
-        triple_arena::{ptr_struct, Arena},
+        triple_arena::{ptr_struct, Advancer, Arena},
         EvalError, Lineage, Location, Op, PState,
     },
     bw, dag,
@@ -58,13 +58,25 @@ pub struct EpochData {
     pub epoch_key: EpochKey,
     pub ensemble: Ensemble,
     pub responsible_for: Arena<PEpochShared, PerEpochShared>,
-    pub keep_flag: bool,
 }
 
 impl Drop for EpochData {
     fn drop(&mut self) {
         // prevent invoking recursive panics and a buffer overrun
         if !panicking() {
+            // if `responsible_for` is not empty, then this `EpochData` is probably being
+            // dropped in a special case like a panic (I have `panicking` guards on all the
+            // impls, but it seems that in some cases that for some reason a panic on unwrap
+            // can start dropping `EpochData`s before the `Epoch`s, and there are
+            // arbitrarily bad interactions so we always need to forget any `EvalAwi`s here)
+            // in which the `Epoch` is not going to be useful anyway. We need to
+            // `mem::forget` just the `EvalAwi`s of the assertions
+            for (_, mut shared) in self.responsible_for.drain() {
+                for eval_awi in shared.assertions.bits.drain(..) {
+                    // avoid the `EvalAwi` drop code trying to access recursively
+                    mem::forget(eval_awi);
+                }
+            }
             self.epoch_key.pop_off_epoch_stack();
         }
     }
@@ -85,7 +97,6 @@ impl EpochShared {
             epoch_key: _callback().push_on_epoch_stack(),
             ensemble: Ensemble::new(),
             responsible_for: Arena::new(),
-            keep_flag: true,
         };
         let p_self = epoch_data.responsible_for.insert(PerEpochShared::new());
         Self {
@@ -125,11 +136,97 @@ impl EpochShared {
         drop(epoch_data);
         let mut cloned = vec![];
         for p_state in states {
-            if let Some(eval) = EvalAwi::from_state(p_state) {
-                cloned.push(eval)
-            }
+            cloned.push(EvalAwi::from_state(p_state))
         }
         Assertions { bits: cloned }
+    }
+
+    /// Using `EpochShared::assertions` creates all new `Assertions`. This
+    /// eliminates assertions that evaluate to a constant true.
+    pub fn assert_assertions(&self, strict: bool) -> Result<(), EvalError> {
+        let p_self = self.p_self;
+        let epoch_data = self.epoch_data.borrow();
+        let mut len = epoch_data
+            .responsible_for
+            .get(p_self)
+            .unwrap()
+            .assertions
+            .bits
+            .len();
+        drop(epoch_data);
+        let mut unknown = None;
+        let mut i = 0;
+        loop {
+            if i >= len {
+                break
+            }
+            let epoch_data = self.epoch_data.borrow();
+            let eval_awi = &epoch_data
+                .responsible_for
+                .get(p_self)
+                .unwrap()
+                .assertions
+                .bits[i];
+            let p_state = eval_awi.state();
+            let p_note = eval_awi.p_note();
+            drop(epoch_data);
+            let val = Ensemble::calculate_thread_local_note_value(p_note, 0)?;
+            if let Some(val) = val.known_value() {
+                if !val {
+                    let epoch_data = self.epoch_data.borrow();
+                    let s = epoch_data.ensemble.get_state_debug(p_state);
+                    if let Some(s) = s {
+                        return Err(EvalError::OtherString(format!(
+                            "an assertion bit evaluated to false, failed on {p_note} {:?}",
+                            s
+                        )))
+                    } else {
+                        return Err(EvalError::OtherString(format!(
+                            "an assertion bit evaluated to false, failed on {p_note} {p_state}"
+                        )))
+                    }
+                }
+            } else if unknown.is_none() {
+                // get the earliest failure to evaluate, should be closest to the root cause.
+                // Wait for all bits to be checked for falsity
+                unknown = Some((p_note, p_state));
+            }
+            if val.is_const() {
+                // remove the assertion
+                let mut epoch_data = self.epoch_data.borrow_mut();
+                let eval_awi = epoch_data
+                    .responsible_for
+                    .get_mut(p_self)
+                    .unwrap()
+                    .assertions
+                    .bits
+                    .swap_remove(i);
+                drop(epoch_data);
+                drop(eval_awi);
+                len -= 1;
+            } else {
+                i += 1;
+            }
+        }
+        if strict {
+            if let Some((p_note, p_state)) = unknown {
+                let epoch_data = self.epoch_data.borrow();
+                let s = epoch_data.ensemble.get_state_debug(p_state);
+                if let Some(s) = s {
+                    return Err(EvalError::OtherString(format!(
+                        "an assertion bit could not be evaluated to a known value, failed on \
+                         {p_note} {:?}",
+                        s
+                    )))
+                } else {
+                    return Err(EvalError::OtherString(format!(
+                        "an assertion bit could not be evaluated to a known value, failed on \
+                         {p_note} {p_state}"
+                    )))
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Returns a clone of the ensemble
@@ -152,11 +249,13 @@ impl EpochShared {
     /// Removes associated states and assertions
     pub fn remove_associated(&self) {
         let mut epoch_data = self.epoch_data.borrow_mut();
-        let mut ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
-        for p_state in ours.states_inserted {
-            let _ = epoch_data.ensemble.remove_state(p_state);
+        let ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
+        for p_state in &ours.states_inserted {
+            let _ = epoch_data.ensemble.remove_state(*p_state);
         }
-        ours.assertions.bits.clear();
+        drop(epoch_data);
+        // drop the `EvalAwi`s of the assertions after unlocking
+        drop(ours);
     }
 
     pub fn set_as_current(&self) {
@@ -209,6 +308,58 @@ impl EpochShared {
             }
         });
     }
+
+    fn internal_drive_loops_with_lower_capability(&self) -> Result<(), EvalError> {
+        // `Loop`s register states to lower so that the below loops can find them
+        Ensemble::handle_requests_with_lower_capability(self)?;
+        // first evaluate all loop drivers
+        let lock = self.epoch_data.borrow();
+        let mut adv = lock.ensemble.lnodes.advancer();
+        drop(lock);
+        loop {
+            let lock = self.epoch_data.borrow();
+            if let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
+                let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
+                let p_driver = lnode.p_driver;
+                drop(lock);
+                Ensemble::calculate_value_with_lower_capability(self, p_driver)?;
+            } else {
+                break
+            }
+        }
+        // second do all loopback changes
+        let mut lock = self.epoch_data.borrow_mut();
+        let mut adv = lock.ensemble.lnodes.advancer();
+        while let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
+            let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
+            let val = lock.ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
+            let p_self = lnode.p_self;
+            lock.ensemble.change_value(p_self, val).unwrap();
+        }
+        Ok(())
+    }
+
+    fn internal_drive_loops(&self) -> Result<(), EvalError> {
+        // first evaluate all loop drivers
+        let mut lock = self.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+
+        let mut adv = ensemble.lnodes.advancer();
+        while let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
+            let lnode = ensemble.lnodes.get(p_lnode).unwrap();
+            let p_driver = lnode.p_driver;
+            ensemble.calculate_value(p_driver)?;
+        }
+        // second do all loopback changes
+        let mut adv = ensemble.lnodes.advancer();
+        while let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
+            let lnode = ensemble.lnodes.get(p_lnode).unwrap();
+            let val = ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
+            let p_self = lnode.p_self;
+            ensemble.change_value(p_self, val).unwrap();
+        }
+        Ok(())
+    }
 }
 
 thread_local!(
@@ -257,10 +408,7 @@ pub fn _callback() -> EpochCallback {
     fn new_pstate(nzbw: NonZeroUsize, op: Op<PState>, location: Option<Location>) -> PState {
         no_recursive_current_epoch_mut(|current| {
             let mut epoch_data = current.epoch_data.borrow_mut();
-            let keep = epoch_data.keep_flag;
-            let p_state = epoch_data
-                .ensemble
-                .make_state(nzbw, op.clone(), location, keep);
+            let p_state = epoch_data.ensemble.make_state(nzbw, op.clone(), location);
             epoch_data
                 .responsible_for
                 .get_mut(current.p_self)
@@ -273,21 +421,22 @@ pub fn _callback() -> EpochCallback {
     fn register_assertion_bit(bit: dag::bool, location: Location) {
         // need a new bit to attach new location data to
         let new_bit = new_pstate(bw(1), Op::Assert([bit.state()]), Some(location));
-        no_recursive_current_epoch_mut(|current| {
-            let mut epoch_data = current.epoch_data.borrow_mut();
-            // need to manually construct to get around closure issues
-            let p_note = epoch_data.ensemble.note_pstate(new_bit).unwrap();
-            let eval_awi = EvalAwi {
-                p_state: new_bit,
-                p_note,
-            };
-            epoch_data
-                .responsible_for
-                .get_mut(current.p_self)
-                .unwrap()
-                .assertions
-                .bits
-                .push(eval_awi);
+        let eval_awi = EvalAwi::from_state(new_bit);
+        // manual to get around closure issue
+        CURRENT_EPOCH.with(|top| {
+            let mut top = top.borrow_mut();
+            if let Some(current) = top.as_mut() {
+                let mut epoch_data = current.epoch_data.borrow_mut();
+                epoch_data
+                    .responsible_for
+                    .get_mut(current.p_self)
+                    .unwrap()
+                    .assertions
+                    .bits
+                    .push(eval_awi);
+            } else {
+                panic!("There needs to be an `Epoch` in scope for this to work");
+            }
         })
     }
     fn get_nzbw(p_state: PState) -> NonZeroUsize {
@@ -380,8 +529,9 @@ impl Epoch {
     }
 
     /// Intended primarily for developer use
-    pub fn internal_epoch_shared(&self) -> &EpochShared {
-        &self.shared
+    #[doc(hidden)]
+    pub fn internal_epoch_shared(this: &Epoch) -> &EpochShared {
+        &this.shared
     }
 
     /// Gets the assertions associated with this Epoch (not including assertions
@@ -391,83 +541,43 @@ impl Epoch {
         self.shared.assertions()
     }
 
-    // TODO fix the EvalError enum situation
-
     /// If any assertion bit evaluates to false, this returns an error.
     pub fn assert_assertions(&self) -> Result<(), EvalError> {
-        let bits = self.shared.assertions().bits;
-        for eval_awi in bits {
-            let val = eval_awi.eval_bit()?;
-            if let Some(val) = val.known_value() {
-                if !val {
-                    return Err(EvalError::OtherString(format!(
-                        "an assertion bit evaluated to false, failed on {}",
-                        self.shared
-                            .epoch_data
-                            .borrow()
-                            .ensemble
-                            .get_state_debug(eval_awi.state())
-                            .unwrap()
-                    )))
-                }
-            }
-        }
-        Ok(())
+        self.shared.assert_assertions(false)
     }
 
     /// If any assertion bit evaluates to false, this returns an error. If there
     /// were no known false assertions but some are `Value::Unknown`, this
     /// returns a specific error for it.
     pub fn assert_assertions_strict(&self) -> Result<(), EvalError> {
-        let bits = self.shared.assertions().bits;
-        let mut unknown = None;
-        for eval_awi in bits {
-            let val = eval_awi.eval_bit()?;
-            if let Some(val) = val.known_value() {
-                if !val {
-                    return Err(EvalError::OtherString(format!(
-                        "assertion bits are not all true, failed on {}",
-                        self.shared
-                            .epoch_data
-                            .borrow()
-                            .ensemble
-                            .get_state_debug(eval_awi.state())
-                            .unwrap()
-                    )))
-                }
-            } else if unknown.is_none() {
-                // get the earliest failure to evaluate wait for all bits to be checked for
-                // falsity
-                unknown = Some(eval_awi.p_state);
-            }
-        }
-        if let Some(p_state) = unknown {
-            Err(EvalError::OtherString(format!(
-                "an assertion bit could not be evaluated to a known value, failed on {}",
-                self.shared
-                    .epoch_data
-                    .borrow()
-                    .ensemble
-                    .get_state_debug(p_state)
-                    .unwrap()
-            )))
-        } else {
-            Ok(())
-        }
+        self.shared.assert_assertions(true)
     }
 
     pub fn ensemble(&self) -> Ensemble {
         self.shared.ensemble()
     }
 
-    /// Removes all non-noted states
+    /// Used for testing
+    pub fn prune_ignore_assertions(&self) -> Result<(), EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
+            return Err(EvalError::OtherStr("epoch is not the current epoch"))
+        }
+        // do not assert assertions because that can trigger lowering
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        lock.ensemble.prune_states()
+    }
+
+    /// For users, this removes all states that do not lead to a live `EvalAwi`
     pub fn prune(&self) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
             return Err(EvalError::OtherStr("epoch is not the current epoch"))
         }
+        // get rid of constant assertions
+        let _ = epoch_shared.assert_assertions(false);
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.prune_unnoted_states()
+        lock.ensemble.prune_states()
     }
 
     /// Lowers all states. This is not needed in most circumstances, `EvalAwi`
@@ -477,9 +587,12 @@ impl Epoch {
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
             return Err(EvalError::OtherStr("epoch is not the current epoch"))
         }
-        Ensemble::lower_all(&epoch_shared)
+        Ensemble::lower_all(&epoch_shared)?;
+        let _ = epoch_shared.assert_assertions(false);
+        Ok(())
     }
 
+    /// Runs optimization including lowering then pruning all states.
     pub fn optimize(&self) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
@@ -488,9 +601,28 @@ impl Epoch {
         Ensemble::lower_all(&epoch_shared)?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         lock.ensemble.optimize_all();
+        drop(lock);
+        let _ = epoch_shared.assert_assertions(false);
         Ok(())
     }
 
-    // TODO
-    //pub fn prune_nonnoted
+    /// This evaluates all loop drivers, and then registers loopback changes
+    pub fn drive_loops(&self) -> Result<(), EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
+            return Err(EvalError::OtherStr("epoch is not the current epoch"))
+        }
+        if epoch_shared
+            .epoch_data
+            .borrow()
+            .ensemble
+            .stator
+            .states
+            .is_empty()
+        {
+            epoch_shared.internal_drive_loops()
+        } else {
+            epoch_shared.internal_drive_loops_with_lower_capability()
+        }
+    }
 }

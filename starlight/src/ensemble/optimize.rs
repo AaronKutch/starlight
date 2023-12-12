@@ -10,7 +10,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{Ensemble, PBack, PTNode, Referent, TNode, Value},
+    ensemble::{Ensemble, PBack, PLNode, PTNode, Referent, TNode, Value},
     triple_arena::{ptr_struct, OrdArena},
     SmallMap,
 };
@@ -48,6 +48,8 @@ pub enum Optimization {
     InvestigateUsed(PBack),
     /// If an input was constified
     InvestigateConst(PTNode),
+    /// If a driver was constified
+    InvestigateLoopDriverConst(PLNode),
     /// The optimization state that equivalences are set to after the
     /// preinvestigation finds nothing
     InvestigateEquiv0(PBack),
@@ -80,7 +82,8 @@ impl Optimizer {
 
 impl Ensemble {
     /// Removes all `Const` inputs and assigns `Const` result if possible.
-    /// Returns if a `Const` result was assigned.
+    /// Returns if a `Const` result was assigned (`Optimization::ConstifyEquiv`
+    /// needs to be run by the caller).
     pub fn const_eval_tnode(&mut self, p_tnode: PTNode) -> bool {
         let tnode = self.tnodes.get_mut(p_tnode).unwrap();
         if let Some(original_lut) = &tnode.lut {
@@ -157,8 +160,6 @@ impl Ensemble {
             if lut.bw() == 1 {
                 let equiv = self.backrefs.get_val_mut(tnode.p_self).unwrap();
                 equiv.val = Value::Const(lut.to_bool());
-                self.optimizer
-                    .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv));
                 // fix the `lut` to its new state, do this even if we are doing the constant
                 // optimization
                 tnode.lut = Some(lut);
@@ -189,7 +190,21 @@ impl Ensemble {
                 false
             }
         } else {
-            // TODO loopbacks
+            false
+        }
+    }
+
+    /// Assigns `Const` result if possible.
+    /// Returns if a `Const` result was assigned.
+    pub fn const_eval_lnode(&mut self, p_lnode: PLNode) -> bool {
+        let lnode = self.lnodes.get(p_lnode).unwrap();
+        let p_self = lnode.p_self;
+        let p_driver = lnode.p_driver;
+        let equiv = self.backrefs.get_val(p_driver).unwrap();
+        if let Value::Const(val) = equiv.val {
+            self.backrefs.get_val_mut(p_self).unwrap().val = Value::Const(val);
+            true
+        } else {
             false
         }
     }
@@ -207,6 +222,12 @@ impl Ensemble {
             let referent = *self.backrefs.get_key(p_back).unwrap();
             match referent {
                 Referent::ThisEquiv => (),
+                Referent::ThisLNode(p_lnode) => {
+                    // avoid checking more if it was already determined to be constant
+                    if !is_const && self.const_eval_lnode(p_lnode) {
+                        is_const = true;
+                    }
+                }
                 Referent::ThisTNode(p_tnode) => {
                     // avoid checking more if it was already determined to be constant
                     if !is_const && self.const_eval_tnode(p_tnode) {
@@ -215,7 +236,9 @@ impl Ensemble {
                 }
                 Referent::ThisStateBit(p_state, _) => {
                     let state = &self.stator.states[p_state];
-                    if state.keep {
+                    // the state bits can always be disregarded on a per-tnode basis unless they are
+                    // being used externally
+                    if state.extern_rc != 0 {
                         non_self_rc += 1;
                     }
                 }
@@ -224,7 +247,7 @@ impl Ensemble {
                     // the way `LoopDriver` networks with no real dependencies will work, is
                     // that const propogation and other simplifications will eventually result
                     // in a single node equivalence that drives itself, which we can remove
-                    let p_back_driver = self.tnodes.get(p_driver).unwrap().p_self;
+                    let p_back_driver = self.lnodes.get(p_driver).unwrap().p_self;
                     if !self.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
                         non_self_rc += 1;
                     }
@@ -269,12 +292,6 @@ impl Ensemble {
     /// `Advancer`s.
     pub fn remove_tnode_not_p_self(&mut self, p_tnode: PTNode) {
         let tnode = self.tnodes.remove(p_tnode).unwrap();
-        if let Some(p_driver) = tnode.loop_driver {
-            let p_equiv = self.backrefs.get_val(p_driver).unwrap().p_self_equiv;
-            self.optimizer
-                .insert(Optimization::InvestigateUsed(p_equiv));
-            self.backrefs.remove_key(p_driver).unwrap();
-        }
         for inp in tnode.inp {
             let p_equiv = self.backrefs.get_val(inp).unwrap().p_self_equiv;
             self.optimizer
@@ -283,7 +300,20 @@ impl Ensemble {
         }
     }
 
+    /// Does not perform the final step
+    /// `ensemble.backrefs.remove(lnode.p_self).unwrap()` which is important for
+    /// `Advancer`s.
+    pub fn remove_lnode_not_p_self(&mut self, p_lnode: PLNode) {
+        let lnode = self.lnodes.remove(p_lnode).unwrap();
+        let p_equiv = self.backrefs.get_val(lnode.p_driver).unwrap().p_self_equiv;
+        self.optimizer
+            .insert(Optimization::InvestigateUsed(p_equiv));
+        self.backrefs.remove_key(lnode.p_driver).unwrap();
+    }
+
+    /// Also removes all states
     pub fn optimize_all(&mut self) {
+        self.force_remove_all_states().unwrap();
         // need to preinvestigate everything before starting a priority loop
         let mut adv = self.backrefs.advancer();
         while let Some(p_back) = adv.advance(&self.backrefs) {
@@ -324,8 +354,9 @@ impl Ensemble {
                         Referent::ThisTNode(p_tnode) => {
                             self.remove_tnode_not_p_self(*p_tnode);
                         }
-                        // TODO check self reference case
-                        Referent::LoopDriver(_) => todo!(),
+                        Referent::ThisLNode(p_lnode) => {
+                            self.remove_lnode_not_p_self(*p_lnode);
+                        }
                         _ => unreachable!(),
                     }
                 }
@@ -355,6 +386,9 @@ impl Ensemble {
                         Referent::ThisTNode(p_tnode) => {
                             self.remove_tnode_not_p_self(p_tnode);
                         }
+                        Referent::ThisLNode(p_lnode) => {
+                            self.remove_lnode_not_p_self(p_lnode);
+                        }
                         Referent::ThisStateBit(p_state, i_bit) => {
                             let p_bit = self.stator.states[p_state].p_self_bits[i_bit]
                                 .as_mut()
@@ -382,13 +416,13 @@ impl Ensemble {
                             assert!(found);
                         }
                         Referent::LoopDriver(p_driver) => {
-                            let tnode = self.tnodes.get_mut(p_driver).unwrap();
-                            assert_eq!(tnode.loop_driver, Some(p_back));
+                            let lnode = self.lnodes.get_mut(p_driver).unwrap();
+                            assert_eq!(lnode.p_driver, p_back);
                             let p_back_new = self
                                 .backrefs
                                 .insert_key(p_source, Referent::LoopDriver(p_driver))
                                 .unwrap();
-                            tnode.loop_driver = Some(p_back_new);
+                            lnode.p_driver = p_back_new;
                         }
                         Referent::Note(p_note) => {
                             // here we see a major advantage of the backref system
@@ -430,6 +464,10 @@ impl Ensemble {
                             self.remove_tnode_not_p_self(*p_tnode);
                             remove.push(p_back);
                         }
+                        Referent::ThisLNode(p_lnode) => {
+                            self.remove_lnode_not_p_self(*p_lnode);
+                            remove.push(p_back);
+                        }
                         Referent::ThisStateBit(..) => (),
                         Referent::Input(p_inp) => {
                             self.optimizer
@@ -437,7 +475,7 @@ impl Ensemble {
                         }
                         Referent::LoopDriver(p_driver) => {
                             self.optimizer
-                                .insert(Optimization::InvestigateConst(*p_driver));
+                                .insert(Optimization::InvestigateLoopDriverConst(*p_driver));
                         }
                         Referent::Note(_) => (),
                     }
@@ -463,9 +501,12 @@ impl Ensemble {
                     match referent {
                         Referent::ThisEquiv => (),
                         Referent::ThisTNode(_) => (),
+                        Referent::ThisLNode(_) => (),
                         Referent::ThisStateBit(p_state, _) => {
                             let state = &self.stator.states[p_state];
-                            if state.keep {
+                            // the state bits can always be disregarded on a per-tnode basis unless
+                            // they are being used externally
+                            if state.extern_rc != 0 {
                                 found_use = true;
                             }
                         }
@@ -474,7 +515,7 @@ impl Ensemble {
                             break
                         }
                         Referent::LoopDriver(p_driver) => {
-                            let p_back_driver = self.tnodes.get(p_driver).unwrap().p_self;
+                            let p_back_driver = self.lnodes.get(p_driver).unwrap().p_self;
                             if !self.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
                                 found_use = true;
                                 break
@@ -500,10 +541,22 @@ impl Ensemble {
                     ));
                 }
             }
+            Optimization::InvestigateLoopDriverConst(p_lnode) => {
+                if !self.lnodes.contains(p_lnode) {
+                    return
+                };
+                if self.const_eval_lnode(p_lnode) {
+                    self.optimizer.insert(Optimization::ConstifyEquiv(
+                        self.lnodes.get(p_lnode).unwrap().p_self,
+                    ));
+                }
+            }
             Optimization::InvestigateEquiv0(_p_back) => {
                 /*if !self.backrefs.contains(p_back) {
                     return
                 };*/
+                // TODO eliminate equal TNodes, combine equal equivalences etc.
+
                 // TODO compare TNodes
                 // TODO compress inverters by inverting inx table
                 // TODO fusion of structures like

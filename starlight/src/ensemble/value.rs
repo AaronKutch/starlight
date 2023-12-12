@@ -3,15 +3,14 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use awint::{
     awint_dag::{
         triple_arena::{ptr_struct, Advancer, OrdArena},
-        EvalError, PState,
+        EvalError,
     },
     Awi,
 };
 
 use crate::{
-    awi,
-    ensemble::{Ensemble, PBack, PTNode, Referent, TNode},
-    epoch::{get_current_epoch, EpochShared},
+    ensemble::{Ensemble, PBack, PLNode, PTNode, Referent, TNode},
+    epoch::EpochShared,
 };
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -93,6 +92,13 @@ pub struct RequestTNode {
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RequestLNode {
+    pub depth: i64,
+    pub number_a: u8,
+    pub p_back_lnode: PBack,
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Change {
     pub depth: i64,
     pub p_equiv: PBack,
@@ -103,8 +109,10 @@ pub struct Change {
 pub enum Eval {
     Investigate0(i64, PBack),
     ChangeTNode(PTNode),
+    ChangeLNode(PLNode),
     Change(Change),
     RequestTNode(RequestTNode),
+    RequestLNode(RequestLNode),
     /// When we have run out of normal things this will activate lowering
     Investigate1(PBack),
 }
@@ -150,83 +158,6 @@ impl Evaluator {
     pub fn insert(&mut self, eval_step: Eval) {
         let _ = self.evaluations.insert(eval_step, ());
     }
-
-    /// This will return no error if `p_state` is not contained
-    pub fn change_thread_local_state_value(
-        p_state: PState,
-        bits: &awi::Bits,
-    ) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        let mut lock = epoch_shared.epoch_data.borrow_mut();
-        let ensemble = &mut lock.ensemble;
-        if let Some(state) = ensemble.stator.states.get(p_state) {
-            if state.nzbw != bits.nzbw() {
-                return Err(EvalError::WrongBitwidth);
-            }
-            // switch to change phase
-            if ensemble.evaluator.phase != EvalPhase::Change {
-                ensemble.evaluator.phase = EvalPhase::Change;
-                ensemble.evaluator.next_change_visit_gen();
-            }
-            ensemble.initialize_state_bits_if_needed(p_state).unwrap();
-            for bit_i in 0..bits.bw() {
-                let p_bit = ensemble.stator.states.get(p_state).unwrap().p_self_bits[bit_i];
-                if let Some(p_bit) = p_bit {
-                    let _ = ensemble.change_value(p_bit, Value::Dynam(bits.get(bit_i).unwrap()));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    // stepping loops should request their drivers, evaluating everything requests
-    // everything
-    pub fn calculate_thread_local_state_value(
-        p_state: PState,
-        bit_i: usize,
-    ) -> Result<Value, EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        let mut lock = epoch_shared.epoch_data.borrow_mut();
-        let ensemble = &mut lock.ensemble;
-        ensemble.initialize_state_bits_if_needed(p_state).unwrap();
-        let state = ensemble.stator.states.get(p_state).unwrap();
-        let p_back = *state.p_self_bits.get(bit_i).unwrap();
-        let p_back = if let Some(p) = p_back {
-            p
-        } else {
-            return Err(EvalError::OtherString(format!(
-                "state {p_state} bit {bit_i} has been removed, something was not noted correctly"
-            )));
-        };
-        if let Some(equiv) = ensemble.backrefs.get_val_mut(p_back) {
-            // switch to request phase
-            if ensemble.evaluator.phase != EvalPhase::Request {
-                ensemble.evaluator.phase = EvalPhase::Request;
-                ensemble.evaluator.next_request_visit_gen();
-            }
-            let visit = ensemble.evaluator.request_visit_gen();
-            if equiv.request_visit != visit {
-                equiv.request_visit = visit;
-                ensemble
-                    .evaluator
-                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
-                drop(lock);
-                Ensemble::handle_requests(&epoch_shared)?;
-            } else {
-                drop(lock);
-            }
-            Ok(epoch_shared
-                .epoch_data
-                .borrow()
-                .ensemble
-                .backrefs
-                .get_val(p_back)
-                .unwrap()
-                .val)
-        } else {
-            Err(EvalError::InvalidPtr)
-        }
-    }
 }
 
 impl Ensemble {
@@ -245,7 +176,7 @@ impl Ensemble {
             // corresponding bits are set if the input is either a const value or is
             // already evaluated
             let mut fixed = inp.clone();
-            // corresponding bits ar set if the input is `Value::Unknown`
+            // corresponding bits are set if the input is `Value::Unknown`
             let mut unknown = inp.clone();
             for i in 0..len {
                 let p_inp = tnode.inp[i];
@@ -351,25 +282,122 @@ impl Ensemble {
         res
     }
 
-    /// Returns `None` only if `p_back` does not exist or was removed
+    /// If the returned vector is empty, evaluation was successful, otherwise
+    /// what is needed for evaluation is returned
+    pub fn try_eval_lnode(&mut self, p_lnode: PLNode, depth: i64) -> Option<RequestLNode> {
+        // read current inputs
+        let lnode = self.lnodes.get(p_lnode).unwrap();
+        let p_equiv = self.backrefs.get_val(lnode.p_self).unwrap().p_self_equiv;
+        let p_driver = lnode.p_driver;
+        let equiv = self.backrefs.get_val(p_driver).unwrap();
+        if let Value::Const(val) = equiv.val {
+            self.evaluator.insert(Eval::Change(Change {
+                depth,
+                p_equiv,
+                value: Value::Const(val),
+            }));
+            None
+        } else if equiv.change_visit == self.evaluator.change_visit_gen() {
+            // fixed
+            self.evaluator.insert(Eval::Change(Change {
+                depth,
+                p_equiv,
+                value: equiv.val,
+            }));
+            None
+        } else {
+            Some(RequestLNode {
+                depth: depth - 1,
+                number_a: 0,
+                p_back_lnode: p_driver,
+            })
+        }
+    }
+
     pub fn change_value(&mut self, p_back: PBack, value: Value) -> Option<()> {
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
+            if equiv.val.is_const() && (equiv.val != value) {
+                // not allowed
+                panic!();
+            }
+            // switch to change phase if not already
             if self.evaluator.phase != EvalPhase::Change {
                 self.evaluator.phase = EvalPhase::Change;
                 self.evaluator.next_change_visit_gen();
             }
-            if equiv.val.is_const() {
-                // not allowed
-                panic!();
-            }
             equiv.val = value;
+            equiv.change_visit = self.evaluator.change_visit_gen();
             Some(())
         } else {
             None
         }
     }
 
-    fn handle_requests(epoch_shared: &EpochShared) -> Result<(), EvalError> {
+    pub fn calculate_value_with_lower_capability(
+        epoch_shared: &EpochShared,
+        p_back: PBack,
+    ) -> Result<Value, EvalError> {
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+        if let Some(equiv) = ensemble.backrefs.get_val_mut(p_back) {
+            if equiv.val.is_const() {
+                return Ok(equiv.val)
+            }
+            // switch to request phase if not already
+            if ensemble.evaluator.phase != EvalPhase::Request {
+                ensemble.evaluator.phase = EvalPhase::Request;
+                ensemble.evaluator.next_request_visit_gen();
+            }
+            let visit = ensemble.evaluator.request_visit_gen();
+            if equiv.request_visit != visit {
+                equiv.request_visit = visit;
+                ensemble
+                    .evaluator
+                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
+                drop(lock);
+                Ensemble::handle_requests_with_lower_capability(epoch_shared)?;
+            } else {
+                drop(lock);
+            }
+            Ok(epoch_shared
+                .epoch_data
+                .borrow()
+                .ensemble
+                .backrefs
+                .get_val(p_back)
+                .unwrap()
+                .val)
+        } else {
+            Err(EvalError::InvalidPtr)
+        }
+    }
+
+    pub fn calculate_value(&mut self, p_back: PBack) -> Result<Value, EvalError> {
+        if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
+            if equiv.val.is_const() {
+                return Ok(equiv.val)
+            }
+            // switch to request phase if not already
+            if self.evaluator.phase != EvalPhase::Request {
+                self.evaluator.phase = EvalPhase::Request;
+                self.evaluator.next_request_visit_gen();
+            }
+            let visit = self.evaluator.request_visit_gen();
+            if equiv.request_visit != visit {
+                equiv.request_visit = visit;
+                self.evaluator
+                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
+                self.handle_requests()?;
+            }
+            Ok(self.backrefs.get_val(p_back).unwrap().val)
+        } else {
+            Err(EvalError::InvalidPtr)
+        }
+    }
+
+    pub(crate) fn handle_requests_with_lower_capability(
+        epoch_shared: &EpochShared,
+    ) -> Result<(), EvalError> {
         // TODO currently, the only way of avoiding N^2 worst case scenarios where
         // different change cascades lead to large groups of nodes being evaluated
         // repeatedly, is to use the front strategy. Only a powers of two reduction tree
@@ -381,21 +409,22 @@ impl Ensemble {
             loop {
                 let mut lock = epoch_shared.epoch_data.borrow_mut();
                 if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
-                    let state = &lock.ensemble.stator.states[p_state];
-                    // first check that it has not already been lowered
-                    if !state.lowered_to_tnodes {
-                        drop(lock);
-                        Ensemble::dfs_lower(epoch_shared, p_state)?;
-                        let mut lock = epoch_shared.epoch_data.borrow_mut();
-                        // reinvestigate
-                        let len = lock.ensemble.stator.states[p_state].p_self_bits.len();
-                        for i in 0..len {
-                            let p_bit = lock.ensemble.stator.states[p_state].p_self_bits[i];
-                            if let Some(p_bit) = p_bit {
-                                lock.ensemble.evaluator.insert(Eval::Investigate0(0, p_bit));
+                    if let Some(state) = lock.ensemble.stator.states.get(p_state) {
+                        // first check that it has not already been lowered
+                        if !state.lowered_to_tnodes {
+                            drop(lock);
+                            Ensemble::dfs_lower(epoch_shared, p_state)?;
+                            let mut lock = epoch_shared.epoch_data.borrow_mut();
+                            // reinvestigate
+                            let len = lock.ensemble.stator.states[p_state].p_self_bits.len();
+                            for i in 0..len {
+                                let p_bit = lock.ensemble.stator.states[p_state].p_self_bits[i];
+                                if let Some(p_bit) = p_bit {
+                                    lock.ensemble.evaluator.insert(Eval::Investigate0(0, p_bit));
+                                }
                             }
+                            drop(lock);
                         }
-                        drop(lock);
                     }
                 } else {
                     break
@@ -417,6 +446,13 @@ impl Ensemble {
         Ok(())
     }
 
+    pub(crate) fn handle_requests(&mut self) -> Result<(), EvalError> {
+        while let Some(p_eval) = self.evaluator.evaluations.min() {
+            self.evaluate(p_eval);
+        }
+        Ok(())
+    }
+
     fn evaluate(&mut self, p_eval: PEval) {
         let evaluation = self.evaluator.evaluations.remove(p_eval).unwrap().0;
         match evaluation {
@@ -425,6 +461,9 @@ impl Ensemble {
                 // the initial investigate handles all input requests
                 // TODO get priorities right
                 let _ = self.try_eval_tnode(p_tnode, 0);
+            }
+            Eval::ChangeLNode(p_lnode) => {
+                let _ = self.try_eval_lnode(p_lnode, 0);
             }
             Eval::Change(change) => {
                 let equiv = self.backrefs.get_val_mut(change.p_equiv).unwrap();
@@ -440,9 +479,10 @@ impl Ensemble {
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     let referent = *self.backrefs.get_key(p_back).unwrap();
                     match referent {
-                        Referent::ThisEquiv => (),
-                        Referent::ThisTNode(_) => (),
-                        Referent::ThisStateBit(..) => (),
+                        Referent::ThisEquiv
+                        | Referent::ThisTNode(_)
+                        | Referent::ThisLNode(_)
+                        | Referent::ThisStateBit(..) => (),
                         Referent::Input(p_tnode) => {
                             let tnode = self.tnodes.get(p_tnode).unwrap();
                             let p_self = tnode.p_self;
@@ -455,7 +495,18 @@ impl Ensemble {
                                 self.evaluator.insert(Eval::ChangeTNode(p_tnode));
                             }
                         }
-                        Referent::LoopDriver(_) => (),
+                        Referent::LoopDriver(p_lnode) => {
+                            let lnode = self.lnodes.get(p_lnode).unwrap();
+                            let p_self = lnode.p_self;
+                            let equiv = self.backrefs.get_val(p_self).unwrap();
+                            if (equiv.request_visit == self.evaluator.request_visit_gen())
+                                && (equiv.change_visit != self.evaluator.change_visit_gen())
+                            {
+                                // only go leafward to the given input if it was in the request
+                                // front and it hasn't been updated by some other route
+                                self.evaluator.insert(Eval::ChangeLNode(p_lnode));
+                            }
+                        }
                         Referent::Note(_) => (),
                     }
                 }
@@ -463,9 +514,20 @@ impl Ensemble {
             Eval::RequestTNode(request) => {
                 if let Referent::Input(_) = self.backrefs.get_key(request.p_back_tnode).unwrap() {
                     let equiv = self.backrefs.get_val(request.p_back_tnode).unwrap();
-                    if (equiv.change_visit != self.evaluator.change_visit_gen())
-                        || (equiv.request_visit != self.evaluator.request_visit_gen())
-                    {
+                    if equiv.request_visit != self.evaluator.request_visit_gen() {
+                        self.evaluator
+                            .insert(Eval::Investigate0(request.depth, equiv.p_self_equiv));
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
+            Eval::RequestLNode(request) => {
+                if let Referent::LoopDriver(_) =
+                    self.backrefs.get_key(request.p_back_lnode).unwrap()
+                {
+                    let equiv = self.backrefs.get_val(request.p_back_lnode).unwrap();
+                    if equiv.request_visit != self.evaluator.request_visit_gen() {
                         self.evaluator
                             .insert(Eval::Investigate0(request.depth, equiv.p_self_equiv));
                     }
@@ -489,7 +551,7 @@ impl Ensemble {
         // eval but is only inserted if nothing like the TNode evaluation is able to
         // prove early value setting
         let mut insert_if_no_early_exit = vec![];
-        let mut saw_tnode = false;
+        let mut saw_node = false;
         let mut saw_state = None;
         let mut adv = self.backrefs.advancer_surject(p_equiv);
         while let Some(p_back) = adv.advance(&self.backrefs) {
@@ -502,20 +564,29 @@ impl Ensemble {
                         // early exit because evaluation was successful
                         return
                     }
-                    for eval in v {
-                        insert_if_no_early_exit.push(Eval::RequestTNode(eval));
+                    for request in v {
+                        insert_if_no_early_exit.push(Eval::RequestTNode(request));
                     }
-                    saw_tnode = true;
+                    saw_node = true;
+                }
+                Referent::ThisLNode(p_lnode) => {
+                    if let Some(request) = self.try_eval_lnode(p_lnode, depth) {
+                        insert_if_no_early_exit.push(Eval::RequestLNode(request));
+                    } else {
+                        // early exit because evaluation was successful
+                        return
+                    }
+                    saw_node = true;
                 }
                 Referent::ThisStateBit(p_state, _) => {
                     saw_state = Some(p_state);
                 }
                 Referent::Input(_) => (),
-                Referent::LoopDriver(_) => {}
+                Referent::LoopDriver(_) => (),
                 Referent::Note(_) => (),
             }
         }
-        if !saw_tnode {
+        if !saw_node {
             let mut will_lower = false;
             if let Some(p_state) = saw_state {
                 if !self.stator.states[p_state].lowered_to_tnodes {

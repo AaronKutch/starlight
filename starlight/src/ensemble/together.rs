@@ -5,12 +5,14 @@ use awint::{
         smallvec::{smallvec, SmallVec},
         EvalError, Location, Op, PState,
     },
-    awint_macro_internals::triple_arena::Advancer,
     Awi, Bits,
 };
 
 use crate::{
-    ensemble::{value::Evaluator, Note, Optimizer, PNote, PTNode, State, Stator, TNode, Value},
+    ensemble::{
+        value::Evaluator, LNode, Note, Optimizer, PLNode, PNote, PTNode, State, Stator, TNode,
+        Value,
+    },
     triple_arena::{ptr_struct, Arena, SurjectArena},
 };
 
@@ -44,11 +46,14 @@ pub enum Referent {
     ThisEquiv,
     /// Self referent, used by all the `Tnode`s of an equivalence class
     ThisTNode(PTNode),
+    /// Self referent for an `LNode`
+    ThisLNode(PLNode),
     /// Self referent to a particular bit of a `State`
     ThisStateBit(PState, usize),
     /// Referent is using this for registering an input dependency
     Input(PTNode),
-    LoopDriver(PTNode),
+    /// Referent is using this for a loop driver
+    LoopDriver(PLNode),
     /// Referent is a note
     Note(PNote),
 }
@@ -59,8 +64,10 @@ pub struct Ensemble {
     pub notes: Arena<PNote, Note>,
     pub stator: Stator,
     pub tnodes: Arena<PTNode, TNode>,
+    pub lnodes: Arena<PLNode, LNode>,
     pub evaluator: Evaluator,
     pub optimizer: Optimizer,
+    pub debug_counter: u64,
 }
 
 impl Ensemble {
@@ -70,8 +77,10 @@ impl Ensemble {
             notes: Arena::new(),
             stator: Stator::new(),
             tnodes: Arena::new(),
+            lnodes: Arena::new(),
             evaluator: Evaluator::new(),
             optimizer: Optimizer::new(),
+            debug_counter: 0,
         }
     }
 
@@ -151,15 +160,29 @@ impl Ensemble {
                 )))
             }
         }
+        for (p_lnode, lnode) in &self.lnodes {
+            if let Some(Referent::ThisLNode(p_self)) = self.backrefs.get_key(lnode.p_self) {
+                if p_lnode != *p_self {
+                    return Err(EvalError::OtherString(format!(
+                        "{lnode:?}.p_self roundtrip fail"
+                    )))
+                }
+            } else {
+                return Err(EvalError::OtherString(format!(
+                    "{lnode:?}.p_self is invalid"
+                )))
+            }
+        }
         // check other referent validities
         for referent in self.backrefs.keys() {
             let invalid = match referent {
                 // already checked
                 Referent::ThisEquiv => false,
                 Referent::ThisTNode(_) => false,
+                Referent::ThisLNode(_) => false,
                 Referent::ThisStateBit(..) => false,
                 Referent::Input(p_input) => !self.tnodes.contains(*p_input),
-                Referent::LoopDriver(p_driver) => !self.tnodes.contains(*p_driver),
+                Referent::LoopDriver(p_driver) => !self.lnodes.contains(*p_driver),
                 Referent::Note(p_note) => !self.notes.contains(*p_note),
             };
             if invalid {
@@ -189,24 +212,26 @@ impl Ensemble {
                     )))
                 }
             }
-            if let Some(loop_driver) = tnode.loop_driver {
-                if let Some(referent) = self.backrefs.get_key(loop_driver) {
-                    if let Referent::LoopDriver(p_driver) = referent {
-                        if !self.tnodes.contains(*p_driver) {
-                            return Err(EvalError::OtherString(format!(
-                                "{p_tnode}: {tnode:?} loop driver referrent {p_driver} is invalid"
-                            )))
-                        }
-                    } else {
+        }
+        for p_lnode in self.lnodes.ptrs() {
+            let lnode = self.lnodes.get(p_lnode).unwrap();
+            if let Some(referent) = self.backrefs.get_key(lnode.p_driver) {
+                if let Referent::LoopDriver(p_driver) = referent {
+                    if !self.lnodes.contains(*p_driver) {
                         return Err(EvalError::OtherString(format!(
-                            "{p_tnode}: {tnode:?} loop driver has incorrect referrent"
+                            "{p_lnode}: {lnode:?} loop driver referrent {p_driver} is invalid"
                         )))
                     }
                 } else {
                     return Err(EvalError::OtherString(format!(
-                        "{p_tnode}: {tnode:?} loop driver {loop_driver} is invalid"
+                        "{p_lnode}: {lnode:?} loop driver has incorrect referrent"
                     )))
                 }
+            } else {
+                return Err(EvalError::OtherString(format!(
+                    "{p_lnode}: {lnode:?} loop driver {} is invalid",
+                    lnode.p_driver
+                )))
             }
         }
         for note in self.notes.vals() {
@@ -240,6 +265,10 @@ impl Ensemble {
                     let tnode = self.tnodes.get(*p_tnode).unwrap();
                     p_back != tnode.p_self
                 }
+                Referent::ThisLNode(p_lnode) => {
+                    let lnode = self.lnodes.get(*p_lnode).unwrap();
+                    p_back != lnode.p_self
+                }
                 Referent::ThisStateBit(p_state, inx) => {
                     let state = self.stator.states.get(*p_state).unwrap();
                     let p_bit = state.p_self_bits.get(*inx).unwrap();
@@ -250,9 +279,9 @@ impl Ensemble {
                     }
                 }
                 Referent::Input(p_input) => {
-                    let tnode1 = self.tnodes.get(*p_input).unwrap();
+                    let tnode = self.tnodes.get(*p_input).unwrap();
                     let mut found = false;
-                    for p_back1 in &tnode1.inp {
+                    for p_back1 in &tnode.inp {
                         if *p_back1 == p_back {
                             found = true;
                             break
@@ -260,9 +289,9 @@ impl Ensemble {
                     }
                     !found
                 }
-                Referent::LoopDriver(p_loop) => {
-                    let tnode1 = self.tnodes.get(*p_loop).unwrap();
-                    tnode1.loop_driver != Some(p_back)
+                Referent::LoopDriver(p_lnode) => {
+                    let lnode = self.lnodes.get(*p_lnode).unwrap();
+                    lnode.p_driver != p_back
                 }
                 Referent::Note(p_note) => {
                     let note = self.notes.get(*p_note).unwrap();
@@ -320,7 +349,6 @@ impl Ensemble {
             }
         }
 
-        // TODO verify DAGness
         Ok(())
     }
 
@@ -329,7 +357,6 @@ impl Ensemble {
         nzbw: NonZeroUsize,
         op: Op<PState>,
         location: Option<Location>,
-        keep: bool,
     ) -> PState {
         for operand in op.operands() {
             let state = self.stator.states.get_mut(*operand).unwrap();
@@ -342,7 +369,7 @@ impl Ensemble {
             location,
             err: None,
             rc: 0,
-            keep,
+            extern_rc: 0,
             lowered_to_elementary: false,
             lowered_to_tnodes: false,
         })
@@ -437,37 +464,26 @@ impl Ensemble {
 
     /// Sets up a loop from the loop source `p_looper` and driver `p_driver`
     #[must_use]
-    pub fn make_loop(&mut self, p_looper: PBack, p_driver: PBack, init_val: Value) -> Option<()> {
-        let looper_equiv = self.backrefs.get_val_mut(p_looper)?;
-        match looper_equiv.val {
-            Value::Unknown => (),
-            // shouldn't fail unless the special Opaque loopback structure is broken
-            _ => panic!("looper is already set to a known value"),
-        }
-        looper_equiv.val = init_val;
-
-        let referent = self.backrefs.get_key(p_looper)?;
-        let p_looper_tnode = match referent {
-            Referent::ThisEquiv => {
-                // need to create the TNode
-                self.tnodes.insert_with(|p_tnode| {
-                    let p_back_self = self
-                        .backrefs
-                        .insert_key(p_looper, Referent::ThisTNode(p_tnode))
-                        .unwrap();
-                    TNode::new(p_back_self, None)
-                })
-            }
-            // we might want to support more cases in the future
-            _ => panic!("bad referent {referent:?}"),
-        };
-        let p_back_driver = self
-            .backrefs
-            .insert_key(p_driver, Referent::LoopDriver(p_looper_tnode))
-            .unwrap();
-        let tnode = self.tnodes.get_mut(p_looper_tnode).unwrap();
-        tnode.loop_driver = Some(p_back_driver);
-        Some(())
+    pub fn make_loop(
+        &mut self,
+        p_looper: PBack,
+        p_driver: PBack,
+        init_val: Value,
+    ) -> Option<PLNode> {
+        let p_lnode = self.lnodes.insert_with(|p_lnode| {
+            let p_driver = self
+                .backrefs
+                .insert_key(p_driver, Referent::LoopDriver(p_lnode))
+                .unwrap();
+            let p_self = self
+                .backrefs
+                .insert_key(p_looper, Referent::ThisLNode(p_lnode))
+                .unwrap();
+            LNode::new(p_self, p_driver)
+        });
+        // in order for the value to register correctly
+        self.change_value(p_looper, init_val).unwrap();
+        Some(p_lnode)
     }
 
     pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), EvalError> {
@@ -510,27 +526,26 @@ impl Ensemble {
         Ok(())
     }
 
-    /// Removes the state (it does not necessarily need to still be contained)
-    /// and removes its source tree of states with resulting zero reference
-    /// count and `!state.keep`
+    /// Triggers a cascade of state removals if `pruning_allowed()` and
+    /// their reference counts are zero
     pub fn remove_state(&mut self, p_state: PState) -> Result<(), EvalError> {
+        if !self.stator.states.contains(p_state) {
+            return Err(EvalError::InvalidPtr);
+        }
         let mut pstate_stack = vec![p_state];
         while let Some(p) = pstate_stack.pop() {
             let mut delete = false;
             if let Some(state) = self.stator.states.get(p) {
-                if (state.rc == 0) && !state.keep {
+                if state.pruning_allowed() {
                     delete = true;
                 }
             }
             if delete {
                 for i in 0..self.stator.states[p].op.operands_len() {
                     let op = self.stator.states[p].op.operands()[i];
-                    self.stator.states[op].rc =
-                        if let Some(x) = self.stator.states[op].rc.checked_sub(1) {
-                            x
-                        } else {
-                            return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
-                        };
+                    if self.stator.states[op].dec_rc().is_none() {
+                        return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
+                    };
                     pstate_stack.push(op);
                 }
                 let mut state = self.stator.states.remove(p).unwrap();
@@ -544,17 +559,19 @@ impl Ensemble {
         Ok(())
     }
 
-    pub fn drive_loops(&mut self) {
-        let mut adv = self.tnodes.advancer();
-        while let Some(p_tnode) = adv.advance(&self.tnodes) {
-            let tnode = self.tnodes.get(p_tnode).unwrap();
-            if let Some(p_driver) = tnode.loop_driver {
-                let driver_equiv = self.backrefs.get_val(p_driver).unwrap();
-                let val = driver_equiv.val;
-                let looper_equiv = self.backrefs.get_val_mut(tnode.p_self).unwrap();
-                looper_equiv.val = val;
+    pub fn force_remove_all_states(&mut self) -> Result<(), EvalError> {
+        for (_, mut state) in self.stator.states.drain() {
+            for p_self_state in state.p_self_bits.drain(..) {
+                if let Some(p_self_state) = p_self_state {
+                    self.backrefs.remove_key(p_self_state).unwrap();
+                }
             }
         }
+        Ok(())
+    }
+
+    pub fn inc_debug_counter(&mut self) {
+        self.debug_counter = self.debug_counter.checked_add(1).unwrap()
     }
 }
 

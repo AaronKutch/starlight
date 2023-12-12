@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0] - 2023-12-08
+### Crate
+- `awint` 0.15
+
+### Changes
+- Dramatically improved performance by a variety of changes
+
 ## [0.1.0] - 2023-12-05
 ### Crate
 - `awint` 0.14

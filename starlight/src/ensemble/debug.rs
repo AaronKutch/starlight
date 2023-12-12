@@ -6,7 +6,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{Ensemble, Equiv, PBack, PNote, Referent, State, TNode},
+    ensemble::{Ensemble, Equiv, PBack, PLNode, PNote, Referent, State, TNode},
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
     Epoch,
@@ -18,7 +18,11 @@ impl DebugNodeTrait<PState> for State {
             sources: {
                 let mut v = vec![];
                 for i in 0..this.op.operands_len() {
-                    v.push((this.op.operands()[i], this.op.operand_names()[i].to_owned()))
+                    if let Some(name) = this.op.operand_names().get(i) {
+                        v.push((this.op.operands()[i], (*name).to_owned()));
+                    } else {
+                        v.push((this.op.operands()[i], "".to_owned()));
+                    }
                 }
                 v
             },
@@ -30,9 +34,6 @@ impl DebugNodeTrait<PState> for State {
                     }
                     Op::StaticGet(_, inx) => {
                         v.push(format!("{} get({})", this.nzbw, inx));
-                    }
-                    Op::StaticSet(_, inx) => {
-                        v.push(format!("{} set({})", this.nzbw, inx));
                     }
                     Op::StaticLut(_, ref lut) => {
                         v.push(format!("{} lut({})", this.nzbw, lut));
@@ -51,7 +52,7 @@ impl DebugNodeTrait<PState> for State {
                 v.push(format!(
                     "{} {} {} {}",
                     this.rc,
-                    short(this.keep),
+                    this.extern_rc,
                     short(this.lowered_to_elementary),
                     short(this.lowered_to_tnodes)
                 ));
@@ -70,16 +71,33 @@ impl DebugNodeTrait<PState> for State {
 
 #[derive(Debug, Clone)]
 pub struct StateBit {
+    p_equiv: Option<PBack>,
     p_state: PState,
     i: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct LNodeTmp {
+    p_self: PBack,
+    p_driver: PBack,
+    p_lnode: PLNode,
+}
+
+#[derive(Debug, Clone)]
+pub struct NoteTmp {
+    p_self: PBack,
+    p_equiv: PBack,
+    p_note: PNote,
+    i: u64,
 }
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
     StateBit(StateBit),
     TNode(TNode),
+    LNode(LNodeTmp),
     Equiv(Equiv, Vec<PBack>),
-    Note(PBack, PNote, u64),
+    Note(NoteTmp),
     Remove,
 }
 
@@ -90,10 +108,16 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 sources: vec![],
                 center: {
                     let mut v = vec![format!("{:?}", p_this)];
-                    v.push(format!("{} {}", state_bit.p_state, state_bit.i));
+                    v.push(format!("{} [{}]", state_bit.p_state, state_bit.i));
                     v
                 },
-                sinks: vec![],
+                sinks: {
+                    if let Some(p_equiv) = state_bit.p_equiv {
+                        vec![(p_equiv, "".to_string())]
+                    } else {
+                        vec![]
+                    }
+                },
             },
             NodeKind::TNode(tnode) => DebugNode {
                 sources: tnode
@@ -107,12 +131,21 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     if let Some(ref lut) = tnode.lut {
                         v.push(format!("{:?} ", lut));
                     }
-                    if let Some(driver) = tnode.loop_driver {
-                        v.push(format!("driver: {:?}", driver));
-                    }
                     if let Some(lowered_from) = tnode.lowered_from {
                         v.push(format!("{:?}", lowered_from));
                     }
+                    v
+                },
+                sinks: vec![],
+            },
+            NodeKind::LNode(lnode) => DebugNode {
+                sources: vec![
+                    (lnode.p_self, "self".to_owned()),
+                    (lnode.p_driver, "driver".to_owned()),
+                ],
+                center: {
+                    let mut v = vec![format!("{:?}", p_this)];
+                    v.push(format!("{:?}", lnode.p_lnode));
                     v
                 },
                 sinks: vec![],
@@ -127,9 +160,14 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 },
                 sinks: vec![],
             },
-            NodeKind::Note(p_back, p_note, inx) => DebugNode {
-                sources: vec![(*p_back, String::new())],
-                center: { vec![format!("{p_note} [{inx}]")] },
+            NodeKind::Note(note) => DebugNode {
+                sources: vec![(note.p_equiv, String::new())],
+                center: {
+                    vec![
+                        format!("{}", note.p_self),
+                        format!("{} [{}]", note.p_note, note.i),
+                    ]
+                },
                 sinks: vec![],
             },
             NodeKind::Remove => panic!("should have been removed"),
@@ -161,8 +199,22 @@ impl Ensemble {
                         }
                         NodeKind::Equiv(self.backrefs.get_val(p_self).unwrap().clone(), v)
                     }
-                    Referent::ThisStateBit(p, i) => {
-                        NodeKind::StateBit(StateBit { p_state: *p, i: *i })
+                    Referent::ThisStateBit(p_state, i) => {
+                        let state = self.stator.states.get(*p_state).unwrap().clone();
+                        if let Some(p_bit) = state.p_self_bits[*i] {
+                            let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
+                            NodeKind::StateBit(StateBit {
+                                p_equiv: Some(p_equiv),
+                                p_state: *p_state,
+                                i: *i,
+                            })
+                        } else {
+                            NodeKind::StateBit(StateBit {
+                                p_equiv: None,
+                                p_state: *p_state,
+                                i: *i,
+                            })
+                        }
                     }
                     Referent::ThisTNode(p_tnode) => {
                         let mut tnode = self.tnodes.get(*p_tnode).unwrap().clone();
@@ -173,16 +225,18 @@ impl Ensemble {
                                 *inp = p_input;
                             }
                         }
-                        if let Some(loop_driver) = tnode.loop_driver.as_mut() {
-                            if let Referent::LoopDriver(_) =
-                                self.backrefs.get_key(*loop_driver).unwrap()
-                            {
-                                let p_driver =
-                                    self.backrefs.get_val(*loop_driver).unwrap().p_self_equiv;
-                                *loop_driver = p_driver;
-                            }
-                        }
                         NodeKind::TNode(tnode)
+                    }
+                    Referent::ThisLNode(p_lnode) => {
+                        let lnode = self.lnodes.get(*p_lnode).unwrap();
+                        // forward to the `PBack`s
+                        let p_self = self.backrefs.get_val(lnode.p_self).unwrap().p_self_equiv;
+                        let p_driver = self.backrefs.get_val(lnode.p_driver).unwrap().p_self_equiv;
+                        NodeKind::LNode(LNodeTmp {
+                            p_self,
+                            p_driver,
+                            p_lnode: *p_lnode,
+                        })
                     }
                     Referent::Note(p_note) => {
                         let note = self.notes.get(*p_note).unwrap();
@@ -193,7 +247,12 @@ impl Ensemble {
                             }
                         }
                         let equiv = self.backrefs.get_val(p_self).unwrap();
-                        NodeKind::Note(equiv.p_self_equiv, *p_note, inx)
+                        NodeKind::Note(NoteTmp {
+                            p_self,
+                            p_equiv: equiv.p_self_equiv,
+                            p_note: *p_note,
+                            i: inx,
+                        })
                     }
                     _ => NodeKind::Remove,
                 }

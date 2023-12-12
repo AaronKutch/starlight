@@ -1,15 +1,20 @@
-use std::{fmt, num::NonZeroUsize};
+use std::{fmt, num::NonZeroUsize, thread::panicking};
 
 use awint::{
-    awint_dag::{dag, epoch, EvalError, Lineage, PState},
+    awint_dag::{dag, EvalError, Lineage, PState},
     awint_internals::forward_debug_fmt,
 };
 
 use crate::{
     awi,
-    ensemble::{Evaluator, PNote, Value},
+    ensemble::{Ensemble, PNote},
     epoch::get_current_epoch,
 };
+
+// Note: `mem::forget` can be used on `EvalAwi`s, but in this crate it should
+// only be done in special cases like if a `EpochShared` is being force dropped
+// by a panic or something that would necessitate giving up on `Epoch`
+// invariants anyway
 
 /// When created from a type implementing `AsRef<dag::Bits>`, it can later be
 /// used to evaluate its dynamic value.
@@ -18,13 +23,33 @@ use crate::{
 ///
 /// # Custom Drop
 ///
-/// TODO
+/// Upon being dropped, this will remove special references being kept by the
+/// current `Epoch`.
 pub struct EvalAwi {
-    pub(crate) p_state: PState,
-    pub(crate) p_note: PNote,
+    p_state: PState,
+    p_note: PNote,
 }
 
-// TODO impl drop to remove note
+impl Drop for EvalAwi {
+    fn drop(&mut self) {
+        // prevent invoking recursive panics and a buffer overrun
+        if !panicking() {
+            if let Some(epoch) = get_current_epoch() {
+                let mut lock = epoch.epoch_data.borrow_mut();
+                let res = lock.ensemble.remove_note(self.p_note);
+                if res.is_err() {
+                    panic!(
+                        "most likely, an `EvalAwi` created in one `Epoch` was dropped in another"
+                    )
+                }
+                if let Some(state) = lock.ensemble.stator.states.get_mut(self.p_state) {
+                    state.dec_extern_rc();
+                }
+            }
+            // else the epoch has been dropped
+        }
+    }
+}
 
 impl Lineage for EvalAwi {
     fn state(&self) -> PState {
@@ -34,24 +59,42 @@ impl Lineage for EvalAwi {
 
 impl Clone for EvalAwi {
     /// This makes another note to the same state that `self` pointed to.
+    #[track_caller]
     fn clone(&self) -> Self {
-        let p_note = get_current_epoch()
-            .unwrap()
-            .epoch_data
-            .borrow_mut()
-            .ensemble
-            .note_pstate(self.p_state)
-            .unwrap();
-        Self {
-            p_state: self.p_state,
-            p_note,
-        }
+        Self::from_state(self.p_state)
+    }
+}
+
+macro_rules! evalawi_from_impl {
+    ($($fn:ident $t:ident);*;) => {
+        $(
+            #[track_caller]
+            pub fn $fn(x: dag::$t) -> Self {
+                Self::from_state(x.state())
+            }
+        )*
     }
 }
 
 impl EvalAwi {
+    evalawi_from_impl!(
+        from_bool bool;
+        from_u8 u8;
+        from_i8 i8;
+        from_u16 u16;
+        from_i16 i16;
+        from_u32 u32;
+        from_i32 i32;
+        from_u64 u64;
+        from_i64 i64;
+        from_u128 u128;
+        from_i128 i128;
+        from_usize usize;
+        from_isize isize;
+    );
+
     pub fn nzbw(&self) -> NonZeroUsize {
-        epoch::get_nzbw_from_current_epoch(self.p_state)
+        Ensemble::get_thread_local_note_nzbw(self.p_note).unwrap()
     }
 
     pub fn bw(&self) -> usize {
@@ -62,27 +105,48 @@ impl EvalAwi {
         self.p_note
     }
 
-    pub(crate) fn from_state(p_state: PState) -> Option<Self> {
-        let p_note = get_current_epoch()
-            .unwrap()
-            .epoch_data
-            .borrow_mut()
-            .ensemble
-            .note_pstate(p_state)?;
-        Some(Self { p_state, p_note })
+    /// Used internally to create `EvalAwi`s
+    ///
+    /// # Panics
+    ///
+    /// If an `Epoch` does not exist or the `PState` was pruned
+    #[track_caller]
+    pub fn from_state(p_state: PState) -> Self {
+        if let Some(epoch) = get_current_epoch() {
+            let mut lock = epoch.epoch_data.borrow_mut();
+            match lock.ensemble.note_pstate(p_state) {
+                Some(p_note) => {
+                    lock.ensemble
+                        .stator
+                        .states
+                        .get_mut(p_state)
+                        .unwrap()
+                        .inc_extern_rc();
+                    Self { p_state, p_note }
+                }
+                None => {
+                    panic!(
+                        "could not create an `EvalAwi` from the given mimicking state, probably \
+                         because the state was pruned or came from a different `Epoch`"
+                    )
+                }
+            }
+        } else {
+            panic!("attempted to create an `EvalAwi` when no live `Epoch` exists")
+        }
     }
 
-    /// Can return `None` if the state has been pruned
-    pub fn from_bits(bits: &dag::Bits) -> Option<Self> {
+    /// Can panic if the state has been pruned
+    #[track_caller]
+    pub fn from_bits(bits: &dag::Bits) -> Self {
         Self::from_state(bits.state())
     }
 
     pub fn eval(&self) -> Result<awi::Awi, EvalError> {
         let nzbw = self.nzbw();
-        let p_self = self.state();
         let mut res = awi::Awi::zero(nzbw);
         for bit_i in 0..res.bw() {
-            let val = Evaluator::calculate_thread_local_state_value(p_self, bit_i)?;
+            let val = Ensemble::calculate_thread_local_note_value(self.p_note, bit_i)?;
             if let Some(val) = val.known_value() {
                 res.set(bit_i, val).unwrap();
             } else {
@@ -93,7 +157,7 @@ impl EvalAwi {
                         .epoch_data
                         .borrow()
                         .ensemble
-                        .get_state_debug(p_self)
+                        .get_state_debug(self.p_state)
                         .unwrap()
                 )))
             }
@@ -101,36 +165,39 @@ impl EvalAwi {
         Ok(res)
     }
 
-    /// Assumes `self` is a single bit
-    pub(crate) fn eval_bit(&self) -> Result<Value, EvalError> {
-        let p_self = self.state();
-        assert_eq!(self.bw(), 1);
-        Evaluator::calculate_thread_local_state_value(p_self, 0)
-    }
-
     pub fn zero(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::zero(w)).unwrap()
+        Self::from_bits(&dag::Awi::zero(w))
     }
 
     pub fn umax(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::umax(w)).unwrap()
+        Self::from_bits(&dag::Awi::umax(w))
     }
 
     pub fn imax(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::imax(w)).unwrap()
+        Self::from_bits(&dag::Awi::imax(w))
     }
 
     pub fn imin(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::imin(w)).unwrap()
+        Self::from_bits(&dag::Awi::imin(w))
     }
 
     pub fn uone(w: NonZeroUsize) -> Self {
-        Self::from_bits(&dag::Awi::uone(w)).unwrap()
+        Self::from_bits(&dag::Awi::uone(w))
     }
 }
 
 impl fmt::Debug for EvalAwi {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(epoch) = get_current_epoch() {
+            if let Some(s) = epoch
+                .epoch_data
+                .borrow()
+                .ensemble
+                .get_state_debug(self.state())
+            {
+                return write!(f, "EvalAwi({s})");
+            }
+        }
         write!(f, "EvalAwi({:?})", self.state())
     }
 }
@@ -140,6 +207,6 @@ forward_debug_fmt!(EvalAwi);
 impl<B: AsRef<dag::Bits>> From<B> for EvalAwi {
     #[track_caller]
     fn from(b: B) -> Self {
-        Self::from_bits(b.as_ref()).unwrap()
+        Self::from_bits(b.as_ref())
     }
 }

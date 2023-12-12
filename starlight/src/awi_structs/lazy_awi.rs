@@ -3,6 +3,7 @@ use std::{
     fmt,
     num::NonZeroUsize,
     ops::{Deref, Index, RangeFull},
+    thread::panicking,
 };
 
 use awint::{
@@ -12,26 +13,47 @@ use awint::{
 
 use crate::{
     awi,
-    ensemble::{Evaluator, PNote},
+    ensemble::{Ensemble, PNote},
     epoch::get_current_epoch,
 };
 
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
 // type
 
-// TODO I have attached a note to `LazyAwi` because without debug assertions,
-// states could get clobbered. I suspect that it naturally requires `Note`s to
-// get involved because of the `nzbw` problem.
+// Note: `mem::forget` can be used on `LazyAwi`s, but in this crate it should
+// only be done in special cases like if a `EpochShared` is being force dropped
+// by a panic or something that would necessitate giving up on `Epoch`
+// invariants anyway
 
 /// When other mimicking types are created from a reference of this, `retro_`
 /// can later be called to retroactively change the input values of the DAG.
+///
+/// # Custom Drop
+///
+/// Upon being dropped, this will remove special references being kept by the
+/// current `Epoch`
 pub struct LazyAwi {
-    // this must remain the same opaque and noted in order for `retro_` to work
     opaque: dag::Awi,
-    // needs to be kept in case the `LazyAwi` is optimized away, but we still need bitwidth
-    // comparisons
-    nzbw: NonZeroUsize,
     p_note: PNote,
+}
+
+impl Drop for LazyAwi {
+    fn drop(&mut self) {
+        // prevent invoking recursive panics and a buffer overrun
+        if !panicking() {
+            if let Some(epoch) = get_current_epoch() {
+                let res = epoch
+                    .epoch_data
+                    .borrow_mut()
+                    .ensemble
+                    .remove_note(self.p_note);
+                if res.is_err() {
+                    panic!("most likely, a `LazyAwi` created in one `Epoch` was dropped in another")
+                }
+            }
+            // else the epoch has been dropped
+        }
+    }
 }
 
 impl Lineage for LazyAwi {
@@ -46,15 +68,11 @@ impl LazyAwi {
     }
 
     pub fn nzbw(&self) -> NonZeroUsize {
-        self.nzbw
+        Ensemble::get_thread_local_note_nzbw(self.p_note).unwrap()
     }
 
     pub fn bw(&self) -> usize {
-        self.nzbw.get()
-    }
-
-    pub fn p_note(&self) -> PNote {
-        self.p_note
+        self.nzbw().get()
     }
 
     pub fn opaque(w: NonZeroUsize) -> Self {
@@ -66,11 +84,7 @@ impl LazyAwi {
             .ensemble
             .note_pstate(opaque.state())
             .unwrap();
-        Self {
-            opaque,
-            nzbw: w,
-            p_note,
-        }
+        Self { opaque, p_note }
     }
 
     // TODO it probably does need to be an extra `Awi` in the `Opaque` variant,
@@ -107,14 +121,7 @@ impl LazyAwi {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        if self.nzbw != rhs.nzbw() {
-            // `change_thread_local_state_value` will return without error if it does not
-            // find the state, but we need to return an error if there is a bitwidth
-            // mismatch
-            return Err(EvalError::WrongBitwidth)
-        }
-        let p_lhs = self.state();
-        Evaluator::change_thread_local_state_value(p_lhs, rhs)
+        Ensemble::change_thread_local_note_value(self.p_note, rhs)
     }
 }
 
@@ -215,14 +222,7 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        if BW != rhs.bw() {
-            // `change_thread_local_state_value` will return without error if it does not
-            // find the state, but we need to return an error if there is a bitwidth
-            // mismatch
-            return Err(EvalError::WrongBitwidth)
-        }
-        let p_lhs = self.state();
-        Evaluator::change_thread_local_state_value(p_lhs, rhs)
+        Ensemble::change_thread_local_note_value(self.p_note, rhs)
     }
 }
 
