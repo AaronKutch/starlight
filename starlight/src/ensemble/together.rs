@@ -67,6 +67,7 @@ pub struct Ensemble {
     pub lnodes: Arena<PLNode, LNode>,
     pub evaluator: Evaluator,
     pub optimizer: Optimizer,
+    pub debug_counter: u64,
 }
 
 impl Ensemble {
@@ -79,6 +80,7 @@ impl Ensemble {
             lnodes: Arena::new(),
             evaluator: Evaluator::new(),
             optimizer: Optimizer::new(),
+            debug_counter: 0,
         }
     }
 
@@ -566,6 +568,10 @@ impl Ensemble {
             }
         }
         Ok(())
+    }
+
+    pub fn inc_debug_counter(&mut self) {
+        self.debug_counter = self.debug_counter.checked_add(1).unwrap()
     }
 }
 

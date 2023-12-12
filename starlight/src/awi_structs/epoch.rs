@@ -308,6 +308,62 @@ impl EpochShared {
             }
         });
     }
+
+    fn internal_drive_loops_with_lower_capability(&self) -> Result<(), EvalError> {
+        // `Loop`s register states to lower so that the below loops can find them
+        Ensemble::handle_requests_with_lower_capability(self)?;
+        // first evaluate all loop drivers
+        let lock = self.epoch_data.borrow();
+        let mut adv = lock.ensemble.lnodes.advancer();
+        drop(lock);
+        loop {
+            let lock = self.epoch_data.borrow();
+            if let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
+                let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
+                let p_driver = lnode.p_driver;
+                drop(lock);
+                Ensemble::calculate_value_with_lower_capability(&self, p_driver)?;
+            } else {
+                break
+            }
+        }
+        // second do all loopback changes
+        let mut lock = self.epoch_data.borrow_mut();
+        let mut adv = lock.ensemble.lnodes.advancer();
+        while let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
+            let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
+            let val = lock.ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
+            let p_self = lnode.p_self;
+            lock.ensemble.change_value(p_self, val).unwrap();
+        }
+        Ok(())
+    }
+
+    fn internal_drive_loops(&self) -> Result<(), EvalError> {
+        // first evaluate all loop drivers
+        let mut lock = self.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+
+        let mut adv = ensemble.lnodes.advancer();
+        loop {
+            if let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
+                let lnode = ensemble.lnodes.get(p_lnode).unwrap();
+                let p_driver = lnode.p_driver;
+                ensemble.calculate_value(p_driver)?;
+            } else {
+                break
+            }
+        }
+        // second do all loopback changes
+        let mut adv = ensemble.lnodes.advancer();
+        while let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
+            let lnode = ensemble.lnodes.get(p_lnode).unwrap();
+            let val = ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
+            let p_self = lnode.p_self;
+            ensemble.change_value(p_self, val).unwrap();
+        }
+        Ok(())
+    }
 }
 
 thread_local!(
@@ -560,32 +616,17 @@ impl Epoch {
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
             return Err(EvalError::OtherStr("epoch is not the current epoch"))
         }
-        // `Loop`s register states to lower so that the below loops can find them
-        Ensemble::handle_requests(&epoch_shared)?;
-        // first evaluate all loop drivers
-        let lock = epoch_shared.epoch_data.borrow();
-        let mut adv = lock.ensemble.lnodes.advancer();
-        drop(lock);
-        loop {
-            let lock = epoch_shared.epoch_data.borrow();
-            if let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
-                let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
-                let p_driver = lnode.p_driver;
-                drop(lock);
-                Ensemble::calculate_value(&epoch_shared, p_driver)?;
-            } else {
-                break
-            }
+        if epoch_shared
+            .epoch_data
+            .borrow()
+            .ensemble
+            .stator
+            .states
+            .is_empty()
+        {
+            epoch_shared.internal_drive_loops()
+        } else {
+            epoch_shared.internal_drive_loops_with_lower_capability()
         }
-        // second do all loopback changes
-        let mut lock = epoch_shared.epoch_data.borrow_mut();
-        let mut adv = lock.ensemble.lnodes.advancer();
-        while let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
-            let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
-            let val = lock.ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
-            let p_self = lnode.p_self;
-            lock.ensemble.change_value(p_self, val).unwrap();
-        }
-        Ok(())
     }
 }

@@ -333,7 +333,10 @@ impl Ensemble {
         }
     }
 
-    pub fn calculate_value(epoch_shared: &EpochShared, p_back: PBack) -> Result<Value, EvalError> {
+    pub fn calculate_value_with_lower_capability(
+        epoch_shared: &EpochShared,
+        p_back: PBack,
+    ) -> Result<Value, EvalError> {
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
         if let Some(equiv) = ensemble.backrefs.get_val_mut(p_back) {
@@ -352,7 +355,7 @@ impl Ensemble {
                     .evaluator
                     .insert(Eval::Investigate0(0, equiv.p_self_equiv));
                 drop(lock);
-                Ensemble::handle_requests(epoch_shared)?;
+                Ensemble::handle_requests_with_lower_capability(epoch_shared)?;
             } else {
                 drop(lock);
             }
@@ -369,7 +372,32 @@ impl Ensemble {
         }
     }
 
-    pub(crate) fn handle_requests(epoch_shared: &EpochShared) -> Result<(), EvalError> {
+    pub fn calculate_value(&mut self, p_back: PBack) -> Result<Value, EvalError> {
+        if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
+            if equiv.val.is_const() {
+                return Ok(equiv.val)
+            }
+            // switch to request phase if not already
+            if self.evaluator.phase != EvalPhase::Request {
+                self.evaluator.phase = EvalPhase::Request;
+                self.evaluator.next_request_visit_gen();
+            }
+            let visit = self.evaluator.request_visit_gen();
+            if equiv.request_visit != visit {
+                equiv.request_visit = visit;
+                self.evaluator
+                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
+                self.handle_requests()?;
+            }
+            Ok(self.backrefs.get_val(p_back).unwrap().val)
+        } else {
+            Err(EvalError::InvalidPtr)
+        }
+    }
+
+    pub(crate) fn handle_requests_with_lower_capability(
+        epoch_shared: &EpochShared,
+    ) -> Result<(), EvalError> {
         // TODO currently, the only way of avoiding N^2 worst case scenarios where
         // different change cascades lead to large groups of nodes being evaluated
         // repeatedly, is to use the front strategy. Only a powers of two reduction tree
@@ -414,6 +442,13 @@ impl Ensemble {
                 lock.ensemble.evaluate(p_eval);
             }
             drop(lock);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn handle_requests(&mut self) -> Result<(), EvalError> {
+        while let Some(p_eval) = self.evaluator.evaluations.min() {
+            self.evaluate(p_eval);
         }
         Ok(())
     }

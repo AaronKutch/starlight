@@ -109,7 +109,9 @@ impl Ensemble {
         let ensemble = &mut lock.ensemble;
         let p_back = if let Some(note) = ensemble.notes.get(p_note) {
             if bit_i >= note.bits.len() {
-                return Err(EvalError::WrongBitwidth);
+                return Err(EvalError::OtherStr(
+                    "something went wrong with note bitwidth",
+                ));
             }
             if let Some(p_back) = note.bits[bit_i] {
                 p_back
@@ -121,8 +123,13 @@ impl Ensemble {
         } else {
             return Err(EvalError::OtherStr("could not find thread local `Note`"))
         };
-        drop(lock);
-        Ensemble::calculate_value(&epoch_shared, p_back)
+        if ensemble.stator.states.is_empty() {
+            // optimization after total pruning from `optimization`
+            ensemble.calculate_value(p_back)
+        } else {
+            drop(lock);
+            Ensemble::calculate_value_with_lower_capability(&epoch_shared, p_back)
+        }
     }
 }
 
