@@ -15,8 +15,33 @@ use crate::{epoch::get_current_epoch, lower::meta::selector};
 /// value of the driver and use that to retroactively change the temporal value
 /// of the loop.
 ///
-/// The fundamental reason for temporal asymmetry is that there needs to be a
-/// well defined root evaluation state and value.
+/// ```
+/// use starlight::{awi, dag::*, Epoch, EvalAwi, Loop};
+/// let epoch = Epoch::new();
+///
+/// let looper = Loop::zero(bw(4));
+/// // evaluate the value of `looper` at this point later
+/// let val = EvalAwi::from(&looper);
+/// let mut tmp = awi!(looper);
+/// tmp.inc_(true);
+/// // drive the `Loop` with itself incremented
+/// looper.drive(&tmp).unwrap();
+///
+/// {
+///     use awi::*;
+///     for i in 0..16 {
+///         // check that the evaluated value is equal to
+///         // this loop iteration number
+///         awi::assert_eq!(i, val.eval().unwrap().to_usize());
+///         // every time `drive_loops` is called,
+///         // the evaluated value increases by one
+///         epoch.drive_loops().unwrap();
+///     }
+/// }
+/// drop(epoch);
+/// ```
+// The fundamental reason for temporal asymmetry is that there needs to be a
+// well defined root evaluation state and value.
 #[derive(Debug)] // do not implement `Clone`, but maybe implement a `duplicate` function that
                  // explicitly duplicates drivers and loopbacks?
 pub struct Loop {

@@ -322,7 +322,7 @@ impl EpochShared {
                 let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
                 let p_driver = lnode.p_driver;
                 drop(lock);
-                Ensemble::calculate_value_with_lower_capability(&self, p_driver)?;
+                Ensemble::calculate_value_with_lower_capability(self, p_driver)?;
             } else {
                 break
             }
@@ -345,14 +345,10 @@ impl EpochShared {
         let ensemble = &mut lock.ensemble;
 
         let mut adv = ensemble.lnodes.advancer();
-        loop {
-            if let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
-                let lnode = ensemble.lnodes.get(p_lnode).unwrap();
-                let p_driver = lnode.p_driver;
-                ensemble.calculate_value(p_driver)?;
-            } else {
-                break
-            }
+        while let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
+            let lnode = ensemble.lnodes.get(p_lnode).unwrap();
+            let p_driver = lnode.p_driver;
+            ensemble.calculate_value(p_driver)?;
         }
         // second do all loopback changes
         let mut adv = ensemble.lnodes.advancer();

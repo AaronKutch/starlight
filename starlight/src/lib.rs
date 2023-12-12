@@ -2,9 +2,7 @@
 //! typical DSL (Domain Specific Language) approach, this allows RTL
 //! descriptions in ordinary Rust code with all the features that Rust provides.
 //!
-//! This crate is still a WIP, but it currently can describe most combinational
-//! logic. The temporal structs (`Loop` and `Net`) need more development before
-//! they will work properly. Many optimizations are planned in the near future.
+//! This crate still has a considerable amount of WIP stuff
 //!
 //! See the documentation of `awint`/`awint_dag` which is used as the backend
 //! for this.
