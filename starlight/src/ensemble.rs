@@ -9,7 +9,7 @@ mod together;
 mod value;
 
 pub use lnode::{LNode, PLNode};
-pub use optimize::Optimizer;
+pub use optimize::{Optimizer, POpt};
 pub use rnode::{PRNode, RNode};
 pub use state::{State, Stator};
 pub use tnode::{PTNode, TNode};

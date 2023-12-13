@@ -10,8 +10,8 @@ use crate::{
 
 ptr_struct!(PRNode);
 
-/// Reference node, used for external references kept alive after `State`
-/// pruning
+/// Reference/Register/Report node, used for external references kept alive
+/// after `State` pruning
 #[derive(Debug, Clone)]
 pub struct RNode {
     pub bits: Vec<Option<PBack>>,

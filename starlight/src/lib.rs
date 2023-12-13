@@ -169,6 +169,7 @@ mod awi_structs;
 pub mod ensemble;
 pub mod lower;
 mod misc;
+pub mod route;
 pub use awi_structs::{epoch, Assertions, Epoch, EvalAwi, LazyAwi, LazyInlAwi, Loop, Net};
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
