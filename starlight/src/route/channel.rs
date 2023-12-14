@@ -2,22 +2,21 @@ use std::cmp::Ordering;
 
 use awint::awint_dag::{
     smallvec::smallvec,
-    triple_arena::{Arena, ArenaTrait, OrdArena},
+    triple_arena::{Arena, OrdArena},
     EvalError,
 };
 
 use crate::{awint_dag::smallvec::SmallVec, ensemble::PBack, triple_arena::ptr_struct};
 
-ptr_struct!(PCNode; PCEdge; PBackToCNode);
+ptr_struct!(PCNode; PCEdge; PTopLevelCNode; PBackToCNode);
 
 /// A channel node
 #[derive(Debug, Clone)]
 pub struct CNode {
-    /// hierarchical capability
-    /// and descends
-    subnodes: SmallVec<[PCNode; 2]>,
-    /// The hierarchy is like a dual overlapping binary tree one
-    supernodes: SmallVec<[PCNode; 2]>,
+    /// Must be sorted.
+    subnodes: Vec<PCNode>,
+    /// Must be sorted.
+    supernodes: Vec<PCNode>,
 }
 
 /// A description of bits to set in order to achieve some desired edge behavior.
@@ -87,6 +86,7 @@ impl CEdge {
 pub struct Channeler {
     cnodes: Arena<PCNode, CNode>,
     cedges: OrdArena<PCEdge, CEdge, ()>,
+    top_level_cnodes: OrdArena<PTopLevelCNode, PCNode, ()>,
     /// On hard dependencies where a path needs to connect to a particular
     /// `PBack`, valid descencions in the `CNode` hierarchy are determined by
     /// `find_with` to first get to the desired `PBack` section, then linear
@@ -157,7 +157,7 @@ half of the subnodes are shared with respect to one or the other (2 out of
 made). 34-45 would also be too close.
 45-56 however is successful resulting in 34567 which has the desired overlap.
 70 is left without a supernode on this level, but it joins a three clique to
-result in the top node
+result in the final top level node
 
        ...
 01234-34567-70-01234
@@ -175,15 +175,26 @@ impl Channeler {
         Self {
             cnodes: Arena::new(),
             cedges: OrdArena::new(),
+            top_level_cnodes: OrdArena::new(),
             backref_to_cnode: OrdArena::new(),
         }
     }
 
     pub fn make_cnode(&mut self, p_equiv: PBack) -> PCNode {
-        self.cnodes.insert(CNode {
-            subnodes: smallvec![],
-            supernodes: smallvec![],
-        })
+        if self
+            .backref_to_cnode
+            .find_with(|_, (p_back, _), _| p_back.cmp(&p_equiv))
+            .is_some()
+        {
+            // there shouldn't be redundant `CNode`s
+            panic!()
+        }
+        let res = self.cnodes.insert(CNode {
+            subnodes: vec![],
+            supernodes: vec![],
+        });
+        self.top_level_cnodes.insert(res, ()).1.unwrap();
+        res
     }
 
     pub fn make_cedge(&mut self, source: PCNode, sink: PCNode, program: Program) -> PCEdge {
@@ -206,7 +217,9 @@ impl Channeler {
     /// `CNode`s and `CEdge`s that results in top level `CNode`s that have no
     /// `CEdges` to any other (and unless the graph was disconnected there will
     /// be only one top level `CNode`).
-    pub fn generate_hierarchy(&mut self) {}
+    pub fn generate_hierarchy(&mut self) {
+        //
+    }
 
     pub fn get_cnode(&self, p_cnode: PCNode) -> Option<&CNode> {
         self.cnodes.get(p_cnode)
@@ -232,9 +245,27 @@ impl Channeler {
     }
 
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
-        // verify all pointer validities first
+        fn is_sorted_and_unique(x: &[PCNode]) -> bool {
+            for i in 1..x.len() {
+                if x[i - 1] >= x[i] {
+                    return false
+                }
+            }
+            true
+        }
+        // verify all pointer validities and sorting invariants first
         for p_cnode in self.cnodes.ptrs() {
             let cnode = &self.cnodes[p_cnode];
+            if !is_sorted_and_unique(&cnode.subnodes) {
+                return Err(EvalError::OtherString(format!(
+                    "{cnode:?}.subnodes is unsorted"
+                )))
+            }
+            if !is_sorted_and_unique(&cnode.supernodes) {
+                return Err(EvalError::OtherString(format!(
+                    "{cnode:?}.supernodes is unsorted"
+                )))
+            }
             for subnode in &cnode.subnodes {
                 if !self.cnodes.contains(*subnode) {
                     return Err(EvalError::OtherString(format!(
@@ -265,12 +296,54 @@ impl Channeler {
                 )))
             }
         }
+        for p_top_level_cnode in self.top_level_cnodes.ptrs() {
+            let p_cnode = self.top_level_cnodes.get_key(p_top_level_cnode).unwrap();
+            if !self.cnodes.contains(*p_cnode) {
+                return Err(EvalError::OtherString(format!(
+                    "{p_top_level_cnode} key {p_cnode} is invalid"
+                )))
+            }
+        }
         for p_back_to_cnode in self.backref_to_cnode.ptrs() {
             let (_, p_cnode) = self.backref_to_cnode.get_key(p_back_to_cnode).unwrap();
             if !self.cnodes.contains(*p_cnode) {
                 return Err(EvalError::OtherString(format!(
                     "{p_back_to_cnode} key {p_cnode} is invalid"
                 )))
+            }
+        }
+        // check basic tree invariants
+        for p_top_level_cnode in self.top_level_cnodes.ptrs() {
+            let p_cnode = self.top_level_cnodes.get_key(p_top_level_cnode).unwrap();
+            if !self.cnodes[p_cnode].supernodes.is_empty() {
+                return Err(EvalError::OtherString(format!(
+                    "{p_top_level_cnode} key {p_cnode} is not a top level `CNode`"
+                )))
+            }
+        }
+        for p_cnode in self.cnodes.ptrs() {
+            let cnode = &self.cnodes[p_cnode];
+            for subnode in &cnode.subnodes {
+                if self.cnodes[subnode]
+                    .supernodes
+                    .binary_search(&p_cnode)
+                    .is_err()
+                {
+                    return Err(EvalError::OtherString(format!(
+                        "{cnode:?} subnode {subnode} does not roundtrip"
+                    )))
+                }
+            }
+            for supernode in &cnode.supernodes {
+                if self.cnodes[supernode]
+                    .subnodes
+                    .binary_search(&p_cnode)
+                    .is_err()
+                {
+                    return Err(EvalError::OtherString(format!(
+                        "{cnode:?} supernode {supernode} does not roundtrip"
+                    )))
+                }
             }
         }
         Ok(())
