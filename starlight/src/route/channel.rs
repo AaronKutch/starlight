@@ -23,8 +23,13 @@ pub struct CNode {
 /// For now we unconditionally specify bits, in the future it should be more
 /// detailed to allow for more close by programs to coexist
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Program {
+pub struct SetBits {
     pub bits: SmallVec<[(PBack, bool); 4]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Program {
+    SetBits(SetBits),
 }
 
 /// An edge between channels
@@ -232,12 +237,61 @@ impl Channeler {
     /// Starting from `p_cnode` assumed to contain `p_back`, this returns valid
     /// subnodes that still contain `PBack`
     pub fn valid_cnode_descensions(&self, p_cnode: PCNode, p_back: PBack) -> SmallVec<[PCNode; 4]> {
+        let cnode = self.cnodes.get(p_cnode).unwrap();
+        // TODO we need a `find_similar_with` function for `OrdArena` so we can avoid
+        // the loop to get to the most previous `p_cnode` in the region
         if let Some(p_init) = self
             .backref_to_cnode
-            .find_with(|_, (p_back1, p_cnode1), ()| p_back1.cmp(&p_back))
+            .find_with(|_, (p_back1, _), ()| p_back1.cmp(&p_back))
         {
+            let mut p = p_init;
+            loop {
+                let link = self.backref_to_cnode.get_link(p).unwrap();
+                if let Some(p_prev) = link.prev() {
+                    if self.backref_to_cnode.get_key(p_prev).unwrap().0 == p_back {
+                        p = p_prev;
+                    } else {
+                        // we have reached the first
+                        break
+                    }
+                } else {
+                    break
+                }
+            }
             let mut res = smallvec![];
-            //
+            let mut i = 0;
+            loop {
+                if i >= cnode.subnodes.len() {
+                    break
+                }
+                let (p_back1, p_cnode1) = self.backref_to_cnode.get_key(p).unwrap();
+                if *p_back1 != p_back {
+                    break
+                }
+                match cnode.subnodes[i].cmp(&p_cnode1) {
+                    Ordering::Less => {
+                        i += 1;
+                    }
+                    Ordering::Equal => {
+                        res.push(*p_cnode1);
+                        i += 1;
+                        let link = self.backref_to_cnode.get_link(p).unwrap();
+                        if let Some(next) = link.next() {
+                            p = next;
+                        } else {
+                            break
+                        }
+                    }
+                    Ordering::Greater => {
+                        let link = self.backref_to_cnode.get_link(p).unwrap();
+                        if let Some(next) = link.next() {
+                            p = next;
+                        } else {
+                            break
+                        }
+                    }
+                }
+            }
             res
         } else {
             unreachable!()
