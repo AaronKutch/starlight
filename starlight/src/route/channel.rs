@@ -19,17 +19,42 @@ pub struct CNode {
     supernodes: Vec<PCNode>,
 }
 
+/// Used by higher order edges to tell what it is capable of overall
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BulkBehavior {
+    /// The number of bits that can enter this channel
+    channel_entry_width: usize,
+    /// The number of bits that can exit this channel
+    channel_exit_width: usize,
+    /// For now, we just add up the number of LUT bits in the channel
+    lut_bits: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Behavior {
+    /// Routes the bit from `source` to `sink`
+    RouteBit,
+    /// Can behave as an arbitrary lookup table outputting a bit and taking the
+    /// input bits.
+    ArbitraryLut(PCNode, SmallVec<[PCNode; 4]>),
+    /// Bulk behavior
+    Bulk(BulkBehavior),
+}
+
 /// A description of bits to set in order to achieve some desired edge behavior.
 /// For now we unconditionally specify bits, in the future it should be more
 /// detailed to allow for more close by programs to coexist
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SetBits {
-    pub bits: SmallVec<[(PBack, bool); 4]>,
+pub struct Instruction {
+    pub set_bits: SmallVec<[(PBack, bool); 4]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Program {
-    SetBits(SetBits),
+pub struct Programmability {
+    /// The behavior that can be programmed into this edge
+    behavior: Behavior,
+    /// The instruction required to get the desired behavior
+    instruction: Instruction,
 }
 
 /// An edge between channels
@@ -46,7 +71,7 @@ pub struct CEdge {
     /// Describes the required program to route a value (could be the `p_equiv`
     /// in a unit `CNode` or bulk routing through higher level `CNode`s) from
     /// the source to the sink.
-    program: Program,
+    programmability: Programmability,
     // Ideally when `CNode`s are merged, they keep approximately the same weight distribution for
     // wide edges delay_weight: u64,
     //lagrangian_weight: u64,
@@ -81,8 +106,8 @@ impl Ord for CEdge {
 }
 
 impl CEdge {
-    pub fn program(&self) -> &Program {
-        &self.program
+    pub fn programmability(&self) -> &Programmability {
+        &self.programmability
     }
 }
 
@@ -202,12 +227,17 @@ impl Channeler {
         res
     }
 
-    pub fn make_cedge(&mut self, source: PCNode, sink: PCNode, program: Program) -> PCEdge {
+    pub fn make_cedge(
+        &mut self,
+        source: PCNode,
+        sink: PCNode,
+        programmability: Programmability,
+    ) -> PCEdge {
         let (p_new, duplicate) = self.cedges.insert(
             CEdge {
                 source,
                 sink,
-                program,
+                programmability,
             },
             (),
         );
@@ -222,9 +252,7 @@ impl Channeler {
     /// `CNode`s and `CEdge`s that results in top level `CNode`s that have no
     /// `CEdges` to any other (and unless the graph was disconnected there will
     /// be only one top level `CNode`).
-    pub fn generate_hierarchy(&mut self) {
-        //
-    }
+    pub fn generate_hierarchy(&mut self) {}
 
     pub fn get_cnode(&self, p_cnode: PCNode) -> Option<&CNode> {
         self.cnodes.get(p_cnode)
