@@ -8,7 +8,7 @@ use awint::awint_dag::{
 
 use crate::{awint_dag::smallvec::SmallVec, ensemble::PBack, triple_arena::ptr_struct};
 
-ptr_struct!(PCNode; PCEdge; PTopLevelCNode; PBackToCNode);
+ptr_struct!(PCNode; PCEdge; PBackToCNode);
 
 /// A channel node
 #[derive(Debug, Clone)]
@@ -39,6 +39,9 @@ pub enum Behavior {
     ArbitraryLut(PCNode, SmallVec<[PCNode; 4]>),
     /// Bulk behavior
     Bulk(BulkBehavior),
+    /// Nothing can happen between nodes, used for connecting top level nodes
+    /// that have no connection to each other
+    Noop,
 }
 
 /// A description of bits to set in order to achieve some desired edge behavior.
@@ -116,7 +119,10 @@ impl CEdge {
 pub struct Channeler {
     cnodes: Arena<PCNode, CNode>,
     cedges: OrdArena<PCEdge, CEdge, ()>,
-    top_level_cnodes: OrdArena<PTopLevelCNode, PCNode, ()>,
+    /// The plan is that this always ends up with a single top level node, with
+    /// all unconnected graphs being connected with `Behavior::Noop` so that the
+    /// normal algorithm can allocate over them
+    top_level_cnodes: SmallVec<[PCNode; 1]>,
     /// On hard dependencies where a path needs to connect to a particular
     /// `PBack`, valid descencions in the `CNode` hierarchy are determined by
     /// `find_with` to first get to the desired `PBack` section, then linear
@@ -205,7 +211,7 @@ impl Channeler {
         Self {
             cnodes: Arena::new(),
             cedges: OrdArena::new(),
-            top_level_cnodes: OrdArena::new(),
+            top_level_cnodes: smallvec![],
             backref_to_cnode: OrdArena::new(),
         }
     }
@@ -223,7 +229,7 @@ impl Channeler {
             subnodes: vec![],
             supernodes: vec![],
         });
-        self.top_level_cnodes.insert(res, ()).1.unwrap();
+        self.top_level_cnodes.push(res);
         res
     }
 
@@ -252,7 +258,9 @@ impl Channeler {
     /// `CNode`s and `CEdge`s that results in top level `CNode`s that have no
     /// `CEdges` to any other (and unless the graph was disconnected there will
     /// be only one top level `CNode`).
-    pub fn generate_hierarchy(&mut self) {}
+    pub fn generate_hierarchy(&mut self) {
+        //let mut p =
+    }
 
     pub fn get_cnode(&self, p_cnode: PCNode) -> Option<&CNode> {
         self.cnodes.get(p_cnode)
@@ -378,11 +386,10 @@ impl Channeler {
                 )))
             }
         }
-        for p_top_level_cnode in self.top_level_cnodes.ptrs() {
-            let p_cnode = self.top_level_cnodes.get_key(p_top_level_cnode).unwrap();
+        for p_cnode in &self.top_level_cnodes {
             if !self.cnodes.contains(*p_cnode) {
                 return Err(EvalError::OtherString(format!(
-                    "{p_top_level_cnode} key {p_cnode} is invalid"
+                    "top_level_cnodes {p_cnode} is invalid"
                 )))
             }
         }
@@ -395,11 +402,10 @@ impl Channeler {
             }
         }
         // check basic tree invariants
-        for p_top_level_cnode in self.top_level_cnodes.ptrs() {
-            let p_cnode = self.top_level_cnodes.get_key(p_top_level_cnode).unwrap();
+        for p_cnode in &self.top_level_cnodes {
             if !self.cnodes[p_cnode].supernodes.is_empty() {
                 return Err(EvalError::OtherString(format!(
-                    "{p_top_level_cnode} key {p_cnode} is not a top level `CNode`"
+                    "top_level_cnodes {p_cnode} is not a top level `CNode`"
                 )))
             }
         }
