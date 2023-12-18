@@ -12,7 +12,7 @@ use crate::{awint_dag::smallvec::SmallVec, ensemble::PBack, triple_arena::ptr_st
 ptr_struct!(PCNode; PCEdge; PBackToCNode);
 
 /// A channel node
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CNode {
     /// Must be sorted.
     subnodes: Vec<PCNode>,
@@ -65,10 +65,10 @@ pub struct Programmability {
 #[derive(Debug, Clone)]
 pub struct CEdge {
     /// The sink `CNode`
-    sink: PCNode,
+    p_sink: PCNode,
     /// The source `CNode`, this is readonly but bidirectional `Net`s can be
     /// represented with two `CEdge`s going both ways
-    source: PCNode,
+    p_source: PCNode,
 
     // the variables above should uniquely determine a `CEdge`, we define `Eq` and `Ord` to only
     // respect the above and any insertion needs to check for duplicates
@@ -83,7 +83,7 @@ pub struct CEdge {
 
 impl PartialEq for CEdge {
     fn eq(&self, other: &Self) -> bool {
-        self.source == other.source && self.sink == other.sink
+        self.p_source == other.p_source && self.p_sink == other.p_sink
     }
 }
 
@@ -91,21 +91,21 @@ impl Eq for CEdge {}
 
 impl PartialOrd for CEdge {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self.source.partial_cmp(&other.source) {
+        match self.p_source.partial_cmp(&other.p_source) {
             Some(Ordering::Equal) => {}
             ord => return ord,
         }
-        self.sink.partial_cmp(&other.sink)
+        self.p_sink.partial_cmp(&other.p_sink)
     }
 }
 
 impl Ord for CEdge {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.source.cmp(&other.source) {
+        match self.p_source.cmp(&other.p_source) {
             Ordering::Equal => {}
             ord => return ord,
         }
-        self.sink.cmp(&other.sink)
+        self.p_sink.cmp(&other.p_sink)
     }
 }
 
@@ -217,33 +217,38 @@ impl Channeler {
         }
     }
 
-    pub fn make_cnode(&mut self, p_equiv: PBack) -> PCNode {
-        if self
-            .backref_to_cnode
-            .find_with(|_, (p_back, _), _| p_back.cmp(&p_equiv))
-            .is_some()
-        {
-            // there shouldn't be redundant `CNode`s
-            panic!()
-        }
+    /// Given the `subnodes` for a new top level `CNode`, this will manage the
+    /// sorting and the `supernodes` backrefs
+    pub fn make_top_level_cnode(&mut self, mut subnodes: Vec<PCNode>) -> PCNode {
+        subnodes.sort_unstable();
+        let len = subnodes.len();
         let res = self.cnodes.insert(CNode {
-            subnodes: vec![],
+            subnodes,
             supernodes: vec![],
         });
+        for i in 0..len {
+            let subnode = self.cnodes.get(res).unwrap().subnodes[i];
+            let sub_backrefs = &mut self.cnodes.get_mut(subnode).unwrap().supernodes;
+            // insert at the right point to keep sorted
+            let j = sub_backrefs.partition_point(|&p| p < res);
+            sub_backrefs.insert(j, res);
+        }
         self.top_level_cnodes.push(res);
         res
     }
 
-    pub fn make_cedge(
+    // LUTs will work by having a `CNode` with unit subnodes for each input bit, and
+    // an edge going to a unit output `CNode`
+    /*pub fn make_cedge(
         &mut self,
-        source: PCNode,
-        sink: PCNode,
+        p_source: PCNode,
+        p_sink: PCNode,
         programmability: Programmability,
     ) -> PCEdge {
         let (p_new, duplicate) = self.cedges.insert(
             CEdge {
-                source,
-                sink,
+                p_source,
+                p_sink,
                 programmability,
             },
             (),
@@ -252,7 +257,7 @@ impl Channeler {
         // appropriately, but disallow for now
         duplicate.unwrap();
         p_new
-    }
+    }*/
 
     /// Starting from unit `CNode`s and `CEdge`s describing all known low level
     /// progam methods, this generates a logarithmic tree of higher level
@@ -266,35 +271,72 @@ impl Channeler {
         // when running out of commonality merges to make, we progress by merging based
         // on the nodes with the largest fan-in
         ptr_struct!(P0; P1);
+
         let mut fan_in_priority = OrdArena::<P0, (usize, PCNode), ()>::new();
-        for p_cnode in self.cnodes.ptrs() {
+        let mut merge_priority = OrdArena::<P1, (usize, PCNode, PCNode), ()>::new();
+        // handles the common task of updating priorities after adding a new `CNode` to
+        // consideration
+        fn add_p_cnode(
+            channeler: &mut Channeler,
+            fan_in_priority: &mut OrdArena<P0, (usize, PCNode), ()>,
+            merge_priority: &mut OrdArena<P1, (usize, PCNode, PCNode), ()>,
+            new_p_cnode: PCNode,
+        ) {
+            // add to fan in priority
             let mut fan_in_count = 0usize;
-            if let Some(mut adv) =
-                RegionAdvancer::new(&self.cedges, |_, cedge, ()| cedge.sink.cmp(&p_cnode))
-            {
-                while let Some(_) = adv.advance(&self.cedges) {
+            if let Some(mut adv) = RegionAdvancer::new(&channeler.cedges, |_, cedge, ()| {
+                cedge.p_sink.cmp(&new_p_cnode)
+            }) {
+                while let Some(_) = adv.advance(&channeler.cedges) {
                     fan_in_count = fan_in_count.checked_add(1).unwrap();
                 }
-            } else {
-                unreachable!()
-            }
-            if fan_in_count != 0 {
                 fan_in_priority
-                    .insert((fan_in_count, p_cnode), ())
+                    .insert((fan_in_count, new_p_cnode), ())
                     .1
                     .unwrap();
             }
         }
-        let mut merge_priority = OrdArena::<P1, (usize, PCNode, PCNode), ()>::new();
+        let mut adv = self.cnodes.advancer();
+        while let Some(p_cnode) = adv.advance(&self.cnodes) {
+            add_p_cnode(self, &mut fan_in_priority, &mut merge_priority, p_cnode);
+        }
         loop {
             if fan_in_priority.is_empty() && merge_priority.is_empty() {
                 break
             }
             while let Some(p1_max) = merge_priority.max() {
                 let merge = merge_priority.remove(p1_max).unwrap().0;
+                // 1.
             }
             if let Some(p0_max) = fan_in_priority.max() {
                 let p_cnode = fan_in_priority.remove(p0_max).unwrap().0 .1;
+                // check that it is top level and wasn't subsumed by a merge step
+                if self.cnodes.get(p_cnode).unwrap().supernodes.is_empty() {
+                    // the subnodes will consist of the common sink node and its top level sources
+                    let mut subnodes = vec![p_cnode];
+                    let mut adv = RegionAdvancer::new(&self.cedges, |_, cedge, ()| {
+                        cedge.p_sink.cmp(&p_cnode)
+                    })
+                    .unwrap();
+                    while let Some(p_edge) = adv.advance(&self.cedges) {
+                        let edge = self.cedges.get(p_edge).unwrap().0;
+                        let p_source = edge.p_source;
+                        let source = self.cnodes.get(p_source).unwrap();
+                        if source.supernodes.is_empty() {
+                            subnodes.push(p_source);
+                        }
+                    }
+                    let new_p_cnode = self.make_top_level_cnode(subnodes);
+                    add_p_cnode(self, &mut fan_in_priority, &mut merge_priority, new_p_cnode);
+                }
+            }
+        }
+
+        // just overwrite
+        self.top_level_cnodes.clear();
+        for (p_cnode, cnode) in &self.cnodes {
+            if cnode.supernodes.is_empty() {
+                self.top_level_cnodes.push(p_cnode);
             }
         }
     }
@@ -381,16 +423,16 @@ impl Channeler {
         }
         for p_cedge in self.cedges.ptrs() {
             let cedge = &self.cedges.get_key(p_cedge).unwrap();
-            if !self.cnodes.contains(cedge.source) {
+            if !self.cnodes.contains(cedge.p_source) {
                 return Err(EvalError::OtherString(format!(
-                    "{cedge:?}.source {} is invalid",
-                    cedge.source
+                    "{cedge:?}.p_source {} is invalid",
+                    cedge.p_source
                 )))
             }
-            if !self.cnodes.contains(cedge.sink) {
+            if !self.cnodes.contains(cedge.p_sink) {
                 return Err(EvalError::OtherString(format!(
-                    "{cedge:?}.sink {} is invalid",
-                    cedge.sink
+                    "{cedge:?}.p_sink {} is invalid",
+                    cedge.p_sink
                 )))
             }
         }
