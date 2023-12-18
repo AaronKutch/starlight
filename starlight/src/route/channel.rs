@@ -265,13 +265,38 @@ impl Channeler {
     pub fn generate_hierarchy(&mut self) {
         // when running out of commonality merges to make, we progress by merging based
         // on the nodes with the largest fan-in
-        ptr_struct!(P0);
-        let mut fan_in_priority = OrdArena::<P0, usize, PCNode>::new();
-        /*for (p_cnode, cnode) in self.cnodes {
-            let p_cedge = self.cedges.find_with(|_, cedge, ()| {
-                cedge.sink.cmp(&p_cnode)
-            });
-        }*/
+        ptr_struct!(P0; P1);
+        let mut fan_in_priority = OrdArena::<P0, (usize, PCNode), ()>::new();
+        for p_cnode in self.cnodes.ptrs() {
+            let mut fan_in_count = 0usize;
+            if let Some(mut adv) =
+                RegionAdvancer::new(&self.cedges, |_, cedge, ()| cedge.sink.cmp(&p_cnode))
+            {
+                while let Some(_) = adv.advance(&self.cedges) {
+                    fan_in_count = fan_in_count.checked_add(1).unwrap();
+                }
+            } else {
+                unreachable!()
+            }
+            if fan_in_count != 0 {
+                fan_in_priority
+                    .insert((fan_in_count, p_cnode), ())
+                    .1
+                    .unwrap();
+            }
+        }
+        let mut merge_priority = OrdArena::<P1, (usize, PCNode, PCNode), ()>::new();
+        loop {
+            if fan_in_priority.is_empty() && merge_priority.is_empty() {
+                break
+            }
+            while let Some(p1_max) = merge_priority.max() {
+                let merge = merge_priority.remove(p1_max).unwrap().0;
+            }
+            if let Some(p0_max) = fan_in_priority.max() {
+                let p_cnode = fan_in_priority.remove(p0_max).unwrap().0 .1;
+            }
+        }
     }
 
     pub fn get_cnode(&self, p_cnode: PCNode) -> Option<&CNode> {
