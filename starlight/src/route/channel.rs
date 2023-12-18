@@ -2,10 +2,11 @@ use std::cmp::Ordering;
 
 use awint::awint_dag::{
     smallvec::smallvec,
-    triple_arena::{Arena, OrdArena},
+    triple_arena::{Advancer, Arena, OrdArena},
     EvalError,
 };
 
+use super::RegionAdvancer;
 use crate::{awint_dag::smallvec::SmallVec, ensemble::PBack, triple_arena::ptr_struct};
 
 ptr_struct!(PCNode; PCEdge; PBackToCNode);
@@ -63,11 +64,11 @@ pub struct Programmability {
 /// An edge between channels
 #[derive(Debug, Clone)]
 pub struct CEdge {
+    /// The sink `CNode`
+    sink: PCNode,
     /// The source `CNode`, this is readonly but bidirectional `Net`s can be
     /// represented with two `CEdge`s going both ways
     source: PCNode,
-    /// The sink `CNode`
-    sink: PCNode,
 
     // the variables above should uniquely determine a `CEdge`, we define `Eq` and `Ord` to only
     // respect the above and any insertion needs to check for duplicates
@@ -258,8 +259,19 @@ impl Channeler {
     /// `CNode`s and `CEdge`s that results in top level `CNode`s that have no
     /// `CEdges` to any other (and unless the graph was disconnected there will
     /// be only one top level `CNode`).
+    ///
+    /// We are currently assuming that `generate_hierarchy` is being run once on
+    /// a graph of unit channel nodes and edges
     pub fn generate_hierarchy(&mut self) {
-        //let mut p =
+        // when running out of commonality merges to make, we progress by merging based
+        // on the nodes with the largest fan-in
+        ptr_struct!(P0);
+        let mut fan_in_priority = OrdArena::<P0, usize, PCNode>::new();
+        /*for (p_cnode, cnode) in self.cnodes {
+            let p_cedge = self.cedges.find_with(|_, cedge, ()| {
+                cedge.sink.cmp(&p_cnode)
+            });
+        }*/
     }
 
     pub fn get_cnode(&self, p_cnode: PCNode) -> Option<&CNode> {
@@ -274,57 +286,28 @@ impl Channeler {
     /// subnodes that still contain `PBack`
     pub fn valid_cnode_descensions(&self, p_cnode: PCNode, p_back: PBack) -> SmallVec<[PCNode; 4]> {
         let cnode = self.cnodes.get(p_cnode).unwrap();
-        // TODO we need a `find_similar_with` function for `OrdArena` so we can avoid
-        // the loop to get to the most previous `p_cnode` in the region
-        if let Some(p_init) = self
-            .backref_to_cnode
-            .find_with(|_, (p_back1, _), ()| p_back1.cmp(&p_back))
-        {
-            let mut p = p_init;
-            loop {
-                let link = self.backref_to_cnode.get_link(p).unwrap();
-                if let Some(p_prev) = link.prev() {
-                    if self.backref_to_cnode.get_key(p_prev).unwrap().0 == p_back {
-                        p = p_prev;
-                    } else {
-                        // we have reached the first
-                        break
-                    }
-                } else {
-                    break
-                }
-            }
+        if let Some(mut adv) = RegionAdvancer::new(&self.backref_to_cnode, |_, (p_back1, _), ()| {
+            p_back1.cmp(&p_back)
+        }) {
+            // uses the fact that `subnodes` is ordered to linearly iterate over a region
             let mut res = smallvec![];
             let mut i = 0;
-            loop {
-                if i >= cnode.subnodes.len() {
-                    break
-                }
-                let (p_back1, p_cnode1) = self.backref_to_cnode.get_key(p).unwrap();
-                if *p_back1 != p_back {
-                    break
-                }
-                match cnode.subnodes[i].cmp(&p_cnode1) {
-                    Ordering::Less => {
-                        i += 1;
+            'outer: while let Some(p) = adv.advance(&self.backref_to_cnode) {
+                let (_, p_cnode1) = self.backref_to_cnode.get_key(p).unwrap();
+                loop {
+                    if i >= cnode.subnodes.len() {
+                        break 'outer;
                     }
-                    Ordering::Equal => {
-                        res.push(*p_cnode1);
-                        i += 1;
-                        let link = self.backref_to_cnode.get_link(p).unwrap();
-                        if let Some(next) = link.next() {
-                            p = next;
-                        } else {
+                    match cnode.subnodes[i].cmp(&p_cnode1) {
+                        Ordering::Less => {
+                            i += 1;
+                        }
+                        Ordering::Equal => {
+                            res.push(*p_cnode1);
+                            i += 1;
                             break
                         }
-                    }
-                    Ordering::Greater => {
-                        let link = self.backref_to_cnode.get_link(p).unwrap();
-                        if let Some(next) = link.next() {
-                            p = next;
-                        } else {
-                            break
-                        }
+                        Ordering::Greater => break,
                     }
                 }
             }
