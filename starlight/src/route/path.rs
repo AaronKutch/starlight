@@ -1,5 +1,5 @@
 use crate::{
-    route::channel::{PCEdge, PCNode},
+    route::{PBack, PCEdge},
     triple_arena::ptr_struct,
 };
 
@@ -8,7 +8,7 @@ ptr_struct!(PHyperPath);
 /// A single path from a source to sink across multiple `CEdge`s
 #[derive(Debug, Clone)]
 pub struct Path {
-    sink: PCNode,
+    sink: PBack,
     edges: Vec<PCEdge>,
     //critical_multiplier: u64,
 }
@@ -17,6 +17,6 @@ pub struct Path {
 /// to one ore more `sink` nodes. Sinks can have different priorities.
 #[derive(Debug, Clone)]
 pub struct HyperPath {
-    source: PCNode,
+    source: PBack,
     paths: Vec<Path>,
 }
