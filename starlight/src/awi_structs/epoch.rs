@@ -230,8 +230,8 @@ impl EpochShared {
     }
 
     /// Returns a clone of the ensemble
-    pub fn ensemble(&self) -> Ensemble {
-        self.epoch_data.borrow().ensemble.clone()
+    pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, mut f: F) -> O {
+        f(&self.epoch_data.borrow().ensemble)
     }
 
     pub fn assertions_empty(&self) -> bool {
@@ -534,6 +534,14 @@ impl Epoch {
         &this.shared
     }
 
+    pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, f: F) -> O {
+        self.shared.ensemble(f)
+    }
+
+    pub fn verify_integrity(&self) -> Result<(), EvalError> {
+        self.ensemble(|ensemble| ensemble.verify_integrity())
+    }
+
     /// Gets the assertions associated with this Epoch (not including assertions
     /// from when sub-epochs are alive or from before the this Epoch was
     /// created)
@@ -551,10 +559,6 @@ impl Epoch {
     /// returns a specific error for it.
     pub fn assert_assertions_strict(&self) -> Result<(), EvalError> {
         self.shared.assert_assertions(true)
-    }
-
-    pub fn ensemble(&self) -> Ensemble {
-        self.shared.ensemble()
     }
 
     /// Used for testing

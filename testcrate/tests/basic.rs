@@ -19,14 +19,14 @@ fn lazy_awi() -> Option<()> {
         // TODO the solution is to use the `bits` macro in these places
         x.retro_(&awi!(0)).unwrap();
 
-        epoch0.ensemble().verify_integrity().unwrap();
+        epoch0.verify_integrity().unwrap();
         awi::assert_eq!(y.eval().unwrap(), awi!(1));
-        epoch0.ensemble().verify_integrity().unwrap();
+        epoch0.verify_integrity().unwrap();
 
         x.retro_(&awi!(1)).unwrap();
 
         awi::assert_eq!(y.eval().unwrap(), awi!(0));
-        epoch0.ensemble().verify_integrity().unwrap();
+        epoch0.verify_integrity().unwrap();
     }
 
     // cleans up everything not still used by `LazyAwi`s, `LazyAwi`s deregister
@@ -52,7 +52,7 @@ fn invert_twice() {
 
         x.retro_(&awi!(0)).unwrap();
         assert_eq!(y.eval().unwrap(), awi!(0));
-        epoch0.ensemble().verify_integrity().unwrap();
+        epoch0.verify_integrity().unwrap();
         x.retro_(&awi!(1)).unwrap();
         assert_eq!(y.eval().unwrap(), awi!(1));
     }
@@ -145,16 +145,16 @@ fn luts() {
                 }
                 assert_eq!(opt_res, res);
 
-                let ensemble = epoch0.ensemble();
-
-                // assert that there is at most one LNode with constant inputs optimized away
-                let mut lnodes = ensemble.lnodes.vals();
-                if let Some(lnode) = lnodes.next() {
-                    inp_bits += lnode.inp.len();
-                    assert!(lnode.inp.len() <= opaque_set.count_ones());
+                epoch0.ensemble(|ensemble| {
+                    // assert that there is at most one LNode with constant inputs optimized away
+                    let mut lnodes = ensemble.lnodes.vals();
+                    if let Some(lnode) = lnodes.next() {
+                        inp_bits += lnode.inp.len();
+                        assert!(lnode.inp.len() <= opaque_set.count_ones());
+                        assert!(lnodes.next().is_none());
+                    }
                     assert!(lnodes.next().is_none());
-                }
-                assert!(lnodes.next().is_none());
+                });
             }
         }
     }

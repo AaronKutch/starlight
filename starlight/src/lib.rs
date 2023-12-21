@@ -96,9 +96,11 @@
 //!
 //!     // Now the combinational logic is described in a DAG of lookup tables that we
 //!     // could use for various purposes
-//!     for state in epoch0.ensemble().stator.states.vals() {
-//!         awi::assert!(state.lowered_to_lnodes);
-//!     }
+//!     epoch0.ensemble(|ensemble| {
+//!         for state in ensemble.stator.states.vals() {
+//!             awi::assert!(state.lowered_to_lnodes);
+//!         }
+//!     });
 //!
 //!     // "retroactively" assign the input with a non-opaque value
 //!     input.retro_(&awi!(0101)).unwrap();

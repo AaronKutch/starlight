@@ -169,7 +169,7 @@ fn fuzz_elementary() {
             operation(&mut rng, &mut m)
         }
         m.finish(&epoch);
-        epoch.ensemble().verify_integrity().unwrap();
+        epoch.verify_integrity().unwrap();
         let res = m.verify_equivalence(&epoch);
         res.unwrap();
         epoch.optimize().unwrap();

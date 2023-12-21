@@ -266,7 +266,7 @@ impl Ensemble {
         arena
     }
 
-    pub fn render_to_svgs_in_dir(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
+    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), EvalError> {
         let dir = match out_file.canonicalize() {
             Ok(o) => {
                 if !o.is_dir() {
@@ -291,16 +291,21 @@ impl Ensemble {
 
 impl Epoch {
     pub fn eprint_debug_summary(&self) {
-        let ensemble = self.ensemble();
-        let chain_arena = ensemble.backrefs_to_chain_arena();
-        let debug = ensemble.to_debug();
-        eprintln!(
-            "ensemble: {:#?}\nchain_arena: {:#?}\ndebug: {:#?}",
-            ensemble, chain_arena, debug
-        );
+        self.ensemble(|ensemble| {
+            let chain_arena = ensemble.backrefs_to_chain_arena();
+            let debug = ensemble.to_debug();
+            eprintln!(
+                "ensemble: {:#?}\nchain_arena: {:#?}\ndebug: {:#?}",
+                ensemble, chain_arena, debug
+            );
+        });
     }
 
     pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), EvalError> {
-        self.ensemble().render_to_svgs_in_dir(out_file)
+        let tmp = &out_file;
+        self.ensemble(|ensemble| {
+            let out_file = tmp.to_owned();
+            ensemble.render_to_svgs_in_dir(out_file)
+        })
     }
 }

@@ -1,4 +1,7 @@
-use crate::{awint_dag::smallvec::SmallVec, ensemble, route::PBack, triple_arena::ptr_struct};
+use super::Channeler;
+use crate::{
+    awint_dag::smallvec::SmallVec, ensemble, route::PBack, triple_arena::ptr_struct, Epoch,
+};
 
 ptr_struct!(PCEdge);
 
@@ -63,5 +66,15 @@ pub struct CEdge {
 impl CEdge {
     pub fn programmability(&self) -> &Programmability {
         &self.programmability
+    }
+}
+
+impl Channeler {
+    pub fn from_epoch(epoch: &Epoch) -> Self {
+        let mut res = Self::new();
+
+        epoch.ensemble(|ensemble| {});
+
+        res
     }
 }
