@@ -87,3 +87,50 @@ fn epoch_shared0() {
     awi::assert!(epoch1.ensemble(|ensemble| ensemble.stator.states.is_empty()));
     drop(epoch1);
 }
+
+#[test]
+fn epoch_suspension0() {
+    let epoch0 = Epoch::new();
+    let (lazy0, eval0) = ex();
+    let epoch0 = epoch0.suspend().unwrap();
+    let epoch1 = Epoch::new();
+    {
+        use awi::*;
+        awi::assert!(lazy0.retro_(&awi!(01)).is_err());
+        awi::assert!(eval0.eval().is_err());
+    }
+    let (lazy1, eval1) = ex();
+    // TODO probably should create `RNode` and `PState` arenas with generations
+    // starting at random offsets to help prevent collisions
+    /*{
+        use awi::*;
+        lazy1.retro_(&awi!(01)).unwrap();
+        awi::assert_eq!(eval1.eval().unwrap(), awi!(10));
+        epoch1.assert_assertions(true).unwrap();
+    }*/
+    {
+        use awi::*;
+        lazy1.retro_(&awi!(01)).unwrap();
+        awi::assert_eq!(eval1.eval().unwrap(), awi!(10));
+        epoch1.assert_assertions(true).unwrap();
+    }
+    drop(epoch1);
+    let epoch0 = epoch0.resume();
+    {
+        use awi::*;
+        lazy0.retro_(&awi!(01)).unwrap();
+        awi::assert_eq!(eval0.eval().unwrap(), awi!(10));
+        epoch0.assert_assertions(true).unwrap();
+    }
+    drop(epoch0);
+}
+
+#[test]
+#[should_panic]
+fn epoch_suspension1() {
+    let epoch0 = Epoch::new();
+    let epoch0 = epoch0.suspend().unwrap();
+    let epoch1 = Epoch::new();
+    drop(epoch0);
+    drop(epoch1);
+}

@@ -616,6 +616,33 @@ impl Drop for EpochInnerDrop {
 /// // `epoch0` is current
 /// drop(epoch0);
 ///
+/// // suspended epochs work the same with respect to
+/// // suspend and resume points
+/// let epoch0 = Epoch::new();
+/// // `epoch0` is current
+/// let suspended_epoch0 = epoch0.suspend().unwrap();
+/// // no epoch is current
+/// let epoch1 = Epoch::new();
+/// // `epoch1` is current
+/// let epoch0 = suspended_epoch0.resume();
+/// // `epoch0` is current
+/// //drop(epoch1); // not here
+/// let suspended_epoch0 = epoch0.suspend().unwrap();
+/// // `epoch1` is current
+/// drop(epoch1);
+/// // no epoch is current
+/// let epoch0 = suspended_epoch0.resume();
+/// // `epoch0` is current
+/// let suspended_epoch0 = epoch0.suspend().unwrap();
+/// // no epoch is current
+/// let epoch1 = Epoch::new();
+/// // `epoch1` is current
+/// // be aware that dropping the suspended version also counts
+/// //drop(suspended_epoch0);
+/// drop(epoch1);
+/// // no epoch is current
+/// drop(suspended_epoch0);
+///
 /// // these could be dropped in any order relative to one
 /// // another because they share the same `Ensemble` and
 /// // `awint_dag` mimicking types callback registration,
