@@ -1,4 +1,4 @@
-use super::Channeler;
+use super::{channel::Referent, Channeler};
 use crate::{
     awint_dag::smallvec::SmallVec, ensemble, route::PBack, triple_arena::ptr_struct, Epoch,
 };
@@ -70,11 +70,23 @@ impl CEdge {
 }
 
 impl Channeler {
+    /// Assumes that `epoch` has been optimized
     pub fn from_epoch(epoch: &Epoch) -> Self {
-        let mut res = Self::new();
+        let mut channeler = Self::new();
 
-        epoch.ensemble(|ensemble| {});
+        epoch.ensemble(|ensemble| {
+            // for each equivalence make a `CNode` with associated `EnsembleBackref`
+            for equiv in ensemble.backrefs.vals() {
+                let p_cnode = channeler.make_top_level_cnode(vec![]);
+                channeler
+                    .cnodes
+                    .insert_key(p_cnode, Referent::EnsembleBackRef(equiv.p_self_equiv))
+                    .unwrap();
+            }
 
-        res
+            // add `CEdge`s according to `LNode`s
+        });
+
+        channeler
     }
 }

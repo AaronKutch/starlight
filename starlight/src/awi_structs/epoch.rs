@@ -16,6 +16,7 @@ use awint::{
 
 use crate::{ensemble::Ensemble, EvalAwi};
 
+/// A list of single bit `EvalAwi`s for assertions
 #[derive(Debug, Clone)]
 pub struct Assertions {
     pub bits: Vec<EvalAwi>,
@@ -35,6 +36,7 @@ impl Default for Assertions {
 
 ptr_struct!(PEpochShared);
 
+/// Data stored  in `EpochData` per each live `EpochShared`
 #[derive(Debug)]
 pub struct PerEpochShared {
     pub states_inserted: Vec<PState>,
@@ -50,6 +52,9 @@ impl PerEpochShared {
     }
 }
 
+/// The unit of data that gets a registered `awint_dag` `EpochKey`, and which
+/// several `EpochShared`s can share
+///
 /// # Custom Drop
 ///
 /// This deregisters the `awint_dag::epoch::EpochKey` upon being dropped
@@ -82,8 +87,11 @@ impl Drop for EpochData {
     }
 }
 
-// `awint_dag::epoch` has a stack system which this uses, but this can have its
-// own stack on top of that.
+/// The raw internal management struct for `Epoch`s. Most users should be using
+/// `Epoch`.
+///
+/// `awint_dag::epoch` has a stack system which this uses, but this can have its
+/// own stack on top of that.
 #[derive(Clone)]
 pub struct EpochShared {
     pub epoch_data: Rc<RefCell<EpochData>>,
@@ -91,7 +99,7 @@ pub struct EpochShared {
 }
 
 impl EpochShared {
-    /// Creates a new `Ensemble` and registers a new `EpochCallback`.
+    /// Creates a new `EpochData` and registers a new `EpochCallback`.
     pub fn new() -> Self {
         let mut epoch_data = EpochData {
             epoch_key: _callback().push_on_epoch_stack(),
@@ -105,7 +113,8 @@ impl EpochShared {
         }
     }
 
-    /// Does _not_ register a new `EpochCallback`, instead
+    /// Does _not_ register a new `EpochCallback`, instead adds a new
+    /// `PerEpochShared` to the current `EpochData` of `other`
     pub fn shared_with(other: &Self) -> Self {
         let p_self = other
             .epoch_data
@@ -116,6 +125,75 @@ impl EpochShared {
             epoch_data: Rc::clone(&other.epoch_data),
             p_self,
         }
+    }
+
+    /// Sets `self` as the current `EpochShared` with respect to the starlight
+    /// stack (does not affect whatever the `awint_dag` stack is doing)
+    pub fn set_as_current(&self) {
+        CURRENT_EPOCH.with(|top| {
+            let mut current = top.borrow_mut();
+            if let Some(current) = current.take() {
+                EPOCH_STACK.with(|top| {
+                    let mut stack = top.borrow_mut();
+                    stack.push(current);
+                })
+            }
+            *current = Some(self.clone());
+        });
+    }
+
+    /// Removes `self` as the current `EpochShared` with respect to the
+    /// starlight stack
+    pub fn remove_as_current(&self) {
+        EPOCH_STACK.with(|top| {
+            let mut stack = top.borrow_mut();
+            let next_current = stack.pop();
+            CURRENT_EPOCH.with(|top| {
+                let mut current = top.borrow_mut();
+                if let Some(to_drop) = current.take() {
+                    if !Rc::ptr_eq(&to_drop.epoch_data, &self.epoch_data) {
+                        panic!(
+                            "tried to drop an `Epoch` out of stacklike order before dropping the \
+                             current one"
+                        );
+                    }
+                    *current = next_current;
+                } else {
+                    // there should be something current if the `Epoch` still exists
+                    unreachable!()
+                }
+            });
+        });
+    }
+
+    /// Access to the `Ensemble`
+    pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, mut f: F) -> O {
+        f(&self.epoch_data.borrow().ensemble)
+    }
+
+    /// Takes the `Vec<PState>` corresponding to just states added when the
+    /// current `EpochShared` was active. This also means that
+    /// `remove_associated` done immediately after this will only remove
+    /// assertions, responsibility should be taken over for the `PState`s
+    /// returned by this function
+    pub fn take_states_added(&mut self) -> Vec<PState> {
+        let mut epoch_data = self.epoch_data.borrow_mut();
+        let ours = epoch_data.responsible_for.get_mut(self.p_self).unwrap();
+        mem::take(&mut ours.states_inserted)
+    }
+
+    /// Removes states and assertions from the `Ensemble` that were associated
+    /// with this particular `EpochShared` (other `EpochShared`s can still have
+    /// states and assertions in the `Ensemble`)
+    pub fn remove_associated(&self) {
+        let mut epoch_data = self.epoch_data.borrow_mut();
+        let ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
+        for p_state in &ours.states_inserted {
+            let _ = epoch_data.ensemble.remove_state(*p_state);
+        }
+        drop(epoch_data);
+        // drop the `EvalAwi`s of the assertions after unlocking
+        drop(ours);
     }
 
     /// Returns a clone of the assertions currently associated with `self`
@@ -141,7 +219,8 @@ impl EpochShared {
         Assertions { bits: cloned }
     }
 
-    /// Using `EpochShared::assertions` creates all new `Assertions`. This
+    /// This evaluates all assertions (returning an error if any are false, and
+    /// returning an error on unevaluatable assertions if `strict`), and
     /// eliminates assertions that evaluate to a constant true.
     pub fn assert_assertions(&self, strict: bool) -> Result<(), EvalError> {
         let p_self = self.p_self;
@@ -227,86 +306,6 @@ impl EpochShared {
             }
         }
         Ok(())
-    }
-
-    /// Returns a clone of the ensemble
-    pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, mut f: F) -> O {
-        f(&self.epoch_data.borrow().ensemble)
-    }
-
-    pub fn assertions_empty(&self) -> bool {
-        let epoch_data = self.epoch_data.borrow();
-        let ours = epoch_data.responsible_for.get(self.p_self).unwrap();
-        ours.assertions.bits.is_empty()
-    }
-
-    pub fn take_states_added(&mut self) -> Vec<PState> {
-        let mut epoch_data = self.epoch_data.borrow_mut();
-        let ours = epoch_data.responsible_for.get_mut(self.p_self).unwrap();
-        mem::take(&mut ours.states_inserted)
-    }
-
-    /// Removes associated states and assertions
-    pub fn remove_associated(&self) {
-        let mut epoch_data = self.epoch_data.borrow_mut();
-        let ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
-        for p_state in &ours.states_inserted {
-            let _ = epoch_data.ensemble.remove_state(*p_state);
-        }
-        drop(epoch_data);
-        // drop the `EvalAwi`s of the assertions after unlocking
-        drop(ours);
-    }
-
-    pub fn set_as_current(&self) {
-        CURRENT_EPOCH.with(|top| {
-            let mut current = top.borrow_mut();
-            if let Some(current) = current.take() {
-                EPOCH_STACK.with(|top| {
-                    let mut stack = top.borrow_mut();
-                    stack.push(current);
-                })
-            }
-            *current = Some(self.clone());
-        });
-    }
-
-    pub fn remove_as_current(&self) {
-        EPOCH_STACK.with(|top| {
-            let mut stack = top.borrow_mut();
-            if let Some(next_current) = stack.pop() {
-                CURRENT_EPOCH.with(|top| {
-                    let mut current = top.borrow_mut();
-                    if let Some(to_drop) = current.take() {
-                        if !Rc::ptr_eq(&to_drop.epoch_data, &self.epoch_data) {
-                            panic!(
-                                "tried to drop an `Epoch` out of stacklike order before dropping \
-                                 the current one"
-                            );
-                        }
-                        *current = Some(next_current);
-                    } else {
-                        // there should be something current if the `Epoch` still exists
-                        unreachable!()
-                    }
-                });
-            } else {
-                CURRENT_EPOCH.with(|top| {
-                    let mut current = top.borrow_mut();
-                    if let Some(to_drop) = current.take() {
-                        if !Rc::ptr_eq(&to_drop.epoch_data, &self.epoch_data) {
-                            panic!(
-                                "tried to drop an `Epoch` out of stacklike order before dropping \
-                                 the current one"
-                            );
-                        }
-                    } else {
-                        // there should be something current if the `Epoch` still exists
-                        unreachable!()
-                    }
-                });
-            }
-        });
     }
 
     fn internal_drive_loops_with_lower_capability(&self) -> Result<(), EvalError> {
@@ -527,6 +526,13 @@ impl Epoch {
         shared.set_as_current();
         Self { shared }
     }
+
+    /*
+    /// Returns `None` if there is a shared `Epoch` still alive
+    pub fn end(self) -> Option<Self> {
+        self.shared.remove_associated();
+        self.shared.remove_as_current();
+    }*/
 
     /// Intended primarily for developer use
     #[doc(hidden)]
