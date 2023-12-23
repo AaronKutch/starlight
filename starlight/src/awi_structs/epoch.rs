@@ -5,6 +5,7 @@
 
 use std::{
     cell::RefCell,
+    fmt::Debug,
     mem::{self},
     num::NonZeroUsize,
     rc::Rc,
@@ -63,33 +64,35 @@ impl PerEpochShared {
 ///
 /// # Custom Drop
 ///
-/// This deregisters the `awint_dag::epoch::EpochKey` upon being dropped
-#[derive(Debug)]
+/// This struct should have its `epoch_key` popped off the stack and
+/// `responsible_for` emptied before being dropped normally. During a panic, the
+/// order of TLS operations is unspecified, and in practice
+/// `std::thread::panicking` can return false during the drop code of structs in
+/// TLS even if the thread is panicking. So, the drop code for `EpochData` does
+/// nothing with the `EpochKey` and `mem::forget`s the `EvalAwi` assertions.
 pub struct EpochData {
-    pub epoch_key: EpochKey,
+    pub epoch_key: Option<EpochKey>,
     pub ensemble: Ensemble,
     pub responsible_for: Arena<PEpochShared, PerEpochShared>,
 }
 
 impl Drop for EpochData {
     fn drop(&mut self) {
-        // prevent invoking recursive panics and a buffer overrun
-        if !panicking() {
-            // if `responsible_for` is not empty, then this `EpochData` is probably being
-            // dropped in a special case like a panic (I have `panicking` guards on all the
-            // impls, but it seems that in some cases that for some reason a panic on unwrap
-            // can start dropping `EpochData`s before the `Epoch`s, and there are
-            // arbitrarily bad interactions so we always need to forget any `EvalAwi`s here)
-            // in which the `Epoch` is not going to be useful anyway. We need to
-            // `mem::forget` just the `EvalAwi`s of the assertions
-            for (_, mut shared) in self.responsible_for.drain() {
-                for eval_awi in shared.assertions.bits.drain(..) {
-                    // avoid the `EvalAwi` drop code trying to access recursively
-                    mem::forget(eval_awi);
-                }
+        for (_, mut shared) in self.responsible_for.drain() {
+            for eval_awi in shared.assertions.bits.drain(..) {
+                // avoid the `EvalAwi` drop code
+                mem::forget(eval_awi);
             }
-            self.epoch_key.pop_off_epoch_stack();
         }
+    }
+}
+
+impl Debug for EpochData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EpochData")
+            .field("epoch_key", &self.epoch_key)
+            .field("responsible_for.len()", &self.responsible_for.len())
+            .finish()
     }
 }
 
@@ -102,17 +105,36 @@ impl Drop for EpochData {
 /// This raw version of `Epoch` has no drop code and all things need to be
 /// carefully handled to avoid virtual leakage or trying to call
 /// `remove_as_current` twice.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EpochShared {
     pub epoch_data: Rc<RefCell<EpochData>>,
     pub p_self: PEpochShared,
+}
+
+impl Debug for EpochShared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Ok(epoch_data) = self.epoch_data.try_borrow() {
+            f.debug_struct("EpochShared")
+                .field("epoch_data", &epoch_data)
+                .field("p_self", &self.p_self)
+                .finish()
+        } else {
+            f.debug_struct("EpochShared")
+                .field(
+                    "epoch_data (already borrowed, cannot display in `Debug` impl)",
+                    &(),
+                )
+                .field("p_self", &self.p_self)
+                .finish()
+        }
+    }
 }
 
 impl EpochShared {
     /// Creates a new `EpochData` and registers a new `EpochCallback`.
     pub fn new() -> Self {
         let mut epoch_data = EpochData {
-            epoch_key: _callback().push_on_epoch_stack(),
+            epoch_key: Some(_callback().push_on_epoch_stack()),
             ensemble: Ensemble::new(),
             responsible_for: Arena::new(),
         };
@@ -182,6 +204,49 @@ impl EpochShared {
         })
     }
 
+    /// Removes states and drops assertions from the `Ensemble` that were
+    /// associated with this particular `EpochShared`. This also deregisters the
+    /// `EpochCallback` if this was the last `EpochShared` with a
+    /// `PerEpochShared` in the `EpochData`.
+    ///
+    /// This function should not be called more than once per `self.p_self`.
+    pub fn drop_associated(&self) -> Result<(), EvalError> {
+        let mut lock = self.epoch_data.borrow_mut();
+        if let Some(ours) = lock.responsible_for.remove(self.p_self) {
+            for p_state in &ours.states_inserted {
+                let _ = lock.ensemble.remove_state(*p_state);
+            }
+            drop(lock);
+            // drop the `EvalAwi`s of the assertions after unlocking
+            drop(ours);
+
+            let mut lock = self.epoch_data.borrow_mut();
+            if lock.responsible_for.is_empty() {
+                // we are the last `EpochShared`
+                match lock.epoch_key.take().unwrap().pop_off_epoch_stack() {
+                    Ok(()) => (),
+                    Err((self_gen, top_gen)) => {
+                        return Err(EvalError::OtherString(format!(
+                            "The last `starlight::Epoch` or `starlight::SuspendedEpoch` of a \
+                             group of one or more shared `Epoch`s was dropped out of stacklike \
+                             order, such that an `awint_dag::epoch::EpochKey` with generation {} \
+                             was attempted to be dropped before the current key with generation \
+                             {}. This may be because explicit `drop`s of `Epoch`s should be used \
+                             in a different order.",
+                            self_gen, top_gen
+                        )));
+                    }
+                }
+            }
+            Ok(())
+        } else {
+            Err(EvalError::OtherStr(
+                "should be unreachable: called `EpochShared::drop_associated` on the same \
+                 `EpochShared`",
+            ))
+        }
+    }
+
     /// Access to the `Ensemble`
     pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, mut f: F) -> O {
         f(&self.epoch_data.borrow().ensemble)
@@ -196,22 +261,6 @@ impl EpochShared {
         let mut epoch_data = self.epoch_data.borrow_mut();
         let ours = epoch_data.responsible_for.get_mut(self.p_self).unwrap();
         mem::take(&mut ours.states_inserted)
-    }
-
-    /// Removes states and assertions from the `Ensemble` that were associated
-    /// with this particular `EpochShared` (other `EpochShared`s can still have
-    /// states and assertions in the `Ensemble`)
-    #[must_use]
-    pub fn remove_associated(&self) -> Option<()> {
-        let mut lock = self.epoch_data.borrow_mut();
-        let ours = lock.responsible_for.remove(self.p_self)?;
-        for p_state in &ours.states_inserted {
-            let _ = lock.ensemble.remove_state(*p_state);
-        }
-        drop(lock);
-        // drop the `EvalAwi`s of the assertions after unlocking
-        drop(ours);
-        Some(())
     }
 
     /// Returns a clone of the assertions currently associated with `self`
@@ -312,7 +361,7 @@ impl EpochShared {
                 if let Some(s) = s {
                     return Err(EvalError::OtherString(format!(
                         "an assertion bit could not be evaluated to a known value, failed on \
-                         {p_rnode} {:?}",
+                         {p_rnode} {}",
                         s
                     )))
                 } else {
@@ -506,15 +555,13 @@ impl Drop for EpochInnerDrop {
     fn drop(&mut self) {
         // prevent invoking recursive panics and a buffer overrun
         if !panicking() {
-            let res = self.epoch_shared.remove_associated();
+            if let Err(e) = self.epoch_shared.drop_associated() {
+                panic!("{e}");
+            }
             if self.is_current {
                 if let Err(e) = self.epoch_shared.remove_as_current() {
                     panic!("panicked upon dropping an `Epoch`: {e}");
                 }
-            }
-            // this shouldn't be possible to fail separately
-            if res.is_none() {
-                panic!("encountered unreachable case upon dropping an `Epoch`");
             }
         }
     }
@@ -540,6 +587,47 @@ impl Drop for EpochInnerDrop {
 /// The lifetimes of `Epoch` structs should be stacklike, such that a
 /// `Epoch` created during the lifetime of another `Epoch` should be
 /// dropped before the older `Epoch` is dropped, otherwise a panic occurs.
+///
+/// ```
+/// use starlight::Epoch;
+///
+/// // let epoch0 = Epoch::new();
+/// // // `epoch0` is the current epoch
+/// // let epoch1 = Epoch::new();
+/// // // `epoch1` is the current epoch
+/// // drop(epoch0); // panics here because `epoch1` was created during `epoch0`
+/// // drop(epoch1);
+///
+/// // this succeeds
+/// let epoch0 = Epoch::new();
+/// // `epoch0` is current
+/// let epoch1 = Epoch::new();
+/// // `epoch1` is current
+/// drop(epoch1);
+/// // `epoch0` is current
+/// let epoch2 = Epoch::new();
+/// // `epoch2` is current
+/// let epoch3 = Epoch::new();
+/// // `epoch3` is current
+/// drop(epoch3);
+/// // `epoch2` is current
+/// drop(epoch2);
+/// // `epoch0` is current
+/// drop(epoch0);
+///
+/// // these could be dropped in any order relative to one
+/// // another because they share the same `Ensemble` and
+/// // `awint_dag` mimicking types callback registration,
+/// let epoch0 = Epoch::new();
+/// let subepoch0 = Epoch::shared_with(&epoch0);
+/// drop(epoch0);
+/// // but the last one to be dropped has the restriction
+/// // with respect to an independent `Epoch`
+/// let epoch1 = Epoch::new();
+/// //drop(subepoch0); // would panic
+/// drop(epoch1);
+/// drop(subepoch0);
+/// ```
 ///
 /// Using `mem::forget` or similar on a `Epoch` will leak `State`s and
 /// cause them to not be cleaned up, and will also likely cause panics because
@@ -586,7 +674,8 @@ impl Epoch {
     /// Creates an `Epoch` that shares the `Ensemble` of `other`
     ///
     /// The epoch from this can be dropped out of order from `other`,
-    /// but must be dropped before others that aren't also shared
+    /// but the shared group of `Epoch`s as a whole must follow the stacklike
+    /// drop order described in the documentation of `Epoch`.
     pub fn shared_with(other: &Epoch) -> Self {
         let shared = EpochShared::shared_with(&other.shared());
         shared.set_as_current();

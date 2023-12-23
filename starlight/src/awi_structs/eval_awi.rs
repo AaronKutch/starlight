@@ -93,8 +93,13 @@ impl EvalAwi {
         from_isize isize;
     );
 
+    fn try_get_nzbw(&self) -> Result<NonZeroUsize, EvalError> {
+        Ensemble::get_thread_local_rnode_nzbw(self.p_rnode)
+    }
+
+    #[track_caller]
     pub fn nzbw(&self) -> NonZeroUsize {
-        Ensemble::get_thread_local_rnode_nzbw(self.p_rnode).unwrap()
+        self.try_get_nzbw().unwrap()
     }
 
     pub fn bw(&self) -> usize {
@@ -143,7 +148,7 @@ impl EvalAwi {
     }
 
     pub fn eval(&self) -> Result<awi::Awi, EvalError> {
-        let nzbw = self.nzbw();
+        let nzbw = self.try_get_nzbw()?;
         let mut res = awi::Awi::zero(nzbw);
         for bit_i in 0..res.bw() {
             let val = Ensemble::calculate_thread_local_rnode_value(self.p_rnode, bit_i)?;

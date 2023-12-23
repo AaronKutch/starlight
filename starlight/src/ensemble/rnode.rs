@@ -66,7 +66,10 @@ impl Ensemble {
         if let Some(rnode) = ensemble.rnodes.get(p_rnode) {
             Ok(NonZeroUsize::new(rnode.bits.len()).unwrap())
         } else {
-            Err(EvalError::OtherStr("could not find thread local `RNode`"))
+            Err(EvalError::OtherStr(
+                "could not find thread local `RNode`, probably an `EvalAwi` or `LazyAwi` was used \
+                 outside of the `Epoch` it was created in",
+            ))
         }
     }
 
@@ -82,7 +85,10 @@ impl Ensemble {
                 return Err(EvalError::WrongBitwidth);
             }
         } else {
-            return Err(EvalError::OtherStr("could not find thread local `RNode`"))
+            return Err(EvalError::OtherStr(
+                "could not find thread local `RNode`, probably a `LazyAwi` was used outside of \
+                 the `Epoch` it was created in",
+            ))
         }
         for bit_i in 0..bits.bw() {
             let p_back = ensemble.rnodes[p_rnode].bits[bit_i];
@@ -116,7 +122,10 @@ impl Ensemble {
                 ))
             }
         } else {
-            return Err(EvalError::OtherStr("could not find thread local `RNode`"))
+            return Err(EvalError::OtherStr(
+                "could not find thread local `RNode`, probably an `EvalAwi` was used outside of \
+                 the `Epoch` it was created in",
+            ))
         };
         if ensemble.stator.states.is_empty() {
             // optimization after total pruning from `optimization`
