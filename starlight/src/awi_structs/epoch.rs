@@ -3,7 +3,13 @@
 
 #![allow(clippy::new_without_default)]
 
-use std::{cell::RefCell, mem, num::NonZeroUsize, rc::Rc, thread::panicking};
+use std::{
+    cell::RefCell,
+    mem::{self},
+    num::NonZeroUsize,
+    rc::Rc,
+    thread::panicking,
+};
 
 use awint::{
     awint_dag::{
@@ -92,7 +98,11 @@ impl Drop for EpochData {
 ///
 /// `awint_dag::epoch` has a stack system which this uses, but this can have its
 /// own stack on top of that.
-#[derive(Clone)]
+///
+/// This raw version of `Epoch` has no drop code and all things need to be
+/// carefully handled to avoid virtual leakage or trying to call
+/// `remove_as_current` twice.
+#[derive(Debug, Clone)]
 pub struct EpochShared {
     pub epoch_data: Rc<RefCell<EpochData>>,
     pub p_self: PEpochShared,
@@ -370,6 +380,8 @@ thread_local!(
     static EPOCH_STACK: RefCell<Vec<EpochShared>> = RefCell::new(vec![]);
 );
 
+/// Returns a clone of the current `EpochShared`, or return `None` if there is
+/// none
 #[must_use]
 pub fn get_current_epoch() -> Option<EpochShared> {
     CURRENT_EPOCH.with(|top| {
@@ -378,7 +390,7 @@ pub fn get_current_epoch() -> Option<EpochShared> {
     })
 }
 
-/// Do no call recursively.
+/// Allows access to the current epoch. Do no call recursively.
 pub fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T {
     CURRENT_EPOCH.with(|top| {
         let top = top.borrow();
@@ -390,7 +402,7 @@ pub fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T
     })
 }
 
-/// Do no call recursively.
+/// Allows mutable access to the current epoch. Do no call recursively.
 pub fn no_recursive_current_epoch_mut<T, F: FnMut(&mut EpochShared) -> T>(mut f: F) -> T {
     CURRENT_EPOCH.with(|top| {
         let mut top = top.borrow_mut();
@@ -497,6 +509,7 @@ pub fn _callback() -> EpochCallback {
 /// Using `mem::forget` or similar on a `Epoch` will leak `State`s and
 /// cause them to not be cleaned up, and will also likely cause panics because
 /// of the stack requirement.
+#[derive(Debug)]
 pub struct Epoch {
     shared: EpochShared,
 }
@@ -508,6 +521,19 @@ impl Drop for Epoch {
             self.shared.remove_associated();
             self.shared.remove_as_current();
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct SuspendedEpoch {
+    epoch: Epoch,
+}
+
+impl SuspendedEpoch {
+    /// Resumes the `Epoch`
+    pub fn resume(self) -> Epoch {
+        self.epoch.shared.set_as_current();
+        self.epoch
     }
 }
 
@@ -527,12 +553,11 @@ impl Epoch {
         Self { shared }
     }
 
-    /*
-    /// Returns `None` if there is a shared `Epoch` still alive
-    pub fn end(self) -> Option<Self> {
-        self.shared.remove_associated();
+    /// Suspends the `Epoch`
+    pub fn suspend(self) -> SuspendedEpoch {
         self.shared.remove_as_current();
-    }*/
+        SuspendedEpoch { epoch: self }
+    }
 
     /// Intended primarily for developer use
     #[doc(hidden)]
@@ -555,30 +580,15 @@ impl Epoch {
         self.shared.assertions()
     }
 
-    /// If any assertion bit evaluates to false, this returns an error.
-    pub fn assert_assertions(&self) -> Result<(), EvalError> {
-        self.shared.assert_assertions(false)
+    /// If any assertion bit evaluates to false, this returns an error. If
+    /// `strict` and an assertion could not be evaluated to a known value, this
+    /// also returns an error. Prunes assertions evaluated to a constant true.
+    pub fn assert_assertions(&self, strict: bool) -> Result<(), EvalError> {
+        self.shared.assert_assertions(strict)
     }
 
-    /// If any assertion bit evaluates to false, this returns an error. If there
-    /// were no known false assertions but some are `Value::Unknown`, this
-    /// returns a specific error for it.
-    pub fn assert_assertions_strict(&self) -> Result<(), EvalError> {
-        self.shared.assert_assertions(true)
-    }
-
-    /// Used for testing
-    pub fn prune_ignore_assertions(&self) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
-            return Err(EvalError::OtherStr("epoch is not the current epoch"))
-        }
-        // do not assert assertions because that can trigger lowering
-        let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.prune_states()
-    }
-
-    /// For users, this removes all states that do not lead to a live `EvalAwi`
+    /// Removes all states that do not lead to a live `EvalAwi`, and loosely
+    /// evaluates assertions.
     pub fn prune(&self) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
@@ -590,8 +600,9 @@ impl Epoch {
         lock.ensemble.prune_states()
     }
 
-    /// Lowers all states. This is not needed in most circumstances, `EvalAwi`
-    /// and optimization functions do this on demand.
+    /// Lowers all states internally into `LNode`s and `TNode`s. This is not
+    /// needed in most circumstances, `EvalAwi` and optimization functions
+    /// do this on demand.
     pub fn lower(&self) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {

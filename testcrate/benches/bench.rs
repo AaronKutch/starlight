@@ -16,7 +16,7 @@ fn lower_funnel(bencher: &mut Bencher) {
         let _eval = EvalAwi::from(&out);
         epoch0.prune().unwrap();
         epoch0.lower().unwrap();
-        epoch0.assert_assertions().unwrap();
+        epoch0.assert_assertions(true).unwrap();
     })
 }
 
@@ -32,7 +32,7 @@ fn optimize_funnel(bencher: &mut Bencher) {
         let _eval = EvalAwi::from(&out);
         epoch0.prune().unwrap();
         epoch0.optimize().unwrap();
-        epoch0.assert_assertions().unwrap();
+        epoch0.assert_assertions(true).unwrap();
     })
 }
 

@@ -110,7 +110,7 @@ impl Mem {
         }
 
         // evaluate all
-        epoch.assert_assertions().unwrap();
+        epoch.assert_assertions(true).unwrap();
         for pair in self.a.vals() {
             assert_eq!(pair.eval.as_ref().unwrap().eval().unwrap(), pair.awi);
         }

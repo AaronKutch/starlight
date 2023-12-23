@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.0] - TODO
+### Changes
+- merged `Epoch::assert_assertions` and `Epoch::assert_assertions_strict`
+
 ## [0.2.0] - 2023-12-08
 ### Crate
 - `awint` 0.15

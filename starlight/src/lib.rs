@@ -106,14 +106,14 @@
 //!     input.retro_(&awi!(0101)).unwrap();
 //!     // check assertions (all `dag::assert*` functions and dynamic `unwrap`s done
 //!     // during the current `Epoch`)
-//!     epoch0.assert_assertions_strict().unwrap();
+//!     epoch0.assert_assertions(true).unwrap();
 //!     // evaluate the outputs
 //!     awi::assert_eq!(output_counter.eval().unwrap(), awi!(0011));
 //!     awi::assert_eq!(output_data.eval().unwrap(), awi!(0xa505_u16));
 //!
 //!     // reassign and reevaluate
 //!     input.retro_(&awi!(1011)).unwrap();
-//!     awi::assert!(epoch0.assert_assertions().is_err());
+//!     awi::assert!(epoch0.assert_assertions(true).is_err());
 //!     awi::assert_eq!(output_data.eval().unwrap(), awi!(0x7b0b_u16));
 //! }
 //! drop(epoch0);
