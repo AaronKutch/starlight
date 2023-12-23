@@ -68,22 +68,22 @@ fn epoch_nested_fail() {
 }
 
 #[test]
-fn epoch_shared() {
+fn epoch_shared0() {
     let epoch0 = Epoch::new();
     let (lazy0, eval0) = ex();
     let epoch1 = Epoch::shared_with(&epoch0);
-    let (lazy1, eval1) = ex();
     {
         use awi::*;
         lazy0.retro_(&awi!(01)).unwrap();
         awi::assert_eq!(eval0.eval().unwrap(), awi!(10));
         epoch0.assert_assertions(true).unwrap();
     }
+    drop(lazy0);
+    drop(eval0);
     drop(epoch0);
-    {
-        use awi::*;
-        lazy0.retro_(&awi!(01)).unwrap();
-        awi::assert_eq!(eval0.eval().unwrap(), awi!(10));
-    }
+    // TODO unsure of what the precise semantics should be, currently unless all
+    // `RNode`s are removed and prune is called there is still stuff
+    epoch1.prune().unwrap();
+    awi::assert!(epoch1.ensemble(|ensemble| ensemble.stator.states.is_empty()));
     drop(epoch1);
 }

@@ -286,9 +286,10 @@ impl EpochShared {
         Assertions { bits: cloned }
     }
 
-    /// This evaluates all assertions (returning an error if any are false, and
-    /// returning an error on unevaluatable assertions if `strict`), and
-    /// eliminates assertions that evaluate to a constant true.
+    /// This evaluates all associated assertions of this `EpochShared`
+    /// (returning an error if any are false, and returning an error on
+    /// unevaluatable assertions if `strict`), and eliminates assertions
+    /// that evaluate to a constant true.
     pub fn assert_assertions(&self, strict: bool) -> Result<(), EvalError> {
         let p_self = self.p_self;
         let epoch_data = self.epoch_data.borrow();
@@ -679,12 +680,13 @@ impl Epoch {
     pub fn shared_with(other: &Epoch) -> Self {
         let shared = EpochShared::shared_with(&other.shared());
         shared.set_as_current();
-        Self {
+        let res = Self {
             inner: EpochInnerDrop {
                 epoch_shared: shared,
                 is_current: true,
             },
-        }
+        };
+        res
     }
 
     /// Returns the `EpochShared` of `self`
@@ -739,7 +741,7 @@ impl Epoch {
     /// Removes all states that do not lead to a live `EvalAwi`, and loosely
     /// evaluates assertions.
     pub fn prune(&self) -> Result<(), EvalError> {
-        let epoch_shared = self.check_current()?;
+        let epoch_shared = self.shared();
         // get rid of constant assertions
         let _ = epoch_shared.assert_assertions(false);
         let mut lock = epoch_shared.epoch_data.borrow_mut();
@@ -748,7 +750,7 @@ impl Epoch {
 
     /// Lowers all states internally into `LNode`s and `TNode`s. This is not
     /// needed in most circumstances, `EvalAwi` and optimization functions
-    /// do this on demand.
+    /// do this on demand. Requires that `self` be the current `Epoch`.
     pub fn lower(&self) -> Result<(), EvalError> {
         let epoch_shared = self.check_current()?;
         Ensemble::lower_all(&epoch_shared)?;
@@ -756,7 +758,8 @@ impl Epoch {
         Ok(())
     }
 
-    /// Runs optimization including lowering then pruning all states.
+    /// Runs optimization including lowering then pruning all states. Requires
+    /// that `self` be the current `Epoch`.
     pub fn optimize(&self) -> Result<(), EvalError> {
         let epoch_shared = self.check_current()?;
         Ensemble::lower_all(&epoch_shared)?;
@@ -767,7 +770,11 @@ impl Epoch {
         Ok(())
     }
 
-    /// This evaluates all loop drivers, and then registers loopback changes
+    // TODO this only requires the current `Epoch` for the general case, may need a
+    // second function
+
+    /// This evaluates all loop drivers, and then registers loopback changes.
+    /// Requires that `self` be the current `Epoch`.
     pub fn drive_loops(&self) -> Result<(), EvalError> {
         let epoch_shared = self.check_current()?;
         if epoch_shared
