@@ -153,27 +153,33 @@ impl EpochShared {
     }
 
     /// Removes `self` as the current `EpochShared` with respect to the
-    /// starlight stack
-    pub fn remove_as_current(&self) {
+    /// starlight stack. Returns an error if there is no current `EpochShared`
+    /// or `self.epoch_data` did not match the current.
+    pub fn remove_as_current(&self) -> Result<(), &'static str> {
         EPOCH_STACK.with(|top| {
             let mut stack = top.borrow_mut();
             let next_current = stack.pop();
             CURRENT_EPOCH.with(|top| {
                 let mut current = top.borrow_mut();
-                if let Some(to_drop) = current.take() {
-                    if !Rc::ptr_eq(&to_drop.epoch_data, &self.epoch_data) {
-                        panic!(
-                            "tried to drop an `Epoch` out of stacklike order before dropping the \
-                             current one"
-                        );
+                if let Some(ref to_drop) = current.take() {
+                    if Rc::ptr_eq(&to_drop.epoch_data, &self.epoch_data) {
+                        *current = next_current;
+                        Ok(())
+                    } else {
+                        // return the error how most users will trigger it
+                        Err(
+                            "tried to drop or suspend an `Epoch` out of stacklike order before \
+                             dropping or suspending the current `Epoch`",
+                        )
                     }
-                    *current = next_current;
                 } else {
-                    // there should be something current if the `Epoch` still exists
-                    unreachable!()
+                    Err(
+                        "`remove_as_current` encountered no current `EpochShared`, which should \
+                         not be possible if an `Epoch` still exists",
+                    )
                 }
-            });
-        });
+            })
+        })
     }
 
     /// Access to the `Ensemble`
@@ -195,15 +201,17 @@ impl EpochShared {
     /// Removes states and assertions from the `Ensemble` that were associated
     /// with this particular `EpochShared` (other `EpochShared`s can still have
     /// states and assertions in the `Ensemble`)
-    pub fn remove_associated(&self) {
-        let mut epoch_data = self.epoch_data.borrow_mut();
-        let ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
+    #[must_use]
+    pub fn remove_associated(&self) -> Option<()> {
+        let mut lock = self.epoch_data.borrow_mut();
+        let ours = lock.responsible_for.remove(self.p_self)?;
         for p_state in &ours.states_inserted {
-            let _ = epoch_data.ensemble.remove_state(*p_state);
+            let _ = lock.ensemble.remove_state(*p_state);
         }
-        drop(epoch_data);
+        drop(lock);
         // drop the `EvalAwi`s of the assertions after unlocking
         drop(ours);
+        Some(())
     }
 
     /// Returns a clone of the assertions currently associated with `self`
@@ -485,6 +493,33 @@ pub fn _callback() -> EpochCallback {
     }
 }
 
+/// Has the actual drop code attached, preventing the need for unsafe or a
+/// nonzero cost abstraction somewhere
+#[derive(Debug)]
+struct EpochInnerDrop {
+    epoch_shared: EpochShared,
+    is_current: bool,
+}
+
+impl Drop for EpochInnerDrop {
+    // track_caller does not work for `Drop`
+    fn drop(&mut self) {
+        // prevent invoking recursive panics and a buffer overrun
+        if !panicking() {
+            let res = self.epoch_shared.remove_associated();
+            if self.is_current {
+                if let Err(e) = self.epoch_shared.remove_as_current() {
+                    panic!("panicked upon dropping an `Epoch`: {e}");
+                }
+            }
+            // this shouldn't be possible to fail separately
+            if res.is_none() {
+                panic!("encountered unreachable case upon dropping an `Epoch`");
+            }
+        }
+    }
+}
+
 /// Manages the lifetimes and assertions of `State`s created by mimicking types.
 ///
 /// During the lifetime of a `Epoch` struct, all thread local `State`s
@@ -500,7 +535,7 @@ pub fn _callback() -> EpochCallback {
 /// other thread local restrictions once all states have been lowered.
 /// [Epoch::ensemble] can be called to get it.
 ///
-/// # Panics
+/// # Custom Drop
 ///
 /// The lifetimes of `Epoch` structs should be stacklike, such that a
 /// `Epoch` created during the lifetime of another `Epoch` should be
@@ -511,62 +546,83 @@ pub fn _callback() -> EpochCallback {
 /// of the stack requirement.
 #[derive(Debug)]
 pub struct Epoch {
-    shared: EpochShared,
+    inner: EpochInnerDrop,
 }
 
-impl Drop for Epoch {
-    fn drop(&mut self) {
-        // prevent invoking recursive panics and a buffer overrun
-        if !panicking() {
-            self.shared.remove_associated();
-            self.shared.remove_as_current();
-        }
-    }
-}
-
+/// Represents a suspended epoch
+///
+/// # Custom Drop
+///
+/// This will drop an internal `Epoch` and do state removal.
 #[derive(Debug)]
 pub struct SuspendedEpoch {
-    epoch: Epoch,
+    inner: EpochInnerDrop,
 }
 
 impl SuspendedEpoch {
-    /// Resumes the `Epoch`
-    pub fn resume(self) -> Epoch {
-        self.epoch.shared.set_as_current();
-        self.epoch
+    /// Resumes the `Epoch` as current
+    pub fn resume(mut self) -> Epoch {
+        self.inner.epoch_shared.set_as_current();
+        self.inner.is_current = true;
+        Epoch { inner: self.inner }
     }
 }
 
 impl Epoch {
+    /// Creates a new `Epoch` with an independent `Ensemble`
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let new = EpochShared::new();
         new.set_as_current();
-        Self { shared: new }
+        Self {
+            inner: EpochInnerDrop {
+                epoch_shared: new,
+                is_current: true,
+            },
+        }
     }
 
+    /// Creates an `Epoch` that shares the `Ensemble` of `other`
+    ///
     /// The epoch from this can be dropped out of order from `other`,
     /// but must be dropped before others that aren't also shared
     pub fn shared_with(other: &Epoch) -> Self {
-        let shared = EpochShared::shared_with(&other.shared);
+        let shared = EpochShared::shared_with(&other.shared());
         shared.set_as_current();
-        Self { shared }
+        Self {
+            inner: EpochInnerDrop {
+                epoch_shared: shared,
+                is_current: true,
+            },
+        }
     }
 
-    /// Suspends the `Epoch`
-    pub fn suspend(self) -> SuspendedEpoch {
-        self.shared.remove_as_current();
-        SuspendedEpoch { epoch: self }
+    fn shared(&self) -> &EpochShared {
+        &self.inner.epoch_shared
     }
 
-    /// Intended primarily for developer use
-    #[doc(hidden)]
-    pub fn internal_epoch_shared(this: &Epoch) -> &EpochShared {
-        &this.shared
+    fn check_current(&self) -> Result<EpochShared, EvalError> {
+        let epoch_shared = get_current_epoch().unwrap();
+        if Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared().epoch_data) {
+            Ok(epoch_shared)
+        } else {
+            Err(EvalError::OtherStr("epoch is not the current epoch"))
+        }
+    }
+
+    /// Suspends the `Epoch` from being the current epoch temporarily. Returns
+    /// an error if `self` is not the current `Epoch`.
+    pub fn suspend(mut self) -> Result<SuspendedEpoch, EvalError> {
+        // TODO in the `EvalError` redo (probably needs a `starlight` side `EvalError`),
+        // there should be a variant that returns the `Epoch` to prevent it from being
+        // dropped and causing another error
+        self.inner.epoch_shared.remove_as_current().unwrap();
+        self.inner.is_current = false;
+        Ok(SuspendedEpoch { inner: self.inner })
     }
 
     pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, f: F) -> O {
-        self.shared.ensemble(f)
+        self.shared().ensemble(f)
     }
 
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
@@ -577,23 +633,20 @@ impl Epoch {
     /// from when sub-epochs are alive or from before the this Epoch was
     /// created)
     pub fn assertions(&self) -> Assertions {
-        self.shared.assertions()
+        self.shared().assertions()
     }
 
     /// If any assertion bit evaluates to false, this returns an error. If
     /// `strict` and an assertion could not be evaluated to a known value, this
     /// also returns an error. Prunes assertions evaluated to a constant true.
     pub fn assert_assertions(&self, strict: bool) -> Result<(), EvalError> {
-        self.shared.assert_assertions(strict)
+        self.shared().assert_assertions(strict)
     }
 
     /// Removes all states that do not lead to a live `EvalAwi`, and loosely
     /// evaluates assertions.
     pub fn prune(&self) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
-            return Err(EvalError::OtherStr("epoch is not the current epoch"))
-        }
+        let epoch_shared = self.check_current()?;
         // get rid of constant assertions
         let _ = epoch_shared.assert_assertions(false);
         let mut lock = epoch_shared.epoch_data.borrow_mut();
@@ -604,10 +657,7 @@ impl Epoch {
     /// needed in most circumstances, `EvalAwi` and optimization functions
     /// do this on demand.
     pub fn lower(&self) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
-            return Err(EvalError::OtherStr("epoch is not the current epoch"))
-        }
+        let epoch_shared = self.check_current()?;
         Ensemble::lower_all(&epoch_shared)?;
         let _ = epoch_shared.assert_assertions(false);
         Ok(())
@@ -615,10 +665,7 @@ impl Epoch {
 
     /// Runs optimization including lowering then pruning all states.
     pub fn optimize(&self) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
-            return Err(EvalError::OtherStr("epoch is not the current epoch"))
-        }
+        let epoch_shared = self.check_current()?;
         Ensemble::lower_all(&epoch_shared)?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         lock.ensemble.optimize_all();
@@ -629,10 +676,7 @@ impl Epoch {
 
     /// This evaluates all loop drivers, and then registers loopback changes
     pub fn drive_loops(&self) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
-            return Err(EvalError::OtherStr("epoch is not the current epoch"))
-        }
+        let epoch_shared = self.check_current()?;
         if epoch_shared
             .epoch_data
             .borrow()

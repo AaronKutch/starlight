@@ -324,7 +324,7 @@ impl Ensemble {
                             true
                         }
                         Err(e) => {
-                            temporary.remove_as_current();
+                            temporary.remove_as_current().unwrap();
                             let mut lock = epoch_shared.epoch_data.borrow_mut();
                             lock.ensemble.stator.states[p_state].err = Some(e.clone());
                             return Err(e)
@@ -335,7 +335,7 @@ impl Ensemble {
                     // sure there are none using assertions assert!(temporary.
                     // assertions_empty());
                     let states = temporary.take_states_added();
-                    temporary.remove_as_current();
+                    temporary.remove_as_current().unwrap();
                     let mut lock = epoch_shared.epoch_data.borrow_mut();
                     for p_state in states {
                         let state = &lock.ensemble.stator.states[p_state];
