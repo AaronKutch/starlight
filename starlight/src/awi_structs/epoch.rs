@@ -531,11 +531,11 @@ impl Drop for EpochInnerDrop {
 /// associated with the top level `Epoch` alive at the time they are
 /// created. Use [Epoch::assertions] to acquire these.
 ///
-/// The internal `Ensemble` can be freed from any non-`Send`, non-`Sync`, and
-/// other thread local restrictions once all states have been lowered.
-/// [Epoch::ensemble] can be called to get it.
-///
 /// # Custom Drop
+///
+/// Upon being dropped, this will remove states that were associated with this
+/// epoch, completely removing the `Ensemble` if there are no other `Epoch`s
+/// shared with this one, and deregistering this as the current `Epoch`.
 ///
 /// The lifetimes of `Epoch` structs should be stacklike, such that a
 /// `Epoch` created during the lifetime of another `Epoch` should be
@@ -553,7 +553,8 @@ pub struct Epoch {
 ///
 /// # Custom Drop
 ///
-/// This will drop an internal `Epoch` and do state removal.
+/// Upon being dropped, this will have the effect of dropping the `Epoch` this
+/// was created from (except the fact of which epoch is current is not changed).
 #[derive(Debug)]
 pub struct SuspendedEpoch {
     inner: EpochInnerDrop,
@@ -597,10 +598,13 @@ impl Epoch {
         }
     }
 
+    /// Returns the `EpochShared` of `self`
     fn shared(&self) -> &EpochShared {
         &self.inner.epoch_shared
     }
 
+    /// Checks if `self.shared()` is the same as the current epoch, and returns
+    /// the `EpochShared` if so
     fn check_current(&self) -> Result<EpochShared, EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         if Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared().epoch_data) {
