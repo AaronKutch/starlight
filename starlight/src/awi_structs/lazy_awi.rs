@@ -13,7 +13,7 @@ use awint::{
 
 use crate::{
     awi,
-    ensemble::{Ensemble, PRNode},
+    ensemble::{Ensemble, PExternal},
     epoch::get_current_epoch,
 };
 
@@ -34,7 +34,7 @@ use crate::{
 /// current `Epoch`
 pub struct LazyAwi {
     opaque: dag::Awi,
-    p_rnode: PRNode,
+    p_external: PExternal,
 }
 
 // NOTE: when changing this also remember to change `LazyInlAwi`
@@ -47,7 +47,7 @@ impl Drop for LazyAwi {
                     .epoch_data
                     .borrow_mut()
                     .ensemble
-                    .remove_rnode(self.p_rnode);
+                    .remove_rnode(self.p_external);
                 if res.is_err() {
                     panic!("most likely, a `LazyAwi` created in one `Epoch` was dropped in another")
                 }
@@ -68,8 +68,12 @@ impl LazyAwi {
         &self.opaque
     }
 
+    pub fn p_external(&self) -> PExternal {
+        self.p_external
+    }
+
     pub fn nzbw(&self) -> NonZeroUsize {
-        Ensemble::get_thread_local_rnode_nzbw(self.p_rnode).unwrap()
+        Ensemble::get_thread_local_rnode_nzbw(self.p_external).unwrap()
     }
 
     pub fn bw(&self) -> usize {
@@ -78,14 +82,14 @@ impl LazyAwi {
 
     pub fn opaque(w: NonZeroUsize) -> Self {
         let opaque = dag::Awi::opaque(w);
-        let p_rnode = get_current_epoch()
+        let p_external = get_current_epoch()
             .unwrap()
             .epoch_data
             .borrow_mut()
             .ensemble
             .make_rnode_for_pstate(opaque.state())
             .unwrap();
-        Self { opaque, p_rnode }
+        Self { opaque, p_external }
     }
 
     // TODO it probably does need to be an extra `Awi` in the `Opaque` variant,
@@ -122,7 +126,7 @@ impl LazyAwi {
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_rnode_value(self.p_rnode, rhs)
+        Ensemble::change_thread_local_rnode_value(self.p_external, rhs)
     }
 }
 
@@ -167,7 +171,7 @@ forward_debug_fmt!(LazyAwi);
 #[derive(Clone)]
 pub struct LazyInlAwi<const BW: usize, const LEN: usize> {
     opaque: dag::InlAwi<BW, LEN>,
-    p_rnode: PRNode,
+    p_external: PExternal,
 }
 
 #[macro_export]
@@ -193,7 +197,7 @@ impl<const BW: usize, const LEN: usize> Drop for LazyInlAwi<BW, LEN> {
                     .epoch_data
                     .borrow_mut()
                     .ensemble
-                    .remove_rnode(self.p_rnode);
+                    .remove_rnode(self.p_external);
                 if res.is_err() {
                     panic!(
                         "most likely, a `LazyInlAwi` created in one `Epoch` was dropped in another"
@@ -212,12 +216,16 @@ impl<const BW: usize, const LEN: usize> Lineage for LazyInlAwi<BW, LEN> {
 }
 
 impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
+    pub fn p_external(&self) -> PExternal {
+        self.p_external
+    }
+
     fn internal_as_ref(&self) -> &dag::InlAwi<BW, LEN> {
         &self.opaque
     }
 
     pub fn nzbw(&self) -> NonZeroUsize {
-        Ensemble::get_thread_local_rnode_nzbw(self.p_rnode).unwrap()
+        Ensemble::get_thread_local_rnode_nzbw(self.p_external).unwrap()
     }
 
     pub fn bw(&self) -> usize {
@@ -226,21 +234,21 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
 
     pub fn opaque() -> Self {
         let opaque = dag::InlAwi::opaque();
-        let p_rnode = get_current_epoch()
+        let p_external = get_current_epoch()
             .unwrap()
             .epoch_data
             .borrow_mut()
             .ensemble
             .make_rnode_for_pstate(opaque.state())
             .unwrap();
-        Self { opaque, p_rnode }
+        Self { opaque, p_external }
     }
 
     /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
     /// if this is being called after the corresponding Epoch is dropped and
     /// states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_rnode_value(self.p_rnode, rhs)
+        Ensemble::change_thread_local_rnode_value(self.p_external, rhs)
     }
 }
 

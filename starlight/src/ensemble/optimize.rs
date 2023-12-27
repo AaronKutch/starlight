@@ -425,7 +425,7 @@ impl Ensemble {
                             tnode.p_driver = p_back_new;
                         }
                         Referent::ThisRNode(p_rnode) => {
-                            let rnode = self.notary.rnodes.get_mut(p_rnode).unwrap();
+                            let rnode = self.notary.get_rnode_by_p_rnode_mut(p_rnode).unwrap();
                             let mut found = false;
                             for bit in &mut rnode.bits {
                                 if let Some(bit) = bit {

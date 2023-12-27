@@ -7,7 +7,7 @@ use awint::{
 
 use crate::{
     awi,
-    ensemble::{Ensemble, PRNode},
+    ensemble::{Ensemble, PExternal},
     epoch::get_current_epoch,
 };
 
@@ -27,7 +27,7 @@ use crate::{
 /// current `Epoch`.
 pub struct EvalAwi {
     p_state: PState,
-    p_rnode: PRNode,
+    p_external: PExternal,
 }
 
 impl Drop for EvalAwi {
@@ -36,7 +36,7 @@ impl Drop for EvalAwi {
         if !panicking() {
             if let Some(epoch) = get_current_epoch() {
                 let mut lock = epoch.epoch_data.borrow_mut();
-                let res = lock.ensemble.remove_rnode(self.p_rnode);
+                let res = lock.ensemble.remove_rnode(self.p_external);
                 if res.is_err() {
                     panic!(
                         "most likely, an `EvalAwi` created in one `Epoch` was dropped in another"
@@ -93,8 +93,12 @@ impl EvalAwi {
         from_isize isize;
     );
 
+    pub fn p_external(&self) -> PExternal {
+        self.p_external
+    }
+
     fn try_get_nzbw(&self) -> Result<NonZeroUsize, EvalError> {
-        Ensemble::get_thread_local_rnode_nzbw(self.p_rnode)
+        Ensemble::get_thread_local_rnode_nzbw(self.p_external)
     }
 
     #[track_caller]
@@ -104,10 +108,6 @@ impl EvalAwi {
 
     pub fn bw(&self) -> usize {
         self.nzbw().get()
-    }
-
-    pub fn p_rnode(&self) -> PRNode {
-        self.p_rnode
     }
 
     /// Used internally to create `EvalAwi`s
@@ -120,14 +120,17 @@ impl EvalAwi {
         if let Some(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
             match lock.ensemble.make_rnode_for_pstate(p_state) {
-                Some(p_rnode) => {
+                Some(p_external) => {
                     lock.ensemble
                         .stator
                         .states
                         .get_mut(p_state)
                         .unwrap()
                         .inc_extern_rc();
-                    Self { p_state, p_rnode }
+                    Self {
+                        p_state,
+                        p_external,
+                    }
                 }
                 None => {
                     panic!(
@@ -151,7 +154,7 @@ impl EvalAwi {
         let nzbw = self.try_get_nzbw()?;
         let mut res = awi::Awi::zero(nzbw);
         for bit_i in 0..res.bw() {
-            let val = Ensemble::calculate_thread_local_rnode_value(self.p_rnode, bit_i)?;
+            let val = Ensemble::calculate_thread_local_rnode_value(self.p_external, bit_i)?;
             if let Some(val) = val.known_value() {
                 res.set(bit_i, val).unwrap();
             } else {

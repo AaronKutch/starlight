@@ -315,28 +315,28 @@ impl EpochShared {
                 .assertions
                 .bits[i];
             let p_state = eval_awi.state();
-            let p_rnode = eval_awi.p_rnode();
+            let p_external = eval_awi.p_external();
             drop(epoch_data);
-            let val = Ensemble::calculate_thread_local_rnode_value(p_rnode, 0)?;
+            let val = Ensemble::calculate_thread_local_rnode_value(p_external, 0)?;
             if let Some(val) = val.known_value() {
                 if !val {
                     let epoch_data = self.epoch_data.borrow();
                     let s = epoch_data.ensemble.get_state_debug(p_state);
                     if let Some(s) = s {
                         return Err(EvalError::OtherString(format!(
-                            "an assertion bit evaluated to false, failed on {p_rnode} {:?}",
+                            "an assertion bit evaluated to false, failed on {p_external} {:?}",
                             s
                         )))
                     } else {
                         return Err(EvalError::OtherString(format!(
-                            "an assertion bit evaluated to false, failed on {p_rnode} {p_state}"
+                            "an assertion bit evaluated to false, failed on {p_external} {p_state}"
                         )))
                     }
                 }
             } else if unknown.is_none() {
                 // get the earliest failure to evaluate, should be closest to the root cause.
                 // Wait for all bits to be checked for falsity
-                unknown = Some((p_rnode, p_state));
+                unknown = Some((p_external, p_state));
             }
             if val.is_const() {
                 // remove the assertion
@@ -356,19 +356,19 @@ impl EpochShared {
             }
         }
         if strict {
-            if let Some((p_rnode, p_state)) = unknown {
+            if let Some((p_external, p_state)) = unknown {
                 let epoch_data = self.epoch_data.borrow();
                 let s = epoch_data.ensemble.get_state_debug(p_state);
                 if let Some(s) = s {
                     return Err(EvalError::OtherString(format!(
                         "an assertion bit could not be evaluated to a known value, failed on \
-                         {p_rnode} {}",
+                         {p_external} {}",
                         s
                     )))
                 } else {
                     return Err(EvalError::OtherString(format!(
                         "an assertion bit could not be evaluated to a known value, failed on \
-                         {p_rnode} {p_state}"
+                         {p_external} {p_state}"
                     )))
                 }
             }
