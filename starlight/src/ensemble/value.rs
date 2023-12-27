@@ -135,6 +135,15 @@ impl Evaluator {
         }
     }
 
+    /// Checks that there are no remaining evaluations, then shrinks allocations
+    pub fn check_clear(&mut self) -> Result<(), EvalError> {
+        if !self.evaluations.is_empty() {
+            return Err(EvalError::OtherStr("evaluations need to be empty"));
+        }
+        self.evaluations.clear_and_shrink();
+        Ok(())
+    }
+
     pub fn change_visit_gen(&self) -> NonZeroU64 {
         self.change_visit_gen
     }

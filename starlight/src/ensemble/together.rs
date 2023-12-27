@@ -3,6 +3,7 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use awint::{
     awint_dag::{
         smallvec::{smallvec, SmallVec},
+        triple_arena::{Recast, Recaster},
         EvalError, Location, Op, PState,
     },
     Awi, Bits,
@@ -27,6 +28,15 @@ pub struct Equiv {
     pub val: Value,
     pub change_visit: NonZeroU64,
     pub request_visit: NonZeroU64,
+}
+
+impl Recast<PBack> for Equiv {
+    fn recast<R: Recaster<Item = PBack>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.p_self_equiv.recast(recaster)
+    }
 }
 
 impl Equiv {
@@ -58,6 +68,12 @@ pub enum Referent {
     ThisRNode(PRNode),
 }
 
+impl Recast<PBack> for Referent {
+    fn recast<R: Recaster<Item = PBack>>(&mut self, _: &R) -> Result<(), <R as Recaster>::Item> {
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Ensemble {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
@@ -82,6 +98,64 @@ impl Ensemble {
             optimizer: Optimizer::new(),
             debug_counter: 0,
         }
+    }
+
+    /// Compresses and shrinks all internal `Ptr`s. Returns an error if the
+    /// optimizer, evaluator, or stator are not empty.
+    pub fn recast_all_internal_ptrs(&mut self) -> Result<(), EvalError> {
+        self.optimizer.check_clear()?;
+        self.evaluator.check_clear()?;
+        self.stator.check_clear()?;
+
+        let p_lnode_recaster = self.lnodes.compress_and_shrink_recaster();
+        let p_tnode_recaster = self.tnodes.compress_and_shrink_recaster();
+        let p_rnode_recaster = self.notary.recast_p_rnode();
+        for referent in self.backrefs.keys_mut() {
+            match referent {
+                Referent::ThisEquiv => (),
+                Referent::ThisLNode(p_lnode) => {
+                    if p_lnode.recast(&p_lnode_recaster).is_err() {
+                        return Err(EvalError::OtherStr("recast error with a PLNode"));
+                    }
+                }
+                Referent::ThisTNode(p_tnode) => {
+                    if p_tnode.recast(&p_tnode_recaster).is_err() {
+                        return Err(EvalError::OtherStr("recast error with a PTNode"));
+                    }
+                }
+                Referent::ThisStateBit(..) => unreachable!(),
+                Referent::Input(p_lnode) => {
+                    if p_lnode.recast(&p_lnode_recaster).is_err() {
+                        return Err(EvalError::OtherStr("recast error with a PLNode"));
+                    }
+                }
+                Referent::LoopDriver(p_tnode) => {
+                    if p_tnode.recast(&p_tnode_recaster).is_err() {
+                        return Err(EvalError::OtherStr("recast error with a PTNode"));
+                    }
+                }
+                Referent::ThisRNode(p_rnode) => {
+                    if p_rnode.recast(&p_rnode_recaster).is_err() {
+                        return Err(EvalError::OtherStr("recast error with a PRNode"));
+                    }
+                }
+            }
+        }
+
+        let p_back_recaster = self.backrefs.compress_and_shrink_recaster();
+        if self.backrefs.recast(&p_back_recaster).is_err() {
+            return Err(EvalError::OtherStr("recast error with a PBack"));
+        }
+        if self.notary.recast(&p_back_recaster).is_err() {
+            return Err(EvalError::OtherStr("recast error with a PBack"));
+        }
+        if self.lnodes.recast(&p_back_recaster).is_err() {
+            return Err(EvalError::OtherStr("recast error with a PBack"));
+        }
+        if self.tnodes.recast(&p_back_recaster).is_err() {
+            return Err(EvalError::OtherStr("recast error with a PBack"));
+        }
+        Ok(())
     }
 
     pub fn verify_integrity(&self) -> Result<(), EvalError> {

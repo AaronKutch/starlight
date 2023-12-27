@@ -2,7 +2,7 @@ use std::num::{NonZeroU128, NonZeroUsize};
 
 use awint::awint_dag::{
     smallvec::{smallvec, SmallVec},
-    triple_arena::{ptr_struct, OrdArena, Ptr},
+    triple_arena::{ptr_struct, Arena, OrdArena, Ptr, Recast, Recaster},
     EvalError, PState,
 };
 
@@ -26,6 +26,15 @@ pub struct RNode {
     pub bits: SmallVec<[Option<PBack>; 1]>,
 }
 
+impl Recast<PBack> for RNode {
+    fn recast<R: Recaster<Item = PBack>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.bits.as_mut_slice().recast(recaster)
+    }
+}
+
 impl RNode {
     pub fn new() -> Self {
         Self { bits: smallvec![] }
@@ -39,12 +48,25 @@ pub struct Notary {
     next_external: NonZeroU128,
 }
 
+impl Recast<PBack> for Notary {
+    fn recast<R: Recaster<Item = PBack>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.rnodes.recast(recaster)
+    }
+}
+
 impl Notary {
     pub fn new() -> Self {
         Self {
             rnodes: OrdArena::new(),
             next_external: rand::random(),
         }
+    }
+
+    pub fn recast_p_rnode(&mut self) -> Arena<PRNode, PRNode> {
+        self.rnodes.compress_and_shrink_recaster()
     }
 
     pub fn rnodes(&self) -> &OrdArena<PRNode, PExternal, RNode> {

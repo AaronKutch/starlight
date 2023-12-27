@@ -82,6 +82,17 @@ impl Stator {
             states_to_lower: vec![],
         }
     }
+
+    /// Checks that there are no remaining states, then shrinks allocations
+    pub fn check_clear(&mut self) -> Result<(), EvalError> {
+        if !self.states.is_empty() {
+            return Err(EvalError::OtherStr("states need to be empty"));
+        }
+        self.states.clear_and_shrink();
+        self.states_to_lower.clear();
+        self.states_to_lower.shrink_to_fit();
+        Ok(())
+    }
 }
 
 impl Ensemble {

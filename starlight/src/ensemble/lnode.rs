@@ -1,7 +1,11 @@
 use std::num::NonZeroUsize;
 
 use awint::{
-    awint_dag::{smallvec, PState},
+    awint_dag::{
+        smallvec,
+        triple_arena::{Recast, Recaster},
+        PState,
+    },
     Awi, Bits,
 };
 use smallvec::SmallVec;
@@ -20,6 +24,16 @@ pub struct LNode {
     /// Lookup Table that outputs one bit
     pub lut: Option<Awi>,
     pub lowered_from: Option<PState>,
+}
+
+impl Recast<PBack> for LNode {
+    fn recast<R: Recaster<Item = PBack>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.p_self.recast(recaster)?;
+        self.inp.as_mut_slice().recast(recaster)
+    }
 }
 
 impl LNode {

@@ -4,7 +4,7 @@ use awint::{
     awint_dag::{
         smallvec::SmallVec,
         triple_arena::{Advancer, Ptr},
-        PState,
+        EvalError, PState,
     },
     Awi, InlAwi,
 };
@@ -63,16 +63,24 @@ pub enum Optimization {
 
 #[derive(Debug, Clone)]
 pub struct Optimizer {
-    pub gas: u64,
-    pub optimizations: OrdArena<POpt, Optimization, ()>,
+    optimizations: OrdArena<POpt, Optimization, ()>,
 }
 
 impl Optimizer {
     pub fn new() -> Self {
         Self {
-            gas: 0,
             optimizations: OrdArena::new(),
         }
+    }
+
+    /// Checks that there are no remaining optimizations, then shrinks
+    /// allocations
+    pub fn check_clear(&mut self) -> Result<(), EvalError> {
+        if !self.optimizations.is_empty() {
+            return Err(EvalError::OtherStr("optimizations need to be empty"));
+        }
+        self.optimizations.clear_and_shrink();
+        Ok(())
     }
 
     pub fn insert(&mut self, optimization: Optimization) {
@@ -311,8 +319,8 @@ impl Ensemble {
         self.backrefs.remove_key(tnode.p_driver).unwrap();
     }
 
-    /// Also removes all states
-    pub fn optimize_all(&mut self) {
+    /// Removes all states, optimizes, and shrinks allocations
+    pub fn optimize_all(&mut self) -> Result<(), EvalError> {
         self.force_remove_all_states().unwrap();
         // need to preinvestigate everything before starting a priority loop
         let mut adv = self.backrefs.advancer();
@@ -324,6 +332,7 @@ impl Ensemble {
         while let Some(p_optimization) = self.optimizer.optimizations.min() {
             self.optimize(p_optimization);
         }
+        self.recast_all_internal_ptrs()
     }
 
     pub fn optimize(&mut self, p_optimization: POpt) {

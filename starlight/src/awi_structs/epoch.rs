@@ -790,7 +790,7 @@ impl Epoch {
         let epoch_shared = self.check_current()?;
         Ensemble::lower_all(&epoch_shared)?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.optimize_all();
+        lock.ensemble.optimize_all()?;
         drop(lock);
         let _ = epoch_shared.assert_assertions(false);
         Ok(())
