@@ -425,8 +425,7 @@ impl Ensemble {
                             tnode.p_driver = p_back_new;
                         }
                         Referent::ThisRNode(p_rnode) => {
-                            // here we see a major advantage of the backref system
-                            let rnode = self.rnodes.get_mut(p_rnode).unwrap();
+                            let rnode = self.notary.rnodes.get_mut(p_rnode).unwrap();
                             let mut found = false;
                             for bit in &mut rnode.bits {
                                 if let Some(bit) = bit {

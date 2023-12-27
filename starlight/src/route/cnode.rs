@@ -120,5 +120,5 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
     // layers, need to methodically determine what we really want
     ptr_struct!(P0);
 
-    loop {}
+    todo!()
 }

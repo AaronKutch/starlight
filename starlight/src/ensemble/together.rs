@@ -10,7 +10,7 @@ use awint::{
 
 use crate::{
     ensemble::{
-        value::Evaluator, LNode, Optimizer, PLNode, PRNode, PTNode, RNode, State, Stator, TNode,
+        value::Evaluator, LNode, Notary, Optimizer, PLNode, PRNode, PTNode, State, Stator, TNode,
         Value,
     },
     triple_arena::{ptr_struct, Arena, SurjectArena},
@@ -61,7 +61,7 @@ pub enum Referent {
 #[derive(Debug, Clone)]
 pub struct Ensemble {
     pub backrefs: SurjectArena<PBack, Referent, Equiv>,
-    pub rnodes: Arena<PRNode, RNode>,
+    pub notary: Notary,
     pub stator: Stator,
     pub lnodes: Arena<PLNode, LNode>,
     pub tnodes: Arena<PTNode, TNode>,
@@ -74,7 +74,7 @@ impl Ensemble {
     pub fn new() -> Self {
         Self {
             backrefs: SurjectArena::new(),
-            rnodes: Arena::new(),
+            notary: Notary::new(),
             stator: Stator::new(),
             lnodes: Arena::new(),
             tnodes: Arena::new(),
@@ -183,7 +183,7 @@ impl Ensemble {
                 Referent::ThisStateBit(..) => false,
                 Referent::Input(p_input) => !self.lnodes.contains(*p_input),
                 Referent::LoopDriver(p_driver) => !self.tnodes.contains(*p_driver),
-                Referent::ThisRNode(p_rnode) => !self.rnodes.contains(*p_rnode),
+                Referent::ThisRNode(p_rnode) => !self.notary.rnodes.contains(*p_rnode),
             };
             if invalid {
                 return Err(EvalError::OtherString(format!("{referent:?} is invalid")))
@@ -234,12 +234,12 @@ impl Ensemble {
                 )))
             }
         }
-        for rnode in self.rnodes.vals() {
+        for rnode in self.notary.rnodes.vals() {
             for p_back in &rnode.bits {
                 if let Some(p_back) = p_back {
                     if let Some(referent) = self.backrefs.get_key(*p_back) {
                         if let Referent::ThisRNode(p_rnode) = referent {
-                            if !self.rnodes.contains(*p_rnode) {
+                            if !self.notary.rnodes.contains(*p_rnode) {
                                 return Err(EvalError::OtherString(format!(
                                     "{rnode:?} backref {p_rnode} is invalid"
                                 )))
@@ -294,7 +294,7 @@ impl Ensemble {
                     tnode.p_driver != p_back
                 }
                 Referent::ThisRNode(p_rnode) => {
-                    let rnode = self.rnodes.get(*p_rnode).unwrap();
+                    let rnode = self.notary.rnodes.get(*p_rnode).unwrap();
                     let mut found = false;
                     for bit in &rnode.bits {
                         if *bit == Some(p_back) {

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 mod cedge;
 mod channel;
 mod cnode;

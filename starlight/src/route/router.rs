@@ -16,6 +16,7 @@ impl Router {
         }
     }
 
+    /*
     // TODO current plan is to have a corresponding function on the target `Epoch`
     // that calls this. May want some kind of `Epoch` restating system (or use
     // shared `Epoch`s?). The routing info is generated, then one or more other
@@ -24,7 +25,14 @@ impl Router {
         let mut res = Self::new();
         res
     }
+    */
 
     // TODO are the target and program both on channeling graphs, what assymetries
     // are there?
+}
+
+impl Default for Router {
+    fn default() -> Self {
+        Self::new()
+    }
 }

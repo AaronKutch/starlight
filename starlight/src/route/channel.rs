@@ -44,7 +44,8 @@ impl Channeler {
     /*
     /// Starting from `p_cnode` assumed to contain `p_back`, this returns valid
     /// subnodes that still contain `ensemble::PBack`
-    pub fn valid_cnode_descensions(&self, p_cnode: PCNode, p_back: ensemble::PBack) -> SmallVec<[PCNode; 4]> {
+    pub fn valid_cnode_descensions(&self, p_cnode: PCNode, p_back: ensemble::PBack)
+    -> SmallVec<[PCNode; 4]> {
         let cnode = self.cnodes.get(p_cnode).unwrap();
         if let Some(mut adv) = RegionAdvancer::new(&self.backref_to_cnode, |_, (p_back1, _), ()| {
             p_back1.cmp(&p_back)
@@ -190,5 +191,11 @@ impl Channeler {
         }
         // tree invariants
         Ok(())
+    }
+}
+
+impl Default for Channeler {
+    fn default() -> Self {
+        Self::new()
     }
 }

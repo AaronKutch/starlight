@@ -705,15 +705,14 @@ impl Epoch {
     /// but the shared group of `Epoch`s as a whole must follow the stacklike
     /// drop order described in the documentation of `Epoch`.
     pub fn shared_with(other: &Epoch) -> Self {
-        let shared = EpochShared::shared_with(&other.shared());
+        let shared = EpochShared::shared_with(other.shared());
         shared.set_as_current();
-        let res = Self {
+        Self {
             inner: EpochInnerDrop {
                 epoch_shared: shared,
                 is_current: true,
             },
-        };
-        res
+        }
     }
 
     /// Returns the `EpochShared` of `self`

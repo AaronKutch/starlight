@@ -21,7 +21,7 @@ impl<F: FnMut(P, &K, &V) -> Ordering, P: Ptr, K, V> Advancer for RegionAdvancer<
             let (gen, link) = collection.get_link_no_gen(current).unwrap();
             self.p = link.next();
             let p_current = P::_from_raw(current, gen);
-            if (self.cmp)(p_current, &link.t.0, &link.t.1) == Ordering::Equal {
+            if (self.cmp)(p_current, link.t.0, link.t.1) == Ordering::Equal {
                 Some(p_current)
             } else {
                 // have reached the end of the region, also set to `None` to shortcut in
@@ -48,7 +48,7 @@ impl<F: FnMut(P, &K, &V) -> Ordering, P: Ptr, K, V> RegionAdvancer<F, P, K, V> {
             let mut p = p.inx();
             loop {
                 let (gen, link) = collection.get_link_no_gen(p).unwrap();
-                if cmp(Ptr::_from_raw(p, gen), &link.t.0, &link.t.1) == Ordering::Equal {
+                if cmp(Ptr::_from_raw(p, gen), link.t.0, link.t.1) == Ordering::Equal {
                     if let Some(p_prev) = link.prev() {
                         p = p_prev;
                     } else {

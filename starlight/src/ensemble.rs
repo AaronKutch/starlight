@@ -10,7 +10,7 @@ mod value;
 
 pub use lnode::{LNode, PLNode};
 pub use optimize::{Optimizer, POpt};
-pub use rnode::{PRNode, RNode};
+pub use rnode::{Notary, PRNode, RNode};
 pub use state::{State, Stator};
 pub use tnode::{PTNode, TNode};
 pub use together::{Ensemble, Equiv, PBack, Referent};
