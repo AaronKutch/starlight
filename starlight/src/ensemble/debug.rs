@@ -6,7 +6,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{Ensemble, Equiv, LNode, PBack, PRNode, PTNode, Referent, State},
+    ensemble::{Ensemble, Equiv, LNode, LNodeKind, PBack, PRNode, PTNode, Referent, State},
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
     Epoch,
@@ -120,16 +120,28 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 },
             },
             NodeKind::LNode(lnode) => DebugNode {
-                sources: lnode
-                    .inp
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| (*p, format!("{i}")))
-                    .collect(),
+                sources: {
+                    match &lnode.kind {
+                        LNodeKind::Copy(inp) => vec![(*inp, "copy".to_owned())],
+                        LNodeKind::Lut(inp, _) => inp
+                            .iter()
+                            .enumerate()
+                            .map(|(i, p)| (*p, format!("{i}")))
+                            .collect(),
+                        LNodeKind::DynamicLut(inp, table) => inp
+                            .iter()
+                            .enumerate()
+                            .map(|(i, p)| (*p, format!("i{i}")))
+                            .chain(table.iter().enumerate().map(|(i, p)| (*p, format!("t{i}"))))
+                            .collect(),
+                    }
+                },
                 center: {
                     let mut v = vec![format!("{:?}", p_this)];
-                    if let Some(ref lut) = lnode.lut {
-                        v.push(format!("{:?} ", lut));
+                    match &lnode.kind {
+                        LNodeKind::Copy(_) => (),
+                        LNodeKind::Lut(_, lut) => v.push(format!("{:?} ", lut)),
+                        LNodeKind::DynamicLut(..) => (),
                     }
                     if let Some(lowered_from) = lnode.lowered_from {
                         v.push(format!("{:?}", lowered_from));
@@ -219,12 +231,12 @@ impl Ensemble {
                     Referent::ThisLNode(p_lnode) => {
                         let mut lnode = self.lnodes.get(*p_lnode).unwrap().clone();
                         // forward to the `PBack`s of LNodes
-                        for inp in &mut lnode.inp {
+                        lnode.inputs_mut(|inp| {
                             if let Referent::Input(_) = self.backrefs.get_key(*inp).unwrap() {
                                 let p_input = self.backrefs.get_val(*inp).unwrap().p_self_equiv;
                                 *inp = p_input;
                             }
-                        }
+                        });
                         NodeKind::LNode(lnode)
                     }
                     Referent::ThisTNode(p_tnode) => {

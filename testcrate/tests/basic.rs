@@ -1,6 +1,7 @@
 use starlight::{
     awi,
     dag::{self, *},
+    ensemble::LNodeKind,
     Epoch, EvalAwi, LazyAwi, StarRng,
 };
 
@@ -149,8 +150,16 @@ fn luts() {
                     // assert that there is at most one LNode with constant inputs optimized away
                     let mut lnodes = ensemble.lnodes.vals();
                     if let Some(lnode) = lnodes.next() {
-                        inp_bits += lnode.inp.len();
-                        assert!(lnode.inp.len() <= opaque_set.count_ones());
+                        match &lnode.kind {
+                            LNodeKind::Copy(_) => {
+                                inp_bits += 1;
+                            }
+                            LNodeKind::Lut(inp, _) => {
+                                inp_bits += inp.len();
+                                assert!(inp.len() <= opaque_set.count_ones());
+                            }
+                            LNodeKind::DynamicLut(..) => unreachable!(),
+                        }
                         assert!(lnodes.next().is_none());
                     }
                     assert!(lnodes.next().is_none());

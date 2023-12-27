@@ -10,7 +10,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{Ensemble, LNode, PBack, PLNode, PTNode, Referent, Value},
+    ensemble::{Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent, Value},
     triple_arena::{ptr_struct, OrdArena},
     SmallMap,
 };
@@ -94,111 +94,113 @@ impl Ensemble {
     /// needs to be run by the caller).
     pub fn const_eval_lnode(&mut self, p_lnode: PLNode) -> bool {
         let lnode = self.lnodes.get_mut(p_lnode).unwrap();
-        if let Some(original_lut) = &lnode.lut {
-            let mut lut = original_lut.clone();
-            // acquire LUT inputs, for every constant input reduce the LUT
-            let len = usize::from(u8::try_from(lnode.inp.len()).unwrap());
-            for i in (0..len).rev() {
-                let p_inp = lnode.inp[i];
-                let equiv = self.backrefs.get_val(p_inp).unwrap();
-                if let Value::Const(val) = equiv.val {
-                    // we will be removing the input, mark it to be investigated
+        match &mut lnode.kind {
+            LNodeKind::Copy(inp) => {
+                // wire propogation
+                let input_equiv = self.backrefs.get_val_mut(*inp).unwrap();
+                if let Value::Const(val) = input_equiv.val {
+                    let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
+                    equiv.val = Value::Const(val);
                     self.optimizer
-                        .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                    self.backrefs.remove_key(p_inp).unwrap();
-                    lnode.inp.remove(i);
-
-                    lut = LNode::reduce_lut(&lut, i, val);
+                        .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv));
+                    true
+                } else {
+                    self.optimizer
+                        .insert(Optimization::ForwardEquiv(lnode.p_self));
+                    false
                 }
             }
-
-            // check for duplicate inputs of the same source
-            'outer: loop {
-                // we have to reset every time because the removals can mess up any range of
-                // indexes
-                let mut set = SmallMap::new();
-                for i in 0..lnode.inp.len() {
-                    let p_inp = lnode.inp[i];
+            LNodeKind::Lut(inp, original_lut) => {
+                let mut lut = original_lut.clone();
+                // acquire LUT inputs, for every constant input reduce the LUT
+                let len = usize::from(u8::try_from(inp.len()).unwrap());
+                for i in (0..len).rev() {
+                    let p_inp = inp[i];
                     let equiv = self.backrefs.get_val(p_inp).unwrap();
-                    match set.insert(equiv.p_self_equiv.inx(), i) {
-                        Ok(()) => (),
-                        Err(j) => {
-                            let next_bw = lut.bw() / 2;
-                            let mut next_lut = Awi::zero(NonZeroUsize::new(next_bw).unwrap());
-                            let mut to = 0;
-                            for k in 0..lut.bw() {
-                                let inx = InlAwi::from_usize(k);
-                                if inx.get(i).unwrap() == inx.get(j).unwrap() {
-                                    next_lut.set(to, lut.get(k).unwrap()).unwrap();
-                                    to += 1;
-                                }
-                            }
-                            self.optimizer
-                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                            self.backrefs.remove_key(lnode.inp[j]).unwrap();
-                            lnode.inp.remove(j);
-                            lut = next_lut;
-                            continue 'outer
-                        }
-                    }
-                }
-                break
-            }
-
-            // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
-            let len = lnode.inp.len();
-            for i in (0..len).rev() {
-                if lut.bw() > 1 {
-                    if let Some(reduced) = LNode::reduce_independent_lut(&lut, i) {
-                        // independent of the `i`th bit
-                        lut = reduced;
-                        let p_inp = lnode.inp.remove(i);
-                        let equiv = self.backrefs.get_val(p_inp).unwrap();
+                    if let Value::Const(val) = equiv.val {
+                        // we will be removing the input, mark it to be investigated
                         self.optimizer
                             .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
                         self.backrefs.remove_key(p_inp).unwrap();
+                        inp.remove(i);
+
+                        lut = LNode::reduce_lut(&lut, i, val);
                     }
                 }
-            }
-            // sort inputs so that `LNode`s can be compared later
-            // TODO?
 
-            // input independence automatically reduces all zeros and all ones LUTs, so just
-            // need to check if the LUT is one bit for constant generation
-            if lut.bw() == 1 {
-                let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
-                equiv.val = Value::Const(lut.to_bool());
-                // fix the `lut` to its new state, do this even if we are doing the constant
-                // optimization
-                lnode.lut = Some(lut);
-                true
-            } else if (lut.bw() == 2) && lut.get(1).unwrap() {
-                // the only `lut.bw() == 2` cases that survive independence removal is identity
-                // and inversion. If it is identity, register this for forwarding
-                lnode.lut = None;
-                self.optimizer
-                    .insert(Optimization::ForwardEquiv(lnode.p_self));
-                false
-            } else {
-                lnode.lut = Some(lut);
-                false
+                // check for duplicate inputs of the same source
+                'outer: loop {
+                    // we have to reset every time because the removals can mess up any range of
+                    // indexes
+                    let mut set = SmallMap::new();
+                    for i in 0..inp.len() {
+                        let p_inp = inp[i];
+                        let equiv = self.backrefs.get_val(p_inp).unwrap();
+                        match set.insert(equiv.p_self_equiv.inx(), i) {
+                            Ok(()) => (),
+                            Err(j) => {
+                                let next_bw = lut.bw() / 2;
+                                let mut next_lut = Awi::zero(NonZeroUsize::new(next_bw).unwrap());
+                                let mut to = 0;
+                                for k in 0..lut.bw() {
+                                    let inx = InlAwi::from_usize(k);
+                                    if inx.get(i).unwrap() == inx.get(j).unwrap() {
+                                        next_lut.set(to, lut.get(k).unwrap()).unwrap();
+                                        to += 1;
+                                    }
+                                }
+                                self.optimizer
+                                    .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                                self.backrefs.remove_key(inp[j]).unwrap();
+                                inp.remove(j);
+                                lut = next_lut;
+                                continue 'outer
+                            }
+                        }
+                    }
+                    break
+                }
+
+                // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
+                let len = inp.len();
+                for i in (0..len).rev() {
+                    if lut.bw() > 1 {
+                        if let Some(reduced) = LNode::reduce_independent_lut(&lut, i) {
+                            // independent of the `i`th bit
+                            lut = reduced;
+                            let p_inp = inp.remove(i);
+                            let equiv = self.backrefs.get_val(p_inp).unwrap();
+                            self.optimizer
+                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                            self.backrefs.remove_key(p_inp).unwrap();
+                        }
+                    }
+                }
+                // sort inputs so that `LNode`s can be compared later
+                // TODO?
+
+                // input independence automatically reduces all zeros and all ones LUTs, so just
+                // need to check if the LUT is one bit for constant generation
+                if lut.bw() == 1 {
+                    let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
+                    equiv.val = Value::Const(lut.to_bool());
+                    // fix the `lut` to its new state, do this even if we are doing the constant
+                    // optimization
+                    *original_lut = lut;
+                    true
+                } else if (lut.bw() == 2) && lut.get(1).unwrap() {
+                    // the only `lut.bw() == 2` cases that survive independence removal is identity
+                    // and inversion. If it is identity, register this for forwarding
+                    lnode.kind = LNodeKind::Copy(inp[0]);
+                    self.optimizer
+                        .insert(Optimization::ForwardEquiv(lnode.p_self));
+                    false
+                } else {
+                    *original_lut = lut;
+                    false
+                }
             }
-        } else if lnode.inp.len() == 1 {
-            // wire propogation
-            let input_equiv = self.backrefs.get_val_mut(lnode.inp[0]).unwrap();
-            if let Value::Const(val) = input_equiv.val {
-                let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
-                equiv.val = Value::Const(val);
-                self.optimizer
-                    .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv));
-                true
-            } else {
-                self.optimizer
-                    .insert(Optimization::ForwardEquiv(lnode.p_self));
-                false
-            }
-        } else {
-            false
+            LNodeKind::DynamicLut(..) => todo!(),
         }
     }
 
@@ -300,12 +302,12 @@ impl Ensemble {
     /// `Advancer`s.
     pub fn remove_lnode_not_p_self(&mut self, p_lnode: PLNode) {
         let lnode = self.lnodes.remove(p_lnode).unwrap();
-        for inp in lnode.inp {
+        lnode.inputs(|inp| {
             let p_equiv = self.backrefs.get_val(inp).unwrap().p_self_equiv;
             self.optimizer
                 .insert(Optimization::InvestigateUsed(p_equiv));
             self.backrefs.remove_key(inp).unwrap();
-        }
+        });
     }
 
     /// Does not perform the final step
@@ -376,11 +378,14 @@ impl Ensemble {
                 let p_source = if let Some(referent) = self.backrefs.get_key(p_ident) {
                     if let Referent::ThisLNode(p_lnode) = referent {
                         let lnode = &self.lnodes[p_lnode];
-                        assert_eq!(lnode.inp.len(), 1);
-                        // do not use directly, use the `p_self_equiv` since this backref will be
-                        // removed when `p_ident` is process in the loop
-                        let p_back = lnode.inp[0];
-                        self.backrefs.get_val(p_back).unwrap().p_self_equiv
+                        if let LNodeKind::Copy(inp) = lnode.kind {
+                            // do not use directly, use the `p_self_equiv` since this backref will
+                            // be removed when `p_ident` is process in
+                            // the loop
+                            self.backrefs.get_val(inp).unwrap().p_self_equiv
+                        } else {
+                            unreachable!()
+                        }
                     } else {
                         unreachable!()
                     }
@@ -411,7 +416,7 @@ impl Ensemble {
                         Referent::Input(p_input) => {
                             let lnode = self.lnodes.get_mut(p_input).unwrap();
                             let mut found = false;
-                            for inp in &mut lnode.inp {
+                            lnode.inputs_mut(|inp| {
                                 if *inp == p_back {
                                     let p_back_new = self
                                         .backrefs
@@ -419,9 +424,8 @@ impl Ensemble {
                                         .unwrap();
                                     *inp = p_back_new;
                                     found = true;
-                                    break
                                 }
-                            }
+                            });
                             assert!(found);
                         }
                         Referent::LoopDriver(p_driver) => {

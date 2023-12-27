@@ -4,9 +4,11 @@
 ### Changes
 - merged `Epoch::assert_assertions` and `Epoch::assert_assertions_strict`
 - many fixes for `Epoch` behavior
+- `LNode`s now have a `LNodeKind`
 
 ### Additions
 - Added `Epoch::suspend`
+- Optimization now compresses allocations
 
 ## [0.2.0] - 2023-12-08
 ### Crate

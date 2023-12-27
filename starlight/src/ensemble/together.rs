@@ -11,8 +11,8 @@ use awint::{
 
 use crate::{
     ensemble::{
-        value::Evaluator, LNode, Notary, Optimizer, PLNode, PRNode, PTNode, State, Stator, TNode,
-        Value,
+        value::Evaluator, LNode, LNodeKind, Notary, Optimizer, PLNode, PRNode, PTNode, State,
+        Stator, TNode, Value,
     },
     triple_arena::{ptr_struct, Arena, SurjectArena},
 };
@@ -266,26 +266,28 @@ impl Ensemble {
         // other kinds of validity
         for p_lnode in self.lnodes.ptrs() {
             let lnode = self.lnodes.get(p_lnode).unwrap();
-            for p_input in &lnode.inp {
-                if let Some(referent) = self.backrefs.get_key(*p_input) {
+            let mut res = Ok(());
+            lnode.inputs(|p_input| {
+                if let Some(referent) = self.backrefs.get_key(p_input) {
                     if let Referent::Input(referent) = referent {
                         if !self.lnodes.contains(*referent) {
-                            return Err(EvalError::OtherString(format!(
+                            res = Err(EvalError::OtherString(format!(
                                 "{p_lnode}: {lnode:?} input {p_input} referrent {referent} is \
                                  invalid"
-                            )))
+                            )));
                         }
                     } else {
-                        return Err(EvalError::OtherString(format!(
+                        res = Err(EvalError::OtherString(format!(
                             "{p_lnode}: {lnode:?} input {p_input} has incorrect referrent"
-                        )))
+                        )));
                     }
                 } else {
-                    return Err(EvalError::OtherString(format!(
+                    res = Err(EvalError::OtherString(format!(
                         "{p_lnode}: {lnode:?} input {p_input} is invalid"
-                    )))
+                    )));
                 }
-            }
+            });
+            res?;
         }
         for p_tnode in self.tnodes.ptrs() {
             let tnode = self.tnodes.get(p_tnode).unwrap();
@@ -355,12 +357,11 @@ impl Ensemble {
                 Referent::Input(p_input) => {
                     let lnode = self.lnodes.get(*p_input).unwrap();
                     let mut found = false;
-                    for p_back1 in &lnode.inp {
-                        if *p_back1 == p_back {
+                    lnode.inputs(|p_back1| {
+                        if p_back1 == p_back {
                             found = true;
-                            break
                         }
-                    }
+                    });
                     !found
                 }
                 Referent::LoopDriver(p_tnode) => {
@@ -387,24 +388,38 @@ impl Ensemble {
         }
         // non-pointer invariants
         for lnode in self.lnodes.vals() {
-            if let Some(ref lut) = lnode.lut {
-                if lnode.inp.is_empty() {
-                    return Err(EvalError::OtherStr("no inputs for lookup table"))
+            match &lnode.kind {
+                LNodeKind::Copy(_) => (),
+                LNodeKind::Lut(inp, lut) => {
+                    if inp.is_empty() {
+                        return Err(EvalError::OtherStr("no inputs for lookup table"))
+                    }
+                    if !lut.bw().is_power_of_two() {
+                        return Err(EvalError::OtherStr(
+                            "lookup table is not a power of two in bitwidth",
+                        ))
+                    }
+                    if (lut.bw().trailing_zeros() as usize) != inp.len() {
+                        return Err(EvalError::OtherStr(
+                            "number of inputs does not correspond to lookup table size",
+                        ))
+                    }
                 }
-                if !lut.bw().is_power_of_two() {
-                    return Err(EvalError::OtherStr(
-                        "lookup table is not a power of two in bitwidth",
-                    ))
+                LNodeKind::DynamicLut(inp, lut) => {
+                    if inp.is_empty() {
+                        return Err(EvalError::OtherStr("no inputs for lookup table"))
+                    }
+                    if !lut.len().is_power_of_two() {
+                        return Err(EvalError::OtherStr(
+                            "lookup table is not a power of two in bitwidth",
+                        ))
+                    }
+                    if (lut.len().trailing_zeros() as usize) != inp.len() {
+                        return Err(EvalError::OtherStr(
+                            "number of inputs does not correspond to lookup table size",
+                        ))
+                    }
                 }
-                if (lut.bw().trailing_zeros() as usize) != lnode.inp.len() {
-                    return Err(EvalError::OtherStr(
-                        "number of inputs does not correspond to lookup table size",
-                    ))
-                }
-            } else if lnode.inp.len() != 1 {
-                return Err(EvalError::OtherStr(
-                    "`LNode` with no lookup table has more or less than one input",
-                ))
             }
         }
         // state reference counts
@@ -522,16 +537,15 @@ impl Ensemble {
                 .backrefs
                 .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
                 .unwrap();
-            let mut lnode = LNode::new(p_self, lowered_from);
-            lnode.lut = Some(Awi::from(table));
+            let mut inp = smallvec![];
             for p_inx in p_inxs {
                 let p_back = self
                     .backrefs
                     .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
                     .unwrap();
-                lnode.inp.push(p_back);
+                inp.push(p_back);
             }
-            lnode
+            LNode::new(p_self, LNodeKind::Lut(inp, Awi::from(table)), lowered_from)
         });
         Some(p_equiv)
     }

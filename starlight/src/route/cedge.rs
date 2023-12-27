@@ -1,3 +1,5 @@
+use awint::awint_dag::smallvec::smallvec;
+
 use super::{channel::Referent, Channeler};
 use crate::{
     awint_dag::smallvec::SmallVec, ensemble, route::PBack, triple_arena::ptr_struct, Epoch,
@@ -70,6 +72,25 @@ impl CEdge {
 }
 
 impl Channeler {
+    /// Given the `incidences` (which should point to unique `ThisCNode`s), this
+    /// will manage the backrefs
+    pub fn make_cedge(&mut self, incidences: &[PBack], programmability: Programmability) -> PCEdge {
+        self.cedges.insert_with(|p_self| {
+            let mut actual_incidences = smallvec![];
+            for (i, incidence) in incidences.iter().enumerate() {
+                actual_incidences.push(
+                    self.cnodes
+                        .insert_key(*incidence, Referent::CEdgeIncidence(p_self, i))
+                        .unwrap(),
+                );
+            }
+            CEdge {
+                incidences: actual_incidences,
+                programmability,
+            }
+        })
+    }
+
     /// Assumes that `epoch` has been optimized
     pub fn from_epoch(epoch: &Epoch) -> Self {
         let mut channeler = Self::new();
@@ -85,6 +106,9 @@ impl Channeler {
             }
 
             // add `CEdge`s according to `LNode`s
+            for lnode in ensemble.lnodes.vals() {
+                //if let Some(lnode.lut
+            }
         });
 
         channeler

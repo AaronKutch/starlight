@@ -8,7 +8,7 @@ mod tnode;
 mod together;
 mod value;
 
-pub use lnode::{LNode, PLNode};
+pub use lnode::{LNode, LNodeKind, PLNode};
 pub use optimize::{Optimizer, POpt};
 pub use rnode::{Notary, PExternal, PRNode, RNode};
 pub use state::{State, Stator};

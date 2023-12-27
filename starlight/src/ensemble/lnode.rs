@@ -15,14 +15,22 @@ use crate::{ensemble::PBack, triple_arena::ptr_struct};
 // We use this because our algorithms depend on generation counters
 ptr_struct!(PLNode);
 
+#[derive(Debug, Clone)]
+pub enum LNodeKind {
+    /// Copy a single input bit
+    Copy(PBack),
+    /// Static Lookup Table that outputs one bit, the `Awi` is the table and the
+    /// `SmallVec` is the inputs
+    Lut(SmallVec<[PBack; 4]>, Awi),
+    /// A Dynamic Lookup Table with the inputs and then the `Vec` is the table
+    DynamicLut(SmallVec<[PBack; 4]>, Vec<PBack>),
+}
+
 /// A lookup table node
 #[derive(Debug, Clone)]
 pub struct LNode {
     pub p_self: PBack,
-    /// Inputs
-    pub inp: SmallVec<[PBack; 4]>,
-    /// Lookup Table that outputs one bit
-    pub lut: Option<Awi>,
+    pub kind: LNodeKind,
     pub lowered_from: Option<PState>,
 }
 
@@ -32,17 +40,59 @@ impl Recast<PBack> for LNode {
         recaster: &R,
     ) -> Result<(), <R as Recaster>::Item> {
         self.p_self.recast(recaster)?;
-        self.inp.as_mut_slice().recast(recaster)
+        self.inputs_mut(|inp| {
+            inp.recast(recaster).unwrap();
+        });
+        Ok(())
     }
 }
 
 impl LNode {
-    pub fn new(p_self: PBack, lowered_from: Option<PState>) -> Self {
+    pub fn new(p_self: PBack, kind: LNodeKind, lowered_from: Option<PState>) -> Self {
         Self {
             p_self,
-            inp: SmallVec::new(),
-            lut: None,
+            kind,
             lowered_from,
+        }
+    }
+
+    /// Calls `f` for each `PBack` in the inputs of this `LNode`
+    pub fn inputs<F: FnMut(PBack)>(&self, mut f: F) {
+        match &self.kind {
+            LNodeKind::Copy(inp) => f(*inp),
+            LNodeKind::Lut(inp, _) => {
+                for inp in inp.iter() {
+                    f(*inp);
+                }
+            }
+            LNodeKind::DynamicLut(inp, table) => {
+                for inp in inp.iter() {
+                    f(*inp);
+                }
+                for inp in table.iter() {
+                    f(*inp);
+                }
+            }
+        }
+    }
+
+    /// Calls `f` for each `&mut PBack` in the inputs of this `LNode`
+    pub fn inputs_mut<F: FnMut(&mut PBack)>(&mut self, mut f: F) {
+        match &mut self.kind {
+            LNodeKind::Copy(inp) => f(inp),
+            LNodeKind::Lut(inp, _) => {
+                for inp in inp.iter_mut() {
+                    f(inp);
+                }
+            }
+            LNodeKind::DynamicLut(inp, table) => {
+                for inp in inp.iter_mut() {
+                    f(inp);
+                }
+                for inp in table.iter_mut() {
+                    f(inp);
+                }
+            }
         }
     }
 
