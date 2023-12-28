@@ -56,7 +56,7 @@
  // First, create an epoch, this will live until this struct is dropped. The
  // epoch needs to live until all mimicking operations are done and states are
  // lowered. Manually drop it with the `drop` function to avoid mistakes.
- let epoch0 = Epoch::new();
+ let epoch = Epoch::new();
 
  let mut m = StateMachine::new(bw(4));
 

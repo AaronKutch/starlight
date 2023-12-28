@@ -58,7 +58,7 @@
 //! // First, create an epoch, this will live until this struct is dropped. The
 //! // epoch needs to live until all mimicking operations are done and states are
 //! // lowered. Manually drop it with the `drop` function to avoid mistakes.
-//! let epoch0 = Epoch::new();
+//! let epoch = Epoch::new();
 //!
 //! let mut m = StateMachine::new(bw(4));
 //!
@@ -83,20 +83,20 @@
 //!     use awi::*;
 //!
 //!     // discard all unused mimicking states so the render is cleaner
-//!     epoch0.prune().unwrap();
+//!     epoch.prune().unwrap();
 //!
 //!     // See the mimicking state DAG before it is lowered
-//!     epoch0
+//!     epoch
 //!         .render_to_svgs_in_dir(std::path::PathBuf::from("./".to_owned()))
 //!         .unwrap();
 //!
 //!     // lower into purely static bit movements and lookup tables.
-//!     epoch0.lower().unwrap();
-//!     epoch0.optimize().unwrap();
+//!     epoch.lower().unwrap();
+//!     epoch.optimize().unwrap();
 //!
 //!     // Now the combinational logic is described in a DAG of lookup tables that we
 //!     // could use for various purposes
-//!     epoch0.ensemble(|ensemble| {
+//!     epoch.ensemble(|ensemble| {
 //!         for state in ensemble.stator.states.vals() {
 //!             awi::assert!(state.lowered_to_lnodes);
 //!         }
@@ -106,24 +106,24 @@
 //!     input.retro_(&awi!(0101)).unwrap();
 //!     // check assertions (all `dag::assert*` functions and dynamic `unwrap`s done
 //!     // during the current `Epoch`)
-//!     epoch0.assert_assertions(true).unwrap();
+//!     epoch.assert_assertions(true).unwrap();
 //!     // evaluate the outputs
 //!     awi::assert_eq!(output_counter.eval().unwrap(), awi!(0011));
 //!     awi::assert_eq!(output_data.eval().unwrap(), awi!(0xa505_u16));
 //!
 //!     // reassign and reevaluate
 //!     input.retro_(&awi!(1011)).unwrap();
-//!     awi::assert!(epoch0.assert_assertions(true).is_err());
+//!     awi::assert!(epoch.assert_assertions(true).is_err());
 //!     awi::assert_eq!(output_data.eval().unwrap(), awi!(0x7b0b_u16));
 //! }
-//! drop(epoch0);
+//! drop(epoch);
 //! ```
 //!
 //! ```
 //! use starlight::{dag, awi, Epoch, EvalAwi};
 //! use dag::*;
 //!
-//! let epoch0 = Epoch::new();
+//! let epoch = Epoch::new();
 //!
 //! let mut lhs = inlawi!(zero: ..8);
 //! let rhs = inlawi!(umax: ..8);
@@ -159,7 +159,7 @@
 //!     use awi::*;
 //!     awi::assert_eq!(output_eval.eval().unwrap(), awi!(01010101));
 //! }
-//! drop(epoch0);
+//! drop(epoch);
 //! ```
 
 #![allow(clippy::needless_range_loop)]
