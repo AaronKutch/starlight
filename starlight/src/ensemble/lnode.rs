@@ -10,7 +10,10 @@ use awint::{
 };
 use smallvec::SmallVec;
 
-use crate::{ensemble::PBack, triple_arena::ptr_struct};
+use crate::{
+    ensemble::{DynamicValue, PBack},
+    triple_arena::ptr_struct,
+};
 
 // We use this because our algorithms depend on generation counters
 ptr_struct!(PLNode);
@@ -23,7 +26,7 @@ pub enum LNodeKind {
     /// `SmallVec` is the inputs
     Lut(SmallVec<[PBack; 4]>, Awi),
     /// A Dynamic Lookup Table with the inputs and then the `Vec` is the table
-    DynamicLut(SmallVec<[PBack; 4]>, Vec<PBack>),
+    DynamicLut(SmallVec<[PBack; 4]>, Vec<DynamicValue>),
 }
 
 /// A lookup table node
@@ -65,12 +68,14 @@ impl LNode {
                     f(*inp);
                 }
             }
-            LNodeKind::DynamicLut(inp, table) => {
+            LNodeKind::DynamicLut(inp, lut) => {
                 for inp in inp.iter() {
                     f(*inp);
                 }
-                for inp in table.iter() {
-                    f(*inp);
+                for inp in lut.iter() {
+                    if let DynamicValue::Dynam(inp) = inp {
+                        f(*inp);
+                    }
                 }
             }
         }
@@ -85,12 +90,14 @@ impl LNode {
                     f(inp);
                 }
             }
-            LNodeKind::DynamicLut(inp, table) => {
+            LNodeKind::DynamicLut(inp, lut) => {
                 for inp in inp.iter_mut() {
                     f(inp);
                 }
-                for inp in table.iter_mut() {
-                    f(inp);
+                for inp in lut.iter_mut() {
+                    if let DynamicValue::Dynam(inp) = inp {
+                        f(inp);
+                    }
                 }
             }
         }
@@ -113,6 +120,33 @@ impl LNode {
             to += w;
         }
         next_lut
+    }
+
+    /// The same as `reduce_lut`, except for a dynamic table, and it returns
+    /// removed `PBack`s
+    pub fn reduce_dynamic_lut(
+        lut: &[DynamicValue],
+        i: usize,
+        bit: bool,
+    ) -> (Vec<DynamicValue>, Vec<PBack>) {
+        assert!(lut.len().is_power_of_two());
+        let next_bw = lut.len() / 2;
+        let mut next_lut = vec![DynamicValue::Unknown; next_bw];
+        let mut removed = Vec::with_capacity(next_bw);
+        let w = 1 << i;
+        let mut from = 0;
+        let mut to = 0;
+        while to < next_bw {
+            for j in 0..w {
+                next_lut[to + j] = lut[if bit { from + j } else { from }];
+                if let DynamicValue::Dynam(p_back) = lut[if !bit { from + j } else { from }] {
+                    removed.push(p_back);
+                }
+            }
+            from += 2 * w;
+            to += w;
+        }
+        (next_lut, removed)
     }
 
     /// Returns an equivalent reduced LUT (with the `i`th index removed) if the

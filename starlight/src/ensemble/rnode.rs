@@ -154,6 +154,7 @@ impl Ensemble {
     pub fn change_thread_local_rnode_value(
         p_external: PExternal,
         bits: &awi::Bits,
+        make_const: bool,
     ) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         let mut lock = epoch_shared.epoch_data.borrow_mut();
@@ -166,9 +167,15 @@ impl Ensemble {
             for bit_i in 0..bits.bw() {
                 let p_back = ensemble.notary.rnodes[p_rnode].bits[bit_i];
                 if let Some(p_back) = p_back {
-                    ensemble
-                        .change_value(p_back, Value::Dynam(bits.get(bit_i).unwrap()))
-                        .unwrap();
+                    if make_const {
+                        ensemble
+                            .change_value(p_back, Value::Const(bits.get(bit_i).unwrap()))
+                            .unwrap();
+                    } else {
+                        ensemble
+                            .change_value(p_back, Value::Dynam(bits.get(bit_i).unwrap()))
+                            .unwrap();
+                    }
                 }
             }
         } else {

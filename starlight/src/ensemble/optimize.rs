@@ -10,7 +10,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent, Value},
+    ensemble::{DynamicValue, Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent, Value},
     triple_arena::{ptr_struct, OrdArena},
     SmallMap,
 };
@@ -200,7 +200,96 @@ impl Ensemble {
                     false
                 }
             }
-            LNodeKind::DynamicLut(..) => todo!(),
+            LNodeKind::DynamicLut(inp, lut) => {
+                // FIXME
+                /*
+                // acquire LUT inputs, for every constant input reduce the LUT
+                let len = usize::from(u8::try_from(inp.len()).unwrap());
+                for i in (0..len).rev() {
+                    let p_inp = inp[i];
+                    let equiv = self.backrefs.get_val(p_inp).unwrap();
+                    if let Value::Const(val) = equiv.val {
+                        // we will be removing the input, mark it to be investigated
+                        self.optimizer
+                            .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                        self.backrefs.remove_key(p_inp).unwrap();
+                        inp.remove(i);
+
+                        let (tmp, removed) = LNode::reduce_dynamic_lut(&lut, i, val);
+                        *lut = tmp;
+                        for remove in removed {
+                            let equiv = self.backrefs.get_val(remove).unwrap();
+                            self.optimizer
+                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                            self.backrefs.remove_key(remove).unwrap();
+                        }
+                    }
+                }
+
+                // check for duplicate inputs of the same source
+                'outer: loop {
+                    // we have to reset every time because the removals can mess up any range of
+                    // indexes
+                    let mut set = SmallMap::new();
+                    for i in 0..inp.len() {
+                        let p_inp = inp[i];
+                        let equiv = self.backrefs.get_val(p_inp).unwrap();
+                        match set.insert(equiv.p_self_equiv.inx(), i) {
+                            Ok(()) => (),
+                            Err(j) => {
+                                let next_bw = lut.len() / 2;
+                                let mut next_lut = vec![DynamicValue::Unknown; next_bw];
+                                let mut removed = Vec::with_capacity(next_bw);
+                                let mut to = 0;
+                                for k in 0..lut.len() {
+                                    let inx = InlAwi::from_usize(k);
+                                    if inx.get(i).unwrap() == inx.get(j).unwrap() {
+                                        next_lut[to] = lut[k];
+                                        to += 1;
+                                    } else if let DynamicValue::Dynam(p_back) = lut[k] {
+                                        removed.push(p_back);
+                                    }
+                                }
+                                self.optimizer
+                                    .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                                self.backrefs.remove_key(inp[j]).unwrap();
+                                inp.remove(j);
+                                *lut = next_lut;
+                                for p_back in removed {
+                                    let equiv = self.backrefs.get_val(p_back).unwrap();
+                                    self.optimizer
+                                        .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                                    self.backrefs.remove_key(p_back).unwrap();
+                                }
+                                continue 'outer
+                            }
+                        }
+                    }
+                    break
+                }
+
+                // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
+                let len = inp.len();
+                for i in (0..len).rev() {
+                    if lut.bw() > 1 {
+                        if let Some(reduced) = LNode::reduce_independent_lut(&lut, i) {
+                            // independent of the `i`th bit
+                            lut = reduced;
+                            let p_inp = inp.remove(i);
+                            let equiv = self.backrefs.get_val(p_inp).unwrap();
+                            self.optimizer
+                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                            self.backrefs.remove_key(p_inp).unwrap();
+                        }
+                    }
+                }
+                */
+                // sort inputs so that `LNode`s can be compared later
+                // TODO?
+
+                //false
+                todo!()
+            }
         }
     }
 

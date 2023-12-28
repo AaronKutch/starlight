@@ -6,7 +6,7 @@ use awint::{
 use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble,
-    ensemble::LNodeKind,
+    ensemble::{Ensemble, LNodeKind},
     route::{channel::Referent, Channeler, PBack},
     triple_arena::ptr_struct,
     Epoch,
@@ -43,9 +43,16 @@ pub enum Behavior {
 /// A description of bits to set in order to achieve some desired edge behavior.
 /// For now we unconditionally specify bits, in the future it should be more
 /// detailed to allow for more close by programs to coexist
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Instruction {
     pub set_bits: SmallVec<[(ensemble::PBack, bool); 4]>,
+}
+
+impl Instruction {
+    /// A new instruction that requires nothing
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -99,32 +106,64 @@ impl Channeler {
         })
     }
 
-    /// Assumes that `epoch` has been optimized
-    pub fn from_epoch(epoch: &Epoch) -> Result<Self, EvalError> {
+    /// Assumes that the ensemble has been optimized
+    pub fn from_ensemble(ensemble: &Ensemble) -> Result<Self, EvalError> {
         let mut channeler = Self::new();
 
-        epoch.ensemble(|ensemble| {
-            // for each equivalence make a `CNode` with associated `EnsembleBackref`
-            for equiv in ensemble.backrefs.vals() {
-                let p_cnode = channeler.make_top_level_cnode(vec![]);
-                channeler
-                    .cnodes
-                    .insert_key(p_cnode, Referent::EnsembleBackRef(equiv.p_self_equiv))
-                    .unwrap();
-            }
+        // for each equivalence make a `CNode` with associated `EnsembleBackref`
+        for equiv in ensemble.backrefs.vals() {
+            let p_cnode = channeler.make_top_level_cnode(vec![]);
+            let channeler_backref = channeler
+                .cnodes
+                .insert_key(p_cnode, Referent::EnsembleBackRef(equiv.p_self_equiv))
+                .unwrap();
+            channeler
+                .ensemble_backref_to_channeler_backref
+                .insert(equiv.p_self_equiv, channeler_backref);
+        }
 
-            // add `CEdge`s according to `LNode`s
-            for lnode in ensemble.lnodes.vals() {
-                match &lnode.kind {
-                    LNodeKind::Copy(_) => {
-                        return Err(EvalError::OtherStr("the epoch was not optimized"))
-                    }
-                    LNodeKind::Lut(inp, awi) => {}
-                    LNodeKind::DynamicLut(..) => todo!(),
+        // translate from any ensemble backref to the equivalence backref to the
+        // channeler backref
+        fn translate(
+            ensemble: &Ensemble,
+            channeler: &Channeler,
+            ensemble_backref: ensemble::PBack,
+        ) -> PBack {
+            let p_equiv = ensemble
+                .backrefs
+                .get_val(ensemble_backref)
+                .unwrap()
+                .p_self_equiv;
+            let p0 = channeler
+                .ensemble_backref_to_channeler_backref
+                .find_key(&p_equiv)
+                .unwrap();
+            *channeler
+                .ensemble_backref_to_channeler_backref
+                .get_val(p0)
+                .unwrap()
+        }
+
+        // add `CEdge`s according to `LNode`s
+        for lnode in ensemble.lnodes.vals() {
+            match &lnode.kind {
+                LNodeKind::Copy(_) => {
+                    return Err(EvalError::OtherStr("the epoch was not optimized"))
                 }
+                LNodeKind::Lut(inp, awi) => {
+                    let mut v: SmallVec<[PBack; 8]> =
+                        smallvec![translate(ensemble, &channeler, lnode.p_self)];
+                    for input in inp {
+                        v.push(translate(ensemble, &channeler, *input));
+                    }
+                    channeler.make_cedge(&v, Programmability {
+                        behavior: Behavior::StaticLut(awi.clone()),
+                        instruction: Instruction::new(),
+                    });
+                }
+                LNodeKind::DynamicLut(inp, lut) => todo!(),
             }
-            Ok(())
-        })?;
+        }
 
         Ok(channeler)
     }

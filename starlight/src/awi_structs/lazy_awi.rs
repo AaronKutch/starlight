@@ -122,11 +122,17 @@ impl LazyAwi {
         Self::from_bits(&awi::Awi::uone(w))
     }*/
 
-    /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
-    /// if this is being called after the corresponding Epoch is dropped and
-    /// states have been pruned.
+    /// Retroactively-assigns by `rhs`. Returns an error if bitwidths mismatch
+    /// or if this is being called after the corresponding Epoch is dropped
+    /// and states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_rnode_value(self.p_external, rhs)
+        Ensemble::change_thread_local_rnode_value(self.p_external, rhs, false)
+    }
+
+    /// Retroactively-constant-assigns by `rhs`, the same as `retro_` except it
+    /// adds the guarantee that the value will never be changed again
+    pub fn retro_const_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
+        Ensemble::change_thread_local_rnode_value(self.p_external, rhs, true)
     }
 }
 
@@ -244,11 +250,17 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
         Self { opaque, p_external }
     }
 
-    /// Retroactively-assigns by `rhs`. Returns `None` if bitwidths mismatch or
-    /// if this is being called after the corresponding Epoch is dropped and
-    /// states have been pruned.
+    /// Retroactively-assigns by `rhs`. Returns an error if bitwidths mismatch
+    /// or if this is being called after the corresponding Epoch is dropped
+    /// and states have been pruned.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_rnode_value(self.p_external, rhs)
+        Ensemble::change_thread_local_rnode_value(self.p_external, rhs, false)
+    }
+
+    /// Retroactively-constant-assigns by `rhs`, the same as `retro_` except it
+    /// adds the guarantee that the value will never be changed again
+    pub fn retro_const_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
+        Ensemble::change_thread_local_rnode_value(self.p_external, rhs, true)
     }
 }
 

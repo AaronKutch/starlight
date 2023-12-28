@@ -512,11 +512,11 @@ impl Ensemble {
     pub fn make_lut(
         &mut self,
         p_inxs: &[Option<PBack>],
-        table: &Bits,
+        lut: &Bits,
         lowered_from: Option<PState>,
     ) -> Option<PBack> {
         let num_entries = 1 << p_inxs.len();
-        if table.bw() != num_entries {
+        if lut.bw() != num_entries {
             return None
         }
         for p_inx in p_inxs {
@@ -545,7 +545,7 @@ impl Ensemble {
                     .unwrap();
                 inp.push(p_back);
             }
-            LNode::new(p_self, LNodeKind::Lut(inp, Awi::from(table)), lowered_from)
+            LNode::new(p_self, LNodeKind::Lut(inp, Awi::from(lut)), lowered_from)
         });
         Some(p_equiv)
     }

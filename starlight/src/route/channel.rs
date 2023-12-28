@@ -1,6 +1,6 @@
 use awint::awint_dag::{
     smallvec::smallvec,
-    triple_arena::{Arena, SurjectArena},
+    triple_arena::{Arena, OrdArena, SurjectArena},
     EvalError,
 };
 
@@ -11,7 +11,7 @@ use crate::{
     triple_arena::ptr_struct,
 };
 
-ptr_struct!(PBack);
+ptr_struct!(P0; PBack);
 
 #[derive(Debug, Clone, Copy)]
 pub enum Referent {
@@ -30,6 +30,8 @@ pub struct Channeler {
     /// all unconnected graphs being connected with `Behavior::Noop` so that the
     /// normal algorithm can allocate over them
     pub top_level_cnodes: SmallVec<[PBack; 1]>,
+    // needed for the unit edges to find incidences
+    pub ensemble_backref_to_channeler_backref: OrdArena<P0, ensemble::PBack, PBack>,
 }
 
 impl Channeler {
@@ -38,6 +40,7 @@ impl Channeler {
             cnodes: SurjectArena::new(),
             cedges: Arena::new(),
             top_level_cnodes: smallvec![],
+            ensemble_backref_to_channeler_backref: OrdArena::new(),
         }
     }
 

@@ -13,10 +13,15 @@ use crate::{
     epoch::EpochShared,
 };
 
+/// The value of a multistate boolean
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
+    /// The value is simply unknown, or a circuit is undriven
     Unknown,
+    /// The value is a known constant that is guaranteed to not change under any
+    /// condition
     Const(bool),
+    /// The value is known, but may be dynamically changed
     Dynam(bool),
 }
 
@@ -50,6 +55,26 @@ impl Value {
 
     pub fn is_unknown(self) -> bool {
         !self.is_known()
+    }
+}
+
+/// Used for dealing with mixed values and dynamics
+#[derive(Debug, Clone, Copy)]
+pub enum DynamicValue {
+    /// Corresponds with `Value::Unknown`
+    Unknown,
+    /// Corresponds with `Value::Const`
+    Const(bool),
+    Dynam(PBack),
+}
+
+impl DynamicValue {
+    pub fn is_known(&self) -> bool {
+        match self {
+            DynamicValue::Unknown => false,
+            DynamicValue::Const(_) => true,
+            DynamicValue::Dynam(_) => true,
+        }
     }
 }
 
@@ -325,11 +350,13 @@ impl Ensemble {
         }
     }
 
-    pub fn change_value(&mut self, p_back: PBack, value: Value) -> Option<()> {
+    pub fn change_value(&mut self, p_back: PBack, value: Value) -> Result<(), EvalError> {
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
             if equiv.val.is_const() && (equiv.val != value) {
-                // not allowed
-                panic!();
+                return Err(EvalError::OtherStr(
+                    "tried to change a constant (probably, `retro_const_` was used followed by a \
+                     contradicting `retro_*`",
+                ))
             }
             // switch to change phase if not already
             if self.evaluator.phase != EvalPhase::Change {
@@ -338,9 +365,9 @@ impl Ensemble {
             }
             equiv.val = value;
             equiv.change_visit = self.evaluator.change_visit_gen();
-            Some(())
+            Ok(())
         } else {
-            None
+            Err(EvalError::InvalidPtr)
         }
     }
 

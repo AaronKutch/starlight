@@ -415,8 +415,8 @@ fn lower_elementary_to_lnodes_intermediate(
                 from += 1;
             }
         }
-        StaticLut(ref concat, ref table) => {
-            let table = table.clone();
+        StaticLut(ref concat, ref lut) => {
+            let lut = lut.clone();
             let concat_len = concat.len();
             let mut inx_bits: SmallVec<[Option<PBack>; 8]> = smallvec![];
             for c_i in 0..concat_len {
@@ -433,21 +433,20 @@ fn lower_elementary_to_lnodes_intermediate(
             let out_bw = this.stator.states[p_state].p_self_bits.len();
             let num_entries = 1usize.checked_shl(u32::try_from(inx_len).unwrap()).unwrap();
             // this must be handled upstream
-            assert_eq!(out_bw * num_entries, table.bw());
+            assert_eq!(out_bw * num_entries, lut.bw());
             // convert from multiple out to single out bit lut
             for bit_i in 0..out_bw {
-                let single_bit_table = if out_bw == 1 {
-                    table.clone()
+                let single_bit_lut = if out_bw == 1 {
+                    lut.clone()
                 } else {
                     let mut val = awi::Awi::zero(NonZeroUsize::new(num_entries).unwrap());
                     for i in 0..num_entries {
-                        val.set(i, table.get((i * out_bw) + bit_i).unwrap())
-                            .unwrap();
+                        val.set(i, lut.get((i * out_bw) + bit_i).unwrap()).unwrap();
                     }
                     val
                 };
                 let p_equiv0 = this
-                    .make_lut(&inx_bits, &single_bit_table, Some(p_state))
+                    .make_lut(&inx_bits, &single_bit_lut, Some(p_state))
                     .unwrap();
                 let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
                 this.union_equiv(p_equiv0, p_equiv1).unwrap();

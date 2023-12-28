@@ -5,6 +5,7 @@ use awint::{
     awint_macro_internals::triple_arena::Arena,
 };
 
+use super::DynamicValue;
 use crate::{
     ensemble::{Ensemble, Equiv, LNode, LNodeKind, PBack, PRNode, PTNode, Referent, State},
     triple_arena::{Advancer, ChainArena},
@@ -128,12 +129,18 @@ impl DebugNodeTrait<PBack> for NodeKind {
                             .enumerate()
                             .map(|(i, p)| (*p, format!("{i}")))
                             .collect(),
-                        LNodeKind::DynamicLut(inp, table) => inp
-                            .iter()
-                            .enumerate()
-                            .map(|(i, p)| (*p, format!("i{i}")))
-                            .chain(table.iter().enumerate().map(|(i, p)| (*p, format!("t{i}"))))
-                            .collect(),
+                        LNodeKind::DynamicLut(inp, lut) => {
+                            let mut v = vec![];
+                            for (i, p) in inp.iter().enumerate() {
+                                v.push((*p, format!("i{i}")));
+                            }
+                            for (i, p) in lut.iter().enumerate() {
+                                if let DynamicValue::Dynam(p_back) = p {
+                                    v.push((*p_back, format!("l{i}")));
+                                }
+                            }
+                            v
+                        }
                     }
                 },
                 center: {
@@ -141,7 +148,7 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     match &lnode.kind {
                         LNodeKind::Copy(_) => (),
                         LNodeKind::Lut(_, lut) => v.push(format!("{:?} ", lut)),
-                        LNodeKind::DynamicLut(..) => (),
+                        LNodeKind::DynamicLut(..) => v.push("dyn".to_owned()),
                     }
                     if let Some(lowered_from) = lnode.lowered_from {
                         v.push(format!("{:?}", lowered_from));
