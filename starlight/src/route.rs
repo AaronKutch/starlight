@@ -7,7 +7,7 @@ mod path;
 mod region_adv;
 mod router;
 
-pub use cedge::{CEdge, PCEdge};
+pub use cedge::{Behavior, BulkBehavior, CEdge, Instruction, PCEdge, Programmability};
 pub use channel::{Channeler, PBack};
 pub use cnode::CNode;
 pub use path::{HyperPath, PHyperPath, Path};

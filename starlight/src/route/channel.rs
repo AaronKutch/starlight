@@ -7,7 +7,7 @@ use awint::awint_dag::{
 use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble,
-    route::{CEdge, CNode, PCEdge},
+    route::{Behavior, CEdge, CNode, PCEdge},
     triple_arena::ptr_struct,
 };
 
@@ -130,9 +130,8 @@ impl Channeler {
                 return Err(EvalError::OtherString(format!("{referent:?} is invalid")))
             }
         }
-        // other kinds of validity
         for p_cedge in self.cedges.ptrs() {
-            let cedge = &self.cedges.get(p_cedge).unwrap();
+            let cedge = self.cedges.get(p_cedge).unwrap();
             for p_cnode in &cedge.incidences {
                 if !self.cnodes.contains(*p_cnode) {
                     return Err(EvalError::OtherString(format!(
@@ -189,7 +188,25 @@ impl Channeler {
                 )))
             }
         }
-        // tree invariants
+        // non `Ptr` validities
+        for p_cedge in self.cedges.ptrs() {
+            let cedge = self.cedges.get(p_cedge).unwrap();
+            let ok = match &cedge.programmability().behavior {
+                Behavior::Noop | Behavior::RouteBit | Behavior::Bulk(_) => {
+                    cedge.incidences.len() == 2
+                }
+                Behavior::StaticLut(lut) => {
+                    lut.bw().is_power_of_two()
+                        && ((lut.bw().trailing_zeros() as usize + 1) == cedge.incidences.len())
+                }
+                Behavior::ArbitraryLut(input_len) => *input_len == cedge.incidences.len(),
+            };
+            if !ok {
+                return Err(EvalError::OtherString(format!(
+                    "{cedge:?} an invariant is broken"
+                )))
+            }
+        }
         Ok(())
     }
 }

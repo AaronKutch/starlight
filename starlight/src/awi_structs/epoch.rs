@@ -683,6 +683,15 @@ impl SuspendedEpoch {
         self.inner.is_current = true;
         Epoch { inner: self.inner }
     }
+
+    /// Returns the `EpochShared` of `self`
+    fn shared(&self) -> &EpochShared {
+        &self.inner.epoch_shared
+    }
+
+    pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, f: F) -> O {
+        self.shared().ensemble(f)
+    }
 }
 
 impl Epoch {

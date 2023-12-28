@@ -1,8 +1,15 @@
-use awint::awint_dag::smallvec::smallvec;
+use awint::{
+    awint_dag::{smallvec::smallvec, EvalError, EvalResult},
+    Awi,
+};
 
-use super::{channel::Referent, Channeler};
 use crate::{
-    awint_dag::smallvec::SmallVec, ensemble, route::PBack, triple_arena::ptr_struct, Epoch,
+    awint_dag::smallvec::SmallVec,
+    ensemble,
+    ensemble::LNodeKind,
+    route::{channel::Referent, Channeler, PBack},
+    triple_arena::ptr_struct,
+    Epoch,
 };
 
 ptr_struct!(PCEdge);
@@ -11,25 +18,26 @@ ptr_struct!(PCEdge);
 #[derive(Debug, Clone)]
 pub struct BulkBehavior {
     /// The number of bits that can enter this channel
-    channel_entry_width: usize,
+    pub channel_entry_width: usize,
     /// The number of bits that can exit this channel
-    channel_exit_width: usize,
+    pub channel_exit_width: usize,
     /// For now, we just add up the number of LUT bits in the channel
-    lut_bits: usize,
+    pub lut_bits: usize,
 }
 
 #[derive(Debug, Clone)]
 pub enum Behavior {
-    /// Routes the bit from `source` to `sink`
-    RouteBit,
-    /// Can behave as an arbitrary lookup table outputting a bit and taking the
-    /// input bits.
-    ArbitraryLut(PBack, SmallVec<[PBack; 4]>),
-    /// Bulk behavior
-    Bulk(BulkBehavior),
     /// Nothing can happen between nodes, used for connecting top level nodes
     /// that have no connection to each other
     Noop,
+    /// Routes the bit from `source` to `sink`
+    RouteBit,
+    StaticLut(Awi),
+    /// Can behave as an arbitrary lookup table outputting a bit and taking the
+    /// input bits.
+    ArbitraryLut(usize),
+    /// Bulk behavior
+    Bulk(BulkBehavior),
 }
 
 /// A description of bits to set in order to achieve some desired edge behavior.
@@ -43,9 +51,9 @@ pub struct Instruction {
 #[derive(Debug, Clone)]
 pub struct Programmability {
     /// The behavior that can be programmed into this edge
-    behavior: Behavior,
+    pub behavior: Behavior,
     /// The instruction required to get the desired behavior
-    instruction: Instruction,
+    pub instruction: Instruction,
 }
 
 /// An edge between channels
@@ -92,7 +100,7 @@ impl Channeler {
     }
 
     /// Assumes that `epoch` has been optimized
-    pub fn from_epoch(epoch: &Epoch) -> Self {
+    pub fn from_epoch(epoch: &Epoch) -> Result<Self, EvalError> {
         let mut channeler = Self::new();
 
         epoch.ensemble(|ensemble| {
@@ -107,10 +115,17 @@ impl Channeler {
 
             // add `CEdge`s according to `LNode`s
             for lnode in ensemble.lnodes.vals() {
-                //if let Some(lnode.lut
+                match &lnode.kind {
+                    LNodeKind::Copy(_) => {
+                        return Err(EvalError::OtherStr("the epoch was not optimized"))
+                    }
+                    LNodeKind::Lut(inp, awi) => {}
+                    LNodeKind::DynamicLut(..) => todo!(),
+                }
             }
-        });
+            Ok(())
+        })?;
 
-        channeler
+        Ok(channeler)
     }
 }

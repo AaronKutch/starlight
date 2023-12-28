@@ -1,17 +1,35 @@
+use awint::awint_dag::EvalError;
+
 use crate::{
-    route::{HyperPath, PHyperPath},
+    ensemble::{self, Ensemble},
+    route::{Channeler, HyperPath, PHyperPath},
     triple_arena::Arena,
-    Epoch,
+    Epoch, EvalAwi, LazyAwi, SuspendedEpoch,
 };
 
 #[derive(Debug, Clone)]
 pub struct Router {
+    target_ensemble: Ensemble,
+    target_channeler: Channeler,
+    program_ensemble: Ensemble,
+    program_channeler: Channeler,
     hyperpaths: Arena<PHyperPath, HyperPath>,
 }
 
 impl Router {
-    pub fn new() -> Self {
+    pub fn new(
+        target_epoch: &SuspendedEpoch,
+        target_channeler: Channeler,
+        program_epoch: &SuspendedEpoch,
+        program_channeler: Channeler,
+    ) -> Self {
+        // TODO may want the primary user function to take ownership of epoch, or maybe
+        // always for memory reasons
         Self {
+            target_ensemble: target_epoch.ensemble(|ensemble| ensemble.clone()),
+            target_channeler,
+            program_ensemble: program_epoch.ensemble(|ensemble| ensemble.clone()),
+            program_channeler,
             hyperpaths: Arena::new(),
         }
     }
@@ -27,12 +45,20 @@ impl Router {
     }
     */
 
-    // TODO are the target and program both on channeling graphs, what assymetries
-    // are there?
-}
+    /// Tell the router what bits it can use for programming the target
+    pub fn map_config(&mut self, config: &LazyAwi) -> Result<(), EvalError> {
+        Ok(())
+    }
 
-impl Default for Router {
-    fn default() -> Self {
-        Self::new()
+    /// Tell the router what program input bits we want to map to what target
+    /// input bits
+    pub fn map_lazy(&mut self, target: &LazyAwi, program: &LazyAwi) -> Result<(), EvalError> {
+        Ok(())
+    }
+
+    /// Tell the router what program output bits we want to map to what target
+    /// output bits
+    pub fn map_eval(&mut self, target: &EvalAwi, program: &EvalAwi) -> Result<(), EvalError> {
+        Ok(())
     }
 }
