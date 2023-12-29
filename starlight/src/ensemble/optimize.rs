@@ -10,7 +10,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{DynamicValue, Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent, Value},
+    ensemble::{Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent, Value},
     triple_arena::{ptr_struct, OrdArena},
     SmallMap,
 };

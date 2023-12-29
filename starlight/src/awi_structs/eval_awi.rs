@@ -119,7 +119,7 @@ impl EvalAwi {
     pub fn from_state(p_state: PState) -> Self {
         if let Some(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
-            match lock.ensemble.make_rnode_for_pstate(p_state) {
+            match lock.ensemble.make_rnode_for_pstate(p_state, true) {
                 Some(p_external) => {
                     lock.ensemble
                         .stator
@@ -159,14 +159,8 @@ impl EvalAwi {
                 res.set(bit_i, val).unwrap();
             } else {
                 return Err(EvalError::OtherString(format!(
-                    "could not eval bit {bit_i} to known value, the state is {}",
-                    get_current_epoch()
-                        .unwrap()
-                        .epoch_data
-                        .borrow()
-                        .ensemble
-                        .get_state_debug(self.p_state)
-                        .unwrap()
+                    "could not eval bit {bit_i} to known value, the node is {}",
+                    self.p_external()
                 )))
             }
         }

@@ -87,7 +87,7 @@ impl LazyAwi {
             .epoch_data
             .borrow_mut()
             .ensemble
-            .make_rnode_for_pstate(opaque.state())
+            .make_rnode_for_pstate(opaque.state(), false)
             .unwrap();
         Self { opaque, p_external }
     }
@@ -238,6 +238,7 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
         self.nzbw().get()
     }
 
+    #[track_caller]
     pub fn opaque() -> Self {
         let opaque = dag::InlAwi::opaque();
         let p_external = get_current_epoch()
@@ -245,7 +246,7 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
             .epoch_data
             .borrow_mut()
             .ensemble
-            .make_rnode_for_pstate(opaque.state())
+            .make_rnode_for_pstate(opaque.state(), false)
             .unwrap();
         Self { opaque, p_external }
     }

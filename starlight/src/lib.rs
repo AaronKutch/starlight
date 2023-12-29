@@ -1,3 +1,5 @@
+// NOTE: remember to update the README when updating this
+
 //! This is a DSL (Domain Specific Language) that can describe combinational
 //! logic and temporal logic. This allows RTL (Register Transfer Level)
 //! descriptions in ordinary Rust code with all the features that Rust provides.
@@ -83,15 +85,14 @@
 //!     use awi::*;
 //!
 //!     // discard all unused mimicking states so the render is cleaner
-//!     epoch.prune().unwrap();
+//!     epoch.prune_unused_states().unwrap();
 //!
 //!     // See the mimicking state DAG before it is lowered
 //!     epoch
 //!         .render_to_svgs_in_dir(std::path::PathBuf::from("./".to_owned()))
 //!         .unwrap();
 //!
-//!     // lower into purely static bit movements and lookup tables.
-//!     epoch.lower().unwrap();
+//!     // lower into purely static bit movements and lookup tables and optimize
 //!     epoch.optimize().unwrap();
 //!
 //!     // Now the combinational logic is described in a DAG of lookup tables that we

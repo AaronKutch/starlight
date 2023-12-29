@@ -46,7 +46,8 @@ pub struct State {
 }
 
 impl State {
-    /// Returns if pruning this state is allowed
+    /// Returns if pruning this state is allowed. Internal or external
+    /// references prevent pruning. Custom `Opaque`s prevent pruning.
     pub fn pruning_allowed(&self) -> bool {
         (self.rc == 0) && (self.extern_rc == 0) && !matches!(self.op, Opaque(_, Some(_)))
     }
@@ -120,7 +121,7 @@ impl Ensemble {
     }
 
     /// Prunes all states with `pruning_allowed()`
-    pub fn prune_states(&mut self) -> Result<(), EvalError> {
+    pub fn prune_unused_states(&mut self) -> Result<(), EvalError> {
         let mut adv = self.stator.states.advancer();
         while let Some(p_state) = adv.advance(&self.stator.states) {
             let state = &self.stator.states[p_state];
@@ -298,21 +299,32 @@ impl Ensemble {
         Ok(())
     }
 
-    pub fn lower_all(epoch_shared: &EpochShared) -> Result<(), EvalError> {
+    /// Lowers `RNode`s with the `lower_before_pruning` flag
+    pub fn lower_for_rnodes(epoch_shared: &EpochShared) -> Result<(), EvalError> {
         let lock = epoch_shared.epoch_data.borrow();
-        let mut adv = lock.ensemble.stator.states.advancer();
+        let mut adv = lock.ensemble.notary.rnodes().advancer();
         drop(lock);
         loop {
             let lock = epoch_shared.epoch_data.borrow();
-            if let Some(p_state) = adv.advance(&lock.ensemble.stator.states) {
-                // only do this to roots
-                let state = &lock.ensemble.stator.states[p_state];
-                if state.rc == 0 {
-                    drop(lock);
-                    Ensemble::dfs_lower(epoch_shared, p_state)?;
+            if let Some(p_rnode) = adv.advance(&lock.ensemble.notary.rnodes()) {
+                // only lower state trees attached to rnodes that need lowering
+                let rnode = &lock.ensemble.notary.rnodes()[p_rnode];
+                if rnode.lower_before_pruning {
+                    let p_state = rnode.associated_state.unwrap();
+                    if lock.ensemble.stator.states.contains(p_state) {
+                        drop(lock);
+                        Ensemble::dfs_lower(epoch_shared, p_state)?;
+                    } else {
+                        drop(lock);
+                    }
                 } else {
                     drop(lock);
                 }
+                // tricky: need to be initialized
+                let mut lock = epoch_shared.epoch_data.borrow_mut();
+                lock.ensemble
+                    .initialize_rnode_if_needed(p_rnode, true)
+                    .unwrap();
             } else {
                 break
             }

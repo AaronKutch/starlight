@@ -81,9 +81,7 @@ fn epoch_shared0() {
     drop(lazy0);
     drop(eval0);
     drop(epoch0);
-    // TODO unsure of what the precise semantics should be, currently unless all
-    // `RNode`s are removed and prune is called there is still stuff
-    epoch1.prune().unwrap();
+    epoch1.prune_unused_states().unwrap();
     awi::assert!(epoch1.ensemble(|ensemble| ensemble.stator.states.is_empty()));
     drop(epoch1);
 }

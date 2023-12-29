@@ -11,7 +11,7 @@ fn stats_optimize_funnel() {
     let mut out = inlawi!(0u32);
     out.funnel_(&rhs, &s).unwrap();
     let _eval = EvalAwi::from(&out);
-    epoch.prune().unwrap();
+    epoch.prune_unused_states().unwrap();
     epoch.lower().unwrap();
     epoch.assert_assertions(true).unwrap();
     epoch.ensemble(|ensemble| {

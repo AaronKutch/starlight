@@ -775,31 +775,44 @@ impl Epoch {
 
     /// Removes all states that do not lead to a live `EvalAwi`, and loosely
     /// evaluates assertions.
-    pub fn prune(&self) -> Result<(), EvalError> {
+    pub fn prune_unused_states(&self) -> Result<(), EvalError> {
         let epoch_shared = self.shared();
         // get rid of constant assertions
         let _ = epoch_shared.assert_assertions(false);
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.prune_states()
+        lock.ensemble.prune_unused_states()
     }
 
-    /// Lowers all states internally into `LNode`s and `TNode`s. This is not
-    /// needed in most circumstances, `EvalAwi` and optimization functions
-    /// do this on demand. Requires that `self` be the current `Epoch`.
+    /// Lowers states internally into `LNode`s and `TNode`s, for trees of
+    /// `RNode`s that need it. This is not needed in most circumstances,
+    /// `EvalAwi` and optimization functions do this on demand. Requires
+    /// that `self` be the current `Epoch`.
     pub fn lower(&self) -> Result<(), EvalError> {
         let epoch_shared = self.check_current()?;
-        Ensemble::lower_all(&epoch_shared)?;
+        Ensemble::lower_for_rnodes(&epoch_shared)?;
         let _ = epoch_shared.assert_assertions(false);
         Ok(())
+    }
+
+    /// Aggressively prunes all states, lowering `RNode`s for `EvalAwi`s and
+    /// `LazyAwi`s if necessary and evaluating assertions. Requires that `self`
+    /// be the current `Epoch`.
+    pub fn prune(&self) -> Result<(), EvalError> {
+        let epoch_shared = self.check_current()?;
+        Ensemble::lower_for_rnodes(&epoch_shared)?;
+        // get rid of constant assertions
+        let _ = epoch_shared.assert_assertions(false);
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        lock.ensemble.force_remove_all_states()
     }
 
     /// Runs optimization including lowering then pruning all states. Requires
     /// that `self` be the current `Epoch`.
     pub fn optimize(&self) -> Result<(), EvalError> {
         let epoch_shared = self.check_current()?;
-        Ensemble::lower_all(&epoch_shared)?;
+        Ensemble::lower_for_rnodes(&epoch_shared).unwrap();
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.optimize_all()?;
+        lock.ensemble.optimize_all().unwrap();
         drop(lock);
         let _ = epoch_shared.assert_assertions(false);
         Ok(())

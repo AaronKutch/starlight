@@ -45,6 +45,8 @@ fn luts_states() {
 
                 let opt_res = EvalAwi::from(&x);
 
+                epoch.lower().unwrap();
+
                 epoch.optimize().unwrap();
 
                 input.retro_(&original_input).unwrap();
