@@ -55,7 +55,9 @@ fn stats_different_prunings() {
             assert_eq!(ensemble.backrefs.len_keys(), 0);
             assert_eq!(ensemble.backrefs.len_vals(), 0);
         });
+        epoch.verify_integrity().unwrap();
         epoch.lower().unwrap();
+        epoch.verify_integrity().unwrap();
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
             assert_eq!(ensemble.stator.states.len(), 19);
@@ -63,6 +65,7 @@ fn stats_different_prunings() {
             assert_eq!(ensemble.backrefs.len_vals(), 8);
         });
         epoch.lower_and_prune().unwrap();
+        epoch.verify_integrity().unwrap();
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
             assert_eq!(ensemble.stator.states.len(), 0);
@@ -70,6 +73,7 @@ fn stats_different_prunings() {
             assert_eq!(ensemble.backrefs.len_vals(), 8);
         });
         epoch.optimize().unwrap();
+        epoch.verify_integrity().unwrap();
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
             assert_eq!(ensemble.stator.states.len(), 0);
