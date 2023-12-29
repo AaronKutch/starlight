@@ -152,7 +152,7 @@ impl Mem {
         for pair in self.a.vals_mut() {
             pair.eval = Some(EvalAwi::from(&pair.dag))
         }
-        epoch.prune().unwrap();
+        epoch.lower_and_prune().unwrap();
     }
 
     pub fn eval_and_verify_equal(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
@@ -164,8 +164,7 @@ impl Mem {
             lazy.retro_(&lit).unwrap();
         }
 
-        // lower
-        epoch.lower().unwrap();
+        // lowering was done by the finishing step
         epoch.assert_assertions(false).unwrap();
 
         // set remaining lazy roots

@@ -797,7 +797,7 @@ impl Epoch {
     /// Aggressively prunes all states, lowering `RNode`s for `EvalAwi`s and
     /// `LazyAwi`s if necessary and evaluating assertions. Requires that `self`
     /// be the current `Epoch`.
-    pub fn prune(&self) -> Result<(), EvalError> {
+    pub fn lower_and_prune(&self) -> Result<(), EvalError> {
         let epoch_shared = self.check_current()?;
         Ensemble::lower_for_rnodes(&epoch_shared)?;
         // get rid of constant assertions

@@ -100,7 +100,7 @@ impl Mem {
             pair.eval = Some(EvalAwi::from(&pair.dag))
         }
         // then pruning can be done safely
-        epoch.prune().unwrap();
+        epoch.lower_and_prune().unwrap();
     }
 
     pub fn verify_equivalence(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
