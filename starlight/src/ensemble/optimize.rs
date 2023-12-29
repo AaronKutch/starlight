@@ -199,7 +199,7 @@ impl Ensemble {
                     false
                 }
             }
-            LNodeKind::DynamicLut(inp, lut) => {
+            LNodeKind::DynamicLut(_inp, _lut) => {
                 // FIXME
                 /*
                 // acquire LUT inputs, for every constant input reduce the LUT

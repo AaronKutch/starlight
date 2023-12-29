@@ -1,9 +1,4 @@
-use starlight::{
-    awi,
-    dag::{self, *},
-    ensemble::LNodeKind,
-    Epoch, EvalAwi, LazyAwi, StarRng,
-};
+use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi};
 
 #[test]
 fn lazy_awi() -> Option<()> {

@@ -306,7 +306,7 @@ impl Ensemble {
         drop(lock);
         loop {
             let lock = epoch_shared.epoch_data.borrow();
-            if let Some(p_rnode) = adv.advance(&lock.ensemble.notary.rnodes()) {
+            if let Some(p_rnode) = adv.advance(lock.ensemble.notary.rnodes()) {
                 // only lower state trees attached to rnodes that need lowering
                 let rnode = &lock.ensemble.notary.rnodes()[p_rnode];
                 if rnode.lower_before_pruning {
