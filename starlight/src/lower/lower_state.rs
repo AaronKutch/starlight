@@ -216,6 +216,9 @@ impl Ensemble {
                 let needs_lower = match lock.ensemble.stator.states[p_state].op {
                     Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..) | Repeat(_)
                     | StaticLut(..) => false,
+                    // for dynamic LUTs
+                    // FIXME
+                    Mux(_) => true,
                     Lut([lut, inx]) => {
                         if let Literal(ref lit) = lock.ensemble.stator.states[lut].op {
                             let lit = lit.clone();

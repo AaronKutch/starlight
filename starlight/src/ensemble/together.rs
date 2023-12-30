@@ -9,6 +9,7 @@ use awint::{
     Awi, Bits,
 };
 
+use super::DynamicValue;
 use crate::{
     ensemble::{
         value::Evaluator, LNode, LNodeKind, Notary, Optimizer, PLNode, PRNode, PTNode, State,
@@ -546,6 +547,60 @@ impl Ensemble {
                 inp.push(p_back);
             }
             LNode::new(p_self, LNodeKind::Lut(inp, Awi::from(lut)), lowered_from)
+        });
+        Some(p_equiv)
+    }
+
+    #[must_use]
+    pub fn make_dynamic_lut(
+        &mut self,
+        p_inxs: &[Option<PBack>],
+        p_lut_bits: &[DynamicValue],
+        lowered_from: Option<PState>,
+    ) -> Option<PBack> {
+        let num_entries = 1 << p_inxs.len();
+        if p_lut_bits.len() != num_entries {
+            return None
+        }
+        for p_inx in p_inxs {
+            if let Some(p_inx) = p_inx {
+                if !self.backrefs.contains(*p_inx) {
+                    return None
+                }
+            }
+        }
+        let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
+            (
+                Referent::ThisEquiv,
+                Equiv::new(p_self_equiv, Value::Unknown),
+            )
+        });
+        self.lnodes.insert_with(|p_lnode| {
+            let p_self = self
+                .backrefs
+                .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
+                .unwrap();
+            let mut inp = smallvec![];
+            for p_inx in p_inxs {
+                let p_back = self
+                    .backrefs
+                    .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
+                    .unwrap();
+                inp.push(p_back);
+            }
+            let mut lut = vec![];
+            for p_lut_bit in p_lut_bits {
+                if let DynamicValue::Dynam(p_lut_bit) = p_lut_bit {
+                    let p_back = self
+                        .backrefs
+                        .insert_key(*p_lut_bit, Referent::Input(p_lnode))
+                        .unwrap();
+                    lut.push(DynamicValue::Dynam(p_back));
+                } else {
+                    lut.push(*p_lut_bit);
+                }
+            }
+            LNode::new(p_self, LNodeKind::DynamicLut(inp, lut), lowered_from)
         });
         Some(p_equiv)
     }

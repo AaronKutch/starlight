@@ -12,7 +12,7 @@ use crate::{
     awi,
     ensemble::{
         value::{Change, Eval},
-        Ensemble, PBack, Value,
+        DynamicValue, Ensemble, PBack, Value,
     },
     epoch::EpochShared,
 };
@@ -459,6 +459,26 @@ fn lower_elementary_to_lnodes_intermediate(
                 };
                 let p_equiv0 = this
                     .make_lut(&inx_bits, &single_bit_lut, Some(p_state))
+                    .unwrap();
+                let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
+                this.union_equiv(p_equiv0, p_equiv1).unwrap();
+            }
+        }
+        Mux([lhs, rhs, b]) => {
+            let inx_bit = &this.stator.states[b].p_self_bits;
+            debug_assert_eq!(inx_bit.len(), 1);
+            let inx_bit = inx_bit[0];
+
+            let out_bw = this.stator.states[p_state].p_self_bits.len();
+            for bit_i in 0..out_bw {
+                let lut0 = this.stator.states[lhs].p_self_bits[0].unwrap();
+                let lut1 = this.stator.states[rhs].p_self_bits[0].unwrap();
+                let p_equiv0 = this
+                    .make_dynamic_lut(
+                        &[inx_bit],
+                        &[DynamicValue::Dynam(lut0), DynamicValue::Dynam(lut1)],
+                        Some(p_state),
+                    )
                     .unwrap();
                 let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
                 this.union_equiv(p_equiv0, p_equiv1).unwrap();

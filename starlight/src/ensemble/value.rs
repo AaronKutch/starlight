@@ -1,11 +1,11 @@
 use std::num::{NonZeroU64, NonZeroUsize};
 
 use awint::{
+    awi::*,
     awint_dag::{
         triple_arena::{ptr_struct, Advancer, OrdArena},
         EvalError,
     },
-    Awi,
 };
 
 use crate::{
@@ -268,7 +268,8 @@ impl Ensemble {
                         return vec![];
                     }
                 }
-                // reduce the LUT based on fixed and known bits
+                // FIXME does this go before and catch some more cases that can eval to a known
+                // val reduce the LUT based on fixed and known bits
                 for i in (0..len).rev() {
                     if fixed.get(i).unwrap() && (!unknown.get(i).unwrap()) {
                         LNode::reduce_lut(&mut lut, i, inp_val.get(i).unwrap());
@@ -313,7 +314,129 @@ impl Ensemble {
                     }
                 }
             }
-            LNodeKind::DynamicLut(..) => todo!(),
+            LNodeKind::DynamicLut(inp, original_lut) => {
+                let len = u8::try_from(inp.len()).unwrap();
+                let mut len = usize::from(len);
+                // the nominal value of the inputs
+                let mut inp_val = Awi::zero(NonZeroUsize::new(len).unwrap());
+                // corresponding bits are set if the input is either a const value or is
+                // already evaluated
+                let mut fixed = inp_val.clone();
+                // corresponding bits are set if the input is `Value::Unknown`
+                let mut unknown = inp_val.clone();
+                for i in 0..len {
+                    let p_inp = inp[i];
+                    let equiv = self.backrefs.get_val(p_inp).unwrap();
+                    if let Value::Const(val) = equiv.val {
+                        fixed.set(i, true).unwrap();
+                        inp_val.set(i, val).unwrap();
+                    } else if equiv.change_visit == self.evaluator.change_visit_gen() {
+                        fixed.set(i, true).unwrap();
+                        if let Some(val) = equiv.val.known_value() {
+                            inp_val.set(i, val).unwrap()
+                        } else {
+                            unknown.set(i, true).unwrap();
+                        }
+                    }
+                }
+                let mut lut = Awi::zero(NonZeroUsize::new(original_lut.len()).unwrap());
+                // this kind of unknown includes unfixed bits
+                let mut lut_unknown = lut.clone();
+                for (i, value) in original_lut.iter().enumerate() {
+                    match value {
+                        DynamicValue::Unknown => lut_unknown.set(i, true).unwrap(),
+                        DynamicValue::Const(b) => lut.set(i, *b).unwrap(),
+                        DynamicValue::Dynam(p) => {
+                            let equiv = self.backrefs.get_val(*p).unwrap();
+                            match equiv.val {
+                                Value::Unknown => lut_unknown.set(i, true).unwrap(),
+                                Value::Const(b) => lut.set(i, b).unwrap(),
+                                Value::Dynam(b) => {
+                                    if equiv.change_visit == self.evaluator.change_visit_gen() {
+                                        lut.set(i, b).unwrap()
+                                    } else {
+                                        lut_unknown.set(i, true).unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // reduce the LUT based on fixed and known bits
+                for i in (0..len).rev() {
+                    if fixed.get(i).unwrap() && (!unknown.get(i).unwrap()) {
+                        LNode::reduce_lut(&mut lut, i, inp_val.get(i).unwrap());
+                        LNode::reduce_lut(&mut lut_unknown, i, inp_val.get(i).unwrap());
+                        // remove the input bits
+                        len -= 1;
+                        let w = NonZeroUsize::new(len).unwrap();
+                        if i != len {
+                            cc!(inp_val[(i + 1)..], ..i; inp_val).unwrap();
+                            cc!(fixed[(i + 1)..], ..i; fixed).unwrap();
+                            cc!(unknown[(i + 1)..], ..i; unknown).unwrap();
+                        }
+                        inp_val.zero_resize(w);
+                        fixed.zero_resize(w);
+                        unknown.zero_resize(w);
+                    }
+                }
+                for i in 0..len {
+                    // if there are any fixed and unknown input bits, and there are any unknown bits
+                    // in the reduced table at all, or the fixed and unknown bits can influence the
+                    // value, then the value of this equivalence can also be
+                    // fixed to unknown
+                    if fixed.get(i).unwrap()
+                        && unknown.get(i).unwrap()
+                        && (!(lut_unknown.is_zero()
+                            && LNode::reduce_independent_lut(&mut lut.clone(), i)))
+                    {
+                        self.evaluator.insert(Eval::Change(Change {
+                            depth,
+                            p_equiv,
+                            value: Value::Unknown,
+                        }));
+                        return vec![];
+                    }
+                }
+                // if the LUT is all ones or all zeros, we can know that any unfixed or
+                // unknown changes will be unable to affect the
+                // output
+                if lut.is_zero() {
+                    self.evaluator.insert(Eval::Change(Change {
+                        depth,
+                        p_equiv,
+                        value: Value::Dynam(false),
+                    }));
+                    return vec![];
+                } else if lut.is_umax() {
+                    self.evaluator.insert(Eval::Change(Change {
+                        depth,
+                        p_equiv,
+                        value: Value::Dynam(true),
+                    }));
+                    return vec![];
+                }
+                // TODO prioritize bits that could lead to number_a optimization
+                /*let mut skip = 0;
+                for i in 0..len {
+                    if fixed.get(i).unwrap() && !unknown.get(i).unwrap() {
+                        skip += 1;
+                    } else if unknown.get(i).unwrap() {
+                        // assume unchanging
+                        lut = LNode::reduce_lut(&lut, i, inp.get(i).unwrap());
+                        //
+                    } else {}
+                }*/
+                for i in (0..len).rev() {
+                    if (!fixed.get(i).unwrap()) || unknown.get(i).unwrap() {
+                        res.push(RequestLNode {
+                            depth: depth - 1,
+                            number_a: 0,
+                            p_back_lnode: inp[i],
+                        });
+                    }
+                }
+            }
         }
         res
     }
