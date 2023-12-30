@@ -166,7 +166,7 @@ impl Ensemble {
             for p_back in rnode.bits {
                 if let Some(p_back) = p_back {
                     let referent = self.backrefs.remove_key(p_back).unwrap().0;
-                    assert!(matches!(referent, Referent::ThisRNode(_)));
+                    debug_assert!(matches!(referent, Referent::ThisRNode(_)));
                 }
             }
             Ok(())

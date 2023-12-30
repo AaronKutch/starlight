@@ -384,7 +384,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
         Neg([x, neg]) => {
             let x = Awi::opaque(m.get_nzbw(x));
             let neg = Awi::opaque(m.get_nzbw(neg));
-            assert_eq!(neg.bw(), 1);
+            debug_assert_eq!(neg.bw(), 1);
             let out = negator(&x, &neg);
             m.graft(&[out.state(), x.state(), neg.state()]);
         }

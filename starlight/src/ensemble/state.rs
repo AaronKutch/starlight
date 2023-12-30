@@ -157,7 +157,7 @@ impl Ensemble {
                 // lost if this was done after initializing `p_self_bits`
                 let state = &mut self.stator.states[p_state];
                 if !state.p_self_bits.is_empty() {
-                    assert_eq!(state.p_self_bits.len(), x.bw());
+                    debug_assert_eq!(state.p_self_bits.len(), x.bw());
                     for i in 0..x.bw() {
                         if let Some(p_bit) = state.p_self_bits[i] {
                             let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
@@ -191,7 +191,7 @@ impl Ensemble {
                     // this can be done because `Assert` is a sink that should not be used by
                     // anything
                     let state = self.stator.states.get_mut(p_state).unwrap();
-                    assert_eq!(state.rc, 0);
+                    debug_assert_eq!(state.rc, 0);
                     self.remove_state(p_state).unwrap();
                     Ok(())
                 } else {
@@ -238,7 +238,7 @@ impl Ensemble {
                 // reached a root
                 match self.stator.states[p_state].op {
                     Literal(ref lit) => {
-                        assert_eq!(lit.nzbw(), nzbw);
+                        debug_assert_eq!(lit.nzbw(), nzbw);
                         self.initialize_state_bits_if_needed(p_state).unwrap();
                     }
                     Opaque(_, name) => {
@@ -344,7 +344,7 @@ fn lower_elementary_to_lnodes_intermediate(
             // this is the only foolproof way of doing this, at least without more
             // branches
             let len = this.stator.states[p_state].p_self_bits.len();
-            assert_eq!(len, this.stator.states[x].p_self_bits.len());
+            debug_assert_eq!(len, this.stator.states[x].p_self_bits.len());
             for i in 0..len {
                 let p_equiv0 = this.stator.states[p_state].p_self_bits[i].unwrap();
                 let p_equiv1 = this.stator.states[x].p_self_bits[i].unwrap();
@@ -355,7 +355,7 @@ fn lower_elementary_to_lnodes_intermediate(
             // this is the only foolproof way of doing this, at least without more
             // branches
             let len = this.stator.states[p_state].p_self_bits.len();
-            assert_eq!(len, this.stator.states[x].p_self_bits.len());
+            debug_assert_eq!(len, this.stator.states[x].p_self_bits.len());
             for i in 0..len {
                 let p_equiv0 = this.stator.states[p_state].p_self_bits[i].unwrap();
                 let p_equiv1 = this.stator.states[x].p_self_bits[i].unwrap();
@@ -364,9 +364,9 @@ fn lower_elementary_to_lnodes_intermediate(
         }
         StaticGet([bits], inx) => {
             let len = this.stator.states[bits].p_self_bits.len();
-            assert!(inx < len);
+            debug_assert!(inx < len);
             let p_self_bits = &this.stator.states[p_state].p_self_bits;
-            assert_eq!(p_self_bits.len(), 1);
+            debug_assert_eq!(p_self_bits.len(), 1);
             let p_equiv0 = p_self_bits[0].unwrap();
             let p_equiv1 = this.stator.states[bits].p_self_bits[inx].unwrap();
             this.union_equiv(p_equiv0, p_equiv1).unwrap();
@@ -389,7 +389,7 @@ fn lower_elementary_to_lnodes_intermediate(
                 }
                 to += len;
             }
-            assert_eq!(total_len, to);
+            debug_assert_eq!(total_len, to);
         }
         ConcatFields(ref concat) => {
             let concat_len = concat.len();
@@ -410,12 +410,12 @@ fn lower_elementary_to_lnodes_intermediate(
                 }
                 to += len;
             }
-            assert_eq!(total_len, to);
+            debug_assert_eq!(total_len, to);
         }
         Repeat([x]) => {
             let len = this.stator.states[p_state].p_self_bits.len();
             let x_w = this.stator.states[x].p_self_bits.len();
-            assert!((len % x_w) == 0);
+            debug_assert!((len % x_w) == 0);
             let mut from = 0;
             for to in 0..len {
                 if from >= x_w {
@@ -445,7 +445,7 @@ fn lower_elementary_to_lnodes_intermediate(
             let out_bw = this.stator.states[p_state].p_self_bits.len();
             let num_entries = 1usize.checked_shl(u32::try_from(inx_len).unwrap()).unwrap();
             // this must be handled upstream
-            assert_eq!(out_bw * num_entries, lut.bw());
+            debug_assert_eq!(out_bw * num_entries, lut.bw());
             // convert from multiple out to single out bit lut
             for bit_i in 0..out_bw {
                 let single_bit_lut = if out_bw == 1 {

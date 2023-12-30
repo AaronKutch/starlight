@@ -106,7 +106,7 @@ impl LNode {
     /// Reduce a LUT in half by saving entries indexed by setting the `i`th
     /// input bit to `bit`
     pub fn reduce_lut(lut: &Bits, i: usize, bit: bool) -> Awi {
-        assert!(lut.bw().is_power_of_two());
+        debug_assert!(lut.bw().is_power_of_two());
         let next_bw = lut.bw() / 2;
         let mut next_lut = Awi::zero(NonZeroUsize::new(next_bw).unwrap());
         let w = 1 << i;
@@ -129,7 +129,7 @@ impl LNode {
         i: usize,
         bit: bool,
     ) -> (Vec<DynamicValue>, Vec<PBack>) {
-        assert!(lut.len().is_power_of_two());
+        debug_assert!(lut.len().is_power_of_two());
         let next_bw = lut.len() / 2;
         let mut next_lut = vec![DynamicValue::Unknown; next_bw];
         let mut removed = Vec::with_capacity(next_bw);
@@ -154,7 +154,7 @@ impl LNode {
     #[must_use]
     pub fn reduce_independent_lut(lut: &Bits, i: usize) -> Option<Awi> {
         let nzbw = lut.nzbw();
-        assert!(nzbw.get().is_power_of_two());
+        debug_assert!(nzbw.get().is_power_of_two());
         let next_bw = nzbw.get() / 2;
         let next_nzbw = NonZeroUsize::new(next_bw).unwrap();
         let mut tmp0 = Awi::zero(next_nzbw);

@@ -518,7 +518,7 @@ impl Ensemble {
                         }
                         Referent::LoopDriver(p_driver) => {
                             let tnode = self.tnodes.get_mut(p_driver).unwrap();
-                            assert_eq!(tnode.p_driver, p_back);
+                            debug_assert_eq!(tnode.p_driver, p_back);
                             let p_back_new = self
                                 .backrefs
                                 .insert_key(p_source, Referent::LoopDriver(p_driver))

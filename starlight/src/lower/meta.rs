@@ -40,7 +40,7 @@ fn create_static_lut(
     for i in (0..len).rev() {
         let p_state = inxs[i];
         if let Some(bit) = p_state.try_get_as_awi() {
-            assert_eq!(bit.bw(), 1);
+            debug_assert_eq!(bit.bw(), 1);
             inxs.remove(i);
             lut = crate::ensemble::LNode::reduce_lut(&lut, i, bit.to_bool());
         }
@@ -258,8 +258,8 @@ pub fn tsmear_awi(inx: &Bits, num_signals: usize) -> Awi {
 }
 
 pub fn mux_(x0: &Bits, x1: &Bits, inx: &Bits) -> Awi {
-    assert_eq!(x0.bw(), x1.bw());
-    assert_eq!(inx.bw(), 1);
+    debug_assert_eq!(x0.bw(), x1.bw());
+    debug_assert_eq!(inx.bw(), 1);
     let nzbw = x0.nzbw();
     let mut signals = SmallVec::with_capacity(nzbw.get());
     for i in 0..x0.bw() {
@@ -291,7 +291,7 @@ y_1 = (s_0 && x_1_0) || (s_1 && x_1_1) || ...
 */
 pub fn dynamic_to_static_lut(out: &mut Bits, table: &Bits, inx: &Bits) {
     // if this is broken it breaks a lot of stuff
-    assert!(table.bw() == (out.bw().checked_mul(1 << inx.bw()).unwrap()));
+    debug_assert!(table.bw() == (out.bw().checked_mul(1 << inx.bw()).unwrap()));
     let signals = selector(inx, None);
     let nzbw = out.nzbw();
     let mut tmp_output = SmallVec::with_capacity(nzbw.get());
@@ -354,7 +354,7 @@ pub fn resize(x: &Bits, w: NonZeroUsize, signed: bool) -> Awi {
 }
 
 pub fn resize_cond(x: &Bits, w: NonZeroUsize, signed: &Bits) -> Awi {
-    assert_eq!(signed.bw(), 1);
+    debug_assert_eq!(signed.bw(), 1);
     if w == x.nzbw() {
         Awi::from_bits(x)
     } else if w < x.nzbw() {
@@ -457,8 +457,8 @@ pub fn crossbar(
     signals: &[inlawi_ty!(1)],
     signal_range: (usize, usize),
 ) {
-    assert!(signal_range.0 < signal_range.1);
-    assert_eq!(signal_range.1 - signal_range.0, signals.len());
+    debug_assert!(signal_range.0 < signal_range.1);
+    debug_assert_eq!(signal_range.1 - signal_range.0, signals.len());
 
     let nzbw = output.nzbw();
     let mut tmp_output = SmallVec::with_capacity(nzbw.get());
@@ -481,8 +481,8 @@ pub fn crossbar(
 }
 
 pub fn funnel_(x: &Bits, s: &Bits) -> Awi {
-    assert_eq!(x.bw() & 1, 0);
-    assert_eq!(x.bw() / 2, 1 << s.bw());
+    debug_assert_eq!(x.bw() & 1, 0);
+    debug_assert_eq!(x.bw() / 2, 1 << s.bw());
     let mut out = Awi::zero(NonZeroUsize::new(x.bw() / 2).unwrap());
     let signals = selector(s, None);
     // select zero should connect the zeroeth crossbars, so the offset is `out.bw()
@@ -495,8 +495,8 @@ pub fn funnel_(x: &Bits, s: &Bits) -> Awi {
 /// Setting `width` to 0 guarantees that nothing happens even with other
 /// arguments being invalid
 pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
-    assert_eq!(from.bw(), USIZE_BITS);
-    assert_eq!(width.bw(), USIZE_BITS);
+    debug_assert_eq!(from.bw(), USIZE_BITS);
+    debug_assert_eq!(width.bw(), USIZE_BITS);
     let mut out = Awi::from_bits(lhs);
     // the `width == 0` case will result in a no-op from the later `field_width`
     // part, so we need to be able to handle just `rhs.bw()` possible shifts for
@@ -512,7 +512,7 @@ pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
 }
 
 pub fn shl(x: &Bits, s: &Bits) -> Awi {
-    assert_eq!(s.bw(), USIZE_BITS);
+    debug_assert_eq!(s.bw(), USIZE_BITS);
     let mut signals = selector(s, Some(x.bw()));
     signals.reverse();
     let mut out = Awi::zero(x.nzbw());
@@ -521,7 +521,7 @@ pub fn shl(x: &Bits, s: &Bits) -> Awi {
 }
 
 pub fn lshr(x: &Bits, s: &Bits) -> Awi {
-    assert_eq!(s.bw(), USIZE_BITS);
+    debug_assert_eq!(s.bw(), USIZE_BITS);
     let signals = selector(s, Some(x.bw()));
     let mut out = Awi::zero(x.nzbw());
     crossbar(&mut out, x, &signals, (x.bw() - 1, 2 * x.bw() - 1));
@@ -529,7 +529,7 @@ pub fn lshr(x: &Bits, s: &Bits) -> Awi {
 }
 
 pub fn ashr(x: &Bits, s: &Bits) -> Awi {
-    assert_eq!(s.bw(), USIZE_BITS);
+    debug_assert_eq!(s.bw(), USIZE_BITS);
     let signals = selector(s, Some(x.bw()));
     let mut out = Awi::zero(x.nzbw());
     crossbar(&mut out, x, &signals, (x.bw() - 1, 2 * x.bw() - 1));
@@ -569,7 +569,7 @@ pub fn ashr(x: &Bits, s: &Bits) -> Awi {
 }
 
 pub fn rotl(x: &Bits, s: &Bits) -> Awi {
-    assert_eq!(s.bw(), USIZE_BITS);
+    debug_assert_eq!(s.bw(), USIZE_BITS);
     let signals = selector(s, Some(x.bw()));
     // we will use the whole cross bar, with every signal controlling two diagonals
     // for the wraparound except for the `x.bw() - 1` one
@@ -586,7 +586,7 @@ pub fn rotl(x: &Bits, s: &Bits) -> Awi {
 }
 
 pub fn rotr(x: &Bits, s: &Bits) -> Awi {
-    assert_eq!(s.bw(), USIZE_BITS);
+    debug_assert_eq!(s.bw(), USIZE_BITS);
     let signals = selector(s, Some(x.bw()));
     // we will use the whole cross bar, with every signal controlling two diagonals
     // for the wraparound except for the `x.bw() - 1` one
@@ -613,8 +613,8 @@ pub fn bitwise_not(x: &Bits) -> Awi {
 }
 
 pub fn bitwise(lhs: &Bits, rhs: &Bits, lut: awi::Awi) -> Awi {
-    assert_eq!(lhs.bw(), rhs.bw());
-    assert_eq!(lut.bw(), 4);
+    debug_assert_eq!(lhs.bw(), rhs.bw());
+    debug_assert_eq!(lut.bw(), 4);
     let nzbw = lhs.nzbw();
     let mut out = SmallVec::with_capacity(nzbw.get());
     for i in 0..lhs.bw() {
@@ -633,7 +633,7 @@ pub fn bitwise(lhs: &Bits, rhs: &Bits, lut: awi::Awi) -> Awi {
 }
 
 pub fn incrementer(x: &Bits, cin: &Bits, dec: bool) -> (Awi, inlawi_ty!(1)) {
-    assert_eq!(cin.bw(), 1);
+    debug_assert_eq!(cin.bw(), 1);
     let nzbw = x.nzbw();
     let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(cin.to_bool());
@@ -678,8 +678,8 @@ for i in 0..lb {
 }
 */
 pub fn cin_sum(cin: &Bits, lhs: &Bits, rhs: &Bits) -> (Awi, inlawi_ty!(1), inlawi_ty!(1)) {
-    assert_eq!(cin.bw(), 1);
-    assert_eq!(lhs.bw(), rhs.bw());
+    debug_assert_eq!(cin.bw(), 1);
+    debug_assert_eq!(lhs.bw(), rhs.bw());
     let w = lhs.bw();
     let nzbw = lhs.nzbw();
     let mut out = SmallVec::with_capacity(nzbw.get());
@@ -717,7 +717,7 @@ pub fn cin_sum(cin: &Bits, lhs: &Bits, rhs: &Bits) -> (Awi, inlawi_ty!(1), inlaw
 }
 
 pub fn negator(x: &Bits, neg: &Bits) -> Awi {
-    assert_eq!(neg.bw(), 1);
+    debug_assert_eq!(neg.bw(), 1);
     let nzbw = x.nzbw();
     let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(neg.to_bool());
@@ -736,8 +736,8 @@ pub fn negator(x: &Bits, neg: &Bits) -> Awi {
 /// Setting `width` to 0 guarantees that nothing happens even with other
 /// arguments being invalid
 pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
-    assert_eq!(to.bw(), USIZE_BITS);
-    assert_eq!(width.bw(), USIZE_BITS);
+    debug_assert_eq!(to.bw(), USIZE_BITS);
+    debug_assert_eq!(width.bw(), USIZE_BITS);
 
     // simplified version of `field` below
 
@@ -792,9 +792,9 @@ pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
 /// Setting `width` to 0 guarantees that nothing happens even with other
 /// arguments being invalid
 pub fn field(lhs: &Bits, to: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
-    assert_eq!(to.bw(), USIZE_BITS);
-    assert_eq!(from.bw(), USIZE_BITS);
-    assert_eq!(width.bw(), USIZE_BITS);
+    debug_assert_eq!(to.bw(), USIZE_BITS);
+    debug_assert_eq!(from.bw(), USIZE_BITS);
+    debug_assert_eq!(width.bw(), USIZE_BITS);
 
     // we use some summation to get the fielding done with a single crossbar
 
@@ -981,7 +981,7 @@ pub fn significant_bits(x: &Bits) -> Awi {
 
 pub fn lut_set(table: &Bits, entry: &Bits, inx: &Bits) -> Awi {
     let num_entries = 1 << inx.bw();
-    assert_eq!(table.bw(), entry.bw() * num_entries);
+    debug_assert_eq!(table.bw(), entry.bw() * num_entries);
     let signals = selector(inx, Some(num_entries));
     let mut out = Awi::from_bits(table);
     for (j, signal) in signals.into_iter().enumerate() {
@@ -1089,7 +1089,7 @@ pub fn mul_add(out_w: NonZeroUsize, add: Option<&Bits>, lhs: &Bits, rhs: &Bits) 
 /// multiplication. TODO try out other algorithms in the `specialized-div-rem`
 /// crate for this implementation.
 pub fn division(duo: &Bits, div: &Bits) -> (Awi, Awi) {
-    assert_eq!(duo.bw(), div.bw());
+    debug_assert_eq!(duo.bw(), div.bw());
 
     // this uses the nonrestoring SWAR algorithm, with `duo` and `div` extended by
     // one bit so we don't need one of the edge case handlers. TODO can we
