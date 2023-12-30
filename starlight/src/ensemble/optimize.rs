@@ -123,7 +123,7 @@ impl Ensemble {
                             .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
                         self.backrefs.remove_key(p_inp).unwrap();
                         inp.remove(i);
-                        lut = LNode::reduce_lut(&lut, i, val);
+                        LNode::reduce_lut(&mut lut, i, val);
                     }
                 }
 

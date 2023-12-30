@@ -42,7 +42,7 @@ fn create_static_lut(
         if let Some(bit) = p_state.try_get_as_awi() {
             debug_assert_eq!(bit.bw(), 1);
             inxs.remove(i);
-            lut = crate::ensemble::LNode::reduce_lut(&lut, i, bit.to_bool());
+            crate::ensemble::LNode::reduce_lut(&mut lut, i, bit.to_bool());
         }
     }
 

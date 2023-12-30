@@ -50,6 +50,47 @@ impl Recast<PBack> for LNode {
     }
 }
 
+fn general_reduce_lut(lut: &Awi, i: usize, bit: bool) -> Awi {
+    let next_bw = lut.bw() / 2;
+    let mut next_lut = Awi::zero(NonZeroUsize::new(next_bw).unwrap());
+    let w = 1 << i;
+    let mut from = 0;
+    let mut to = 0;
+    while to < next_bw {
+        next_lut
+            .field(to, lut, if bit { from + w } else { from }, w)
+            .unwrap();
+        from += 2 * w;
+        to += w;
+    }
+    next_lut
+}
+
+const M: [u64; 6] = [
+    0x5555_5555_5555_5555,
+    0x3333_3333_3333_3333,
+    0x0f0f_0f0f_0f0f_0f0f,
+    0x00ff_00ff_00ff_00ff,
+    0x0000_ffff_0000_ffff,
+    0x0000_0000_ffff_ffff,
+];
+const A: [u64; 5] = [
+    0x1111_1111_1111_1111,
+    0x0303_0303_0303_0303,
+    0x000f_000f_000f_000f,
+    0x0000_00ff_0000_00ff,
+    0x0000_0000_0000_ffff,
+];
+// This can quickly reduce LUTs with bitwidths less than 64
+fn reduce64(mut lut: u64, i: usize, bit: bool) -> u64 {
+    lut >>= (bit as usize) << i;
+    lut &= M[i];
+    for i in i..5 {
+        lut = (lut & A[i]) | ((lut & !A[i]) >> (1 << i));
+    }
+    lut
+}
+
 impl LNode {
     pub fn new(p_self: PBack, kind: LNodeKind, lowered_from: Option<PState>) -> Self {
         Self {
@@ -105,21 +146,16 @@ impl LNode {
 
     /// Reduce a LUT in half by saving entries indexed by setting the `i`th
     /// input bit to `bit`
-    pub fn reduce_lut(lut: &Bits, i: usize, bit: bool) -> Awi {
+    pub fn reduce_lut(lut: &mut Awi, i: usize, bit: bool) {
         debug_assert!(lut.bw().is_power_of_two());
-        let next_bw = lut.bw() / 2;
-        let mut next_lut = Awi::zero(NonZeroUsize::new(next_bw).unwrap());
-        let w = 1 << i;
-        let mut from = 0;
-        let mut to = 0;
-        while to < next_bw {
-            next_lut
-                .field(to, lut, if bit { from + w } else { from }, w)
-                .unwrap();
-            from += 2 * w;
-            to += w;
+        let half = NonZeroUsize::new(lut.bw() / 2).unwrap();
+        if lut.bw() > 64 {
+            *lut = general_reduce_lut(lut, i, bit);
+        } else {
+            let halved = reduce64(lut.to_u64(), i, bit);
+            lut.zero_resize(half);
+            lut.u64_(halved);
         }
-        next_lut
     }
 
     /// The same as `reduce_lut`, except for a dynamic table, and it returns
