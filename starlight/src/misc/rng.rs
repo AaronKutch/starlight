@@ -71,7 +71,7 @@ macro_rules! out_of {
                     let mut tmp: inlawi_ty!($bw) = InlAwi::zero();
                     tmp.u8_(num);
                     self.next_bits(&mut tmp);
-                    num >= tmp.to_u8()
+                    num > tmp.to_u8()
                 }
             }
         )*
@@ -89,6 +89,9 @@ impl StarRng {
         next_u128 u128 from_u128 to_u128,
     );
 
+    // note: do not implement `next_usize`, if it exists then there will inevitably
+    // be arch-dependent rng code in a lot of places
+
     out_of!(
         out_of_4, 4, 2;
         out_of_8, 8, 3;
@@ -97,9 +100,6 @@ impl StarRng {
         out_of_64, 64, 6;
         out_of_128, 128, 7;
     );
-
-    // note: do not implement `next_usize`, if it exists then there will be
-    // arch-dependent rng code in a lot of places
 
     /// Creates a new `StarRng` with the given seed
     pub fn new(seed: u64) -> Self {
@@ -117,6 +117,22 @@ impl StarRng {
             self.used = 0;
         }
         res
+    }
+
+    /// Fractional chance of the output being true.
+    ///
+    /// If `num` is zero, it will always return `false`.
+    /// If `num` is equal to or larger than the denominator,
+    /// it will always return `true`.
+    pub fn out_of_256(&mut self, num: u8) -> bool {
+        if num == 0 {
+            false
+        } else {
+            let mut tmp = InlAwi::from_u8(num);
+            tmp.u8_(num);
+            self.next_bits(&mut tmp);
+            num > tmp.to_u8()
+        }
     }
 
     /// Assigns random value to `bits`
@@ -148,38 +164,37 @@ impl StarRng {
         }
     }
 
-    /// Fractional chance of the output being true.
-    ///
-    /// If `num` is zero, it will always return `false`.
-    /// If `num` is equal to or larger than the denominator,
-    /// it will always return `true`.
-    pub fn out_of_256(&mut self, num: u8) -> bool {
-        if num == 0 {
-            false
+    /// Returns a random index, given an exclusive maximum of `len`. Returns
+    /// `None` if `len == 0`.
+    #[must_use]
+    pub fn index(&mut self, len: usize) -> Option<usize> {
+        // TODO there are more sophisticated methods to reduce bias
+        if len == 0 {
+            None
+        } else if len <= (u8::MAX as usize) {
+            let inx = self.next_u16();
+            Some((inx as usize) % len)
+        } else if len <= (u16::MAX as usize) {
+            let inx = self.next_u32();
+            Some((inx as usize) % len)
         } else {
-            let mut tmp = InlAwi::from_u8(num);
-            tmp.u8_(num);
-            self.next_bits(&mut tmp);
-            num >= tmp.to_u8()
+            let inx = self.next_u64();
+            Some((inx as usize) % len)
         }
     }
 
     /// Takes a random index of a slice. Returns `None` if `slice.is_empty()`.
     #[must_use]
-    pub fn index<'a, T>(&mut self, slice: &'a [T]) -> Option<&'a T> {
-        let len = slice.len();
-        if len == 0 {
-            None
-        } else if len <= (u8::MAX as usize) {
-            let inx = self.next_u16();
-            slice.get((inx as usize) % len)
-        } else if len <= (u16::MAX as usize) {
-            let inx = self.next_u32();
-            slice.get((inx as usize) % len)
-        } else {
-            let inx = self.next_u64();
-            slice.get((inx as usize) % len)
-        }
+    pub fn index_slice<'a, T>(&mut self, slice: &'a [T]) -> Option<&'a T> {
+        let inx = self.index(slice.len())?;
+        slice.get(inx)
+    }
+
+    /// Takes a random index of a slice. Returns `None` if `slice.is_empty()`.
+    #[must_use]
+    pub fn index_slice_mut<'a, T>(&mut self, slice: &'a mut [T]) -> Option<&'a mut T> {
+        let inx = self.index(slice.len())?;
+        slice.get_mut(inx)
     }
 }
 

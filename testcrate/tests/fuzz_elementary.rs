@@ -58,7 +58,7 @@ impl Mem {
     pub fn next(&mut self, w: usize) -> P0 {
         let try_query = self.rng.out_of_4(3);
         if try_query && (!self.v[w].is_empty()) {
-            *self.rng.index(&self.v[w]).unwrap()
+            *self.rng.index_slice(&self.v[w]).unwrap()
         } else {
             let nzbw = NonZeroUsize::new(w).unwrap();
             let mut lit = awi::Awi::zero(nzbw);
