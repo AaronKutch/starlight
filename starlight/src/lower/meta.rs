@@ -5,7 +5,7 @@ use std::{cmp::min, mem, num::NonZeroUsize};
 use awint::{
     awint_dag::{
         smallvec::{smallvec, SmallVec},
-        ConcatFieldsType,
+        ConcatFieldsType, PState,
     },
     bw,
 };
@@ -14,6 +14,7 @@ use crate::{
     awi,
     awint_dag::{ConcatType, Lineage, Op},
     dag::{awi, inlawi, inlawi_ty, Awi, Bits, InlAwi},
+    ensemble::LNode,
 };
 
 const USIZE_BITS: usize = usize::BITS as usize;
@@ -28,20 +29,74 @@ const USIZE_BITS: usize = usize::BITS as usize;
 // TODO In the future if we want something more, we should have some kind of
 // caching for known optimization results.
 
-// note that the $inx arguments are in order from least to most significant
+// even though we have later stages that would optimize LUTs, we find it good to
+// optimize as early as possible for this common case.
+fn create_static_lut(
+    mut inxs: SmallVec<[PState; 4]>,
+    mut lut: awi::Awi,
+) -> Result<Op<PState>, PState> {
+    // acquire LUT inputs, for every constant input reduce the LUT
+    let len = usize::from(u8::try_from(inxs.len()).unwrap());
+    for i in (0..len).rev() {
+        let p_state = inxs[i];
+        if let Some(bit) = p_state.try_get_as_awi() {
+            assert_eq!(bit.bw(), 1);
+            inxs.remove(i);
+            lut = crate::ensemble::LNode::reduce_lut(&lut, i, bit.to_bool());
+        }
+    }
+
+    // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
+    let len = inxs.len();
+    for i in (0..len).rev() {
+        if lut.bw() > 1 {
+            if let Some(reduced) = LNode::reduce_independent_lut(&lut, i) {
+                // independent of the `i`th bit
+                lut = reduced;
+                inxs.remove(i);
+            }
+        }
+    }
+
+    // input independence automatically reduces all zeros and all ones LUTs, so just
+    // need to check if the LUT is one bit for constant generation
+    if lut.bw() == 1 {
+        if lut.is_zero() {
+            Ok(Op::Literal(awi::Awi::zero(bw(1))))
+        } else {
+            Ok(Op::Literal(awi::Awi::umax(bw(1))))
+        }
+    } else if (lut.bw() == 2) && lut.get(1).unwrap() {
+        Err(inxs[0])
+    } else {
+        Ok(Op::StaticLut(
+            ConcatType::from_iter(inxs.iter().cloned()),
+            lut,
+        ))
+    }
+}
+
+// note that the $inx arguments are in order from least to most significant, and
+// this assumes the LUT has a single output bit
 macro_rules! static_lut {
     ($lhs:ident; $lut:expr; $($inx:expr),*) => {{
-        let nzbw = $lhs.state_nzbw();
-        let op = Op::StaticLut(
-            ConcatType::from_iter([$(
+        //let nzbw = $lhs.state_nzbw();
+        match create_static_lut(
+            smallvec![$(
                 $inx.state(),
-            )*]),
+            )*],
             {use awi::*; awi!($lut)}
-        );
-        $lhs.update_state(
-            nzbw,
-            op,
-        ).unwrap_at_runtime()
+        ) {
+            Ok(op) => {
+                $lhs.update_state(
+                    bw(1),
+                    op,
+                ).unwrap_at_runtime();
+            }
+            Err(copy) => {
+                $lhs.set_state(copy);
+            }
+        }
     }};
 }
 
@@ -637,14 +692,20 @@ pub fn cin_sum(cin: &Bits, lhs: &Bits, rhs: &Bits) -> (Awi, inlawi_ty!(1), inlaw
     let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(cin.to_bool());
     for i in 0..w {
-        let mut carry_sum = inlawi!(00);
-        static_lut!(carry_sum; 1110_1001_1001_0100;
+        let mut sum = inlawi!(0);
+        let mut next_carry = inlawi!(0);
+        static_lut!(sum; 1001_0110;
             carry,
             lhs.get(i).unwrap(),
             rhs.get(i).unwrap()
         );
-        out.push(carry_sum.get(0).unwrap().state());
-        carry.bool_(carry_sum.get(1).unwrap());
+        static_lut!(next_carry; 1110_1000;
+            carry,
+            lhs.get(i).unwrap(),
+            rhs.get(i).unwrap()
+        );
+        out.push(sum.state());
+        carry = next_carry;
     }
     let mut signed_overflow = inlawi!(0);
     let a = lhs.get(w - 1).unwrap().state();
@@ -672,11 +733,13 @@ pub fn negator(x: &Bits, neg: &Bits) -> Awi {
     let mut out = SmallVec::with_capacity(nzbw.get());
     let mut carry = InlAwi::from(neg.to_bool());
     for i in 0..x.bw() {
-        let mut carry_sum = inlawi!(00);
+        let mut sum = inlawi!(0);
+        let mut next_carry = inlawi!(0);
         // half adder with input inversion control
-        static_lut!(carry_sum; 0100_1001_1001_0100; carry, x.get(i).unwrap(), neg);
-        out.push(carry_sum.get(0).unwrap().state());
-        carry.bool_(carry_sum.get(1).unwrap());
+        static_lut!(sum; 1001_0110; carry, x.get(i).unwrap(), neg);
+        static_lut!(next_carry; 0010_1000; carry, x.get(i).unwrap(), neg);
+        out.push(sum.state());
+        carry = next_carry;
     }
     Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
 }

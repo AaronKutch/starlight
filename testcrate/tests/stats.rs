@@ -15,9 +15,9 @@ fn stats_optimize_funnel() {
     epoch.lower().unwrap();
     epoch.assert_assertions(true).unwrap();
     epoch.ensemble(|ensemble| {
-        awi::assert_eq!(ensemble.stator.states.len(), 2436);
-        awi::assert_eq!(ensemble.backrefs.len_keys(), 8559);
-        awi::assert_eq!(ensemble.backrefs.len_vals(), 1317);
+        awi::assert_eq!(ensemble.stator.states.len(), 2356);
+        awi::assert_eq!(ensemble.backrefs.len_keys(), 8303);
+        awi::assert_eq!(ensemble.backrefs.len_vals(), 1237);
     });
     epoch.optimize().unwrap();
     epoch.assert_assertions(true).unwrap();
@@ -51,7 +51,7 @@ fn stats_different_prunings() {
 
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
-            assert_eq!(ensemble.stator.states.len(), 22);
+            assert_eq!(ensemble.stator.states.len(), 19);
             assert_eq!(ensemble.backrefs.len_keys(), 0);
             assert_eq!(ensemble.backrefs.len_vals(), 0);
         });
@@ -60,17 +60,17 @@ fn stats_different_prunings() {
         epoch.verify_integrity().unwrap();
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
-            assert_eq!(ensemble.stator.states.len(), 19);
-            assert_eq!(ensemble.backrefs.len_keys(), 31);
-            assert_eq!(ensemble.backrefs.len_vals(), 8);
+            assert_eq!(ensemble.stator.states.len(), 18);
+            assert_eq!(ensemble.backrefs.len_keys(), 23);
+            assert_eq!(ensemble.backrefs.len_vals(), 6);
         });
         epoch.lower_and_prune().unwrap();
         epoch.verify_integrity().unwrap();
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
             assert_eq!(ensemble.stator.states.len(), 0);
-            assert_eq!(ensemble.backrefs.len_keys(), 20);
-            assert_eq!(ensemble.backrefs.len_vals(), 8);
+            assert_eq!(ensemble.backrefs.len_keys(), 15);
+            assert_eq!(ensemble.backrefs.len_vals(), 6);
         });
         epoch.optimize().unwrap();
         epoch.verify_integrity().unwrap();
