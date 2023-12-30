@@ -66,6 +66,38 @@ fn general_reduce_lut(lut: &Awi, i: usize, bit: bool) -> Awi {
     next_lut
 }
 
+fn general_reduce_independent_lut(lut: &mut Awi, i: usize) -> bool {
+    let nzbw = lut.nzbw();
+    debug_assert!(nzbw.get().is_power_of_two());
+    let next_bw = nzbw.get() / 2;
+    let next_nzbw = NonZeroUsize::new(next_bw).unwrap();
+    let mut tmp0 = Awi::zero(next_nzbw);
+    let mut tmp1 = Awi::zero(next_nzbw);
+    let w = 1 << i;
+    // LUT if the `i`th bit were 0
+    let mut from = 0;
+    let mut to = 0;
+    while to < next_bw {
+        tmp0.field(to, lut, from, w).unwrap();
+        from += 2 * w;
+        to += w;
+    }
+    // LUT if the `i`th bit were 1
+    from = w;
+    to = 0;
+    while to < next_bw {
+        tmp1.field(to, lut, from, w).unwrap();
+        from += 2 * w;
+        to += w;
+    }
+    if tmp0 == tmp1 {
+        *lut = tmp0;
+        true
+    } else {
+        false
+    }
+}
+
 const M: [u64; 6] = [
     0x5555_5555_5555_5555,
     0x3333_3333_3333_3333,
@@ -89,6 +121,19 @@ fn reduce64(mut lut: u64, i: usize, bit: bool) -> u64 {
         lut = (lut & A[i]) | ((lut & !A[i]) >> (1 << i));
     }
     lut
+}
+fn reduce_independent64(mut lut: u64, i: usize) -> Option<u64> {
+    let tmp0 = lut & M[i];
+    let tmp1 = lut & !M[i];
+    if tmp0 == (tmp1 >> (1 << i)) {
+        lut = tmp0;
+        for i in i..5 {
+            lut = (lut & A[i]) | ((lut & !A[i]) >> (1 << i));
+        }
+        Some(lut)
+    } else {
+        None
+    }
 }
 
 impl LNode {
@@ -189,31 +234,13 @@ impl LNode {
     /// LUT output is independent with respect to the `i`th bit
     #[must_use]
     pub fn reduce_independent_lut(lut: &mut Awi, i: usize) -> bool {
-        let nzbw = lut.nzbw();
-        debug_assert!(nzbw.get().is_power_of_two());
-        let next_bw = nzbw.get() / 2;
-        let next_nzbw = NonZeroUsize::new(next_bw).unwrap();
-        let mut tmp0 = Awi::zero(next_nzbw);
-        let mut tmp1 = Awi::zero(next_nzbw);
-        let w = 1 << i;
-        // LUT if the `i`th bit were 0
-        let mut from = 0;
-        let mut to = 0;
-        while to < next_bw {
-            tmp0.field(to, lut, from, w).unwrap();
-            from += 2 * w;
-            to += w;
-        }
-        // LUT if the `i`th bit were 1
-        from = w;
-        to = 0;
-        while to < next_bw {
-            tmp1.field(to, lut, from, w).unwrap();
-            from += 2 * w;
-            to += w;
-        }
-        if tmp0 == tmp1 {
-            *lut = tmp0;
+        debug_assert!(lut.bw().is_power_of_two());
+        let half = NonZeroUsize::new(lut.bw() / 2).unwrap();
+        if lut.bw() > 64 {
+            general_reduce_independent_lut(lut, i)
+        } else if let Some(halved) = reduce_independent64(lut.to_u64(), i) {
+            lut.zero_resize(half);
+            lut.u64_(halved);
             true
         } else {
             false
