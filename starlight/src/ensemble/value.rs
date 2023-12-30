@@ -258,7 +258,7 @@ impl Ensemble {
                 for i in 0..len {
                     if fixed.get(i).unwrap()
                         && unknown.get(i).unwrap()
-                        && LNode::reduce_independent_lut(&lut, i).is_none()
+                        && (!LNode::reduce_independent_lut(&mut lut.clone(), i))
                     {
                         self.evaluator.insert(Eval::Change(Change {
                             depth,

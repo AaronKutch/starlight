@@ -6,7 +6,7 @@ use awint::{
         triple_arena::{Recast, Recaster},
         PState,
     },
-    Awi, Bits,
+    Awi,
 };
 use smallvec::SmallVec;
 
@@ -188,7 +188,7 @@ impl LNode {
     /// Returns an equivalent reduced LUT (with the `i`th index removed) if the
     /// LUT output is independent with respect to the `i`th bit
     #[must_use]
-    pub fn reduce_independent_lut(lut: &Bits, i: usize) -> Option<Awi> {
+    pub fn reduce_independent_lut(lut: &mut Awi, i: usize) -> bool {
         let nzbw = lut.nzbw();
         debug_assert!(nzbw.get().is_power_of_two());
         let next_bw = nzbw.get() / 2;
@@ -213,9 +213,10 @@ impl LNode {
             to += w;
         }
         if tmp0 == tmp1 {
-            Some(tmp0)
+            *lut = tmp0;
+            true
         } else {
-            None
+            false
         }
     }
 }

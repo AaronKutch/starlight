@@ -49,12 +49,9 @@ fn create_static_lut(
     // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
     let len = inxs.len();
     for i in (0..len).rev() {
-        if lut.bw() > 1 {
-            if let Some(reduced) = LNode::reduce_independent_lut(&lut, i) {
-                // independent of the `i`th bit
-                lut = reduced;
-                inxs.remove(i);
-            }
+        if (lut.bw() > 1) && LNode::reduce_independent_lut(&mut lut, i) {
+            // independent of the `i`th bit
+            inxs.remove(i);
         }
     }
 

@@ -163,16 +163,13 @@ impl Ensemble {
                 // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
                 let len = inp.len();
                 for i in (0..len).rev() {
-                    if lut.bw() > 1 {
-                        if let Some(reduced) = LNode::reduce_independent_lut(&lut, i) {
-                            // independent of the `i`th bit
-                            lut = reduced;
-                            let p_inp = inp.remove(i);
-                            let equiv = self.backrefs.get_val(p_inp).unwrap();
-                            self.optimizer
-                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                            self.backrefs.remove_key(p_inp).unwrap();
-                        }
+                    if (lut.bw() > 1) && LNode::reduce_independent_lut(&mut lut, i) {
+                        // independent of the `i`th bit
+                        let p_inp = inp.remove(i);
+                        let equiv = self.backrefs.get_val(p_inp).unwrap();
+                        self.optimizer
+                            .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                        self.backrefs.remove_key(p_inp).unwrap();
                     }
                 }
                 // sort inputs so that `LNode`s can be compared later
