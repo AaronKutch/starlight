@@ -60,8 +60,8 @@ fn stats_different_prunings() {
         epoch.verify_integrity().unwrap();
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
-            assert_eq!(ensemble.stator.states.len(), 18);
-            assert_eq!(ensemble.backrefs.len_keys(), 23);
+            assert_eq!(ensemble.stator.states.len(), 17);
+            assert_eq!(ensemble.backrefs.len_keys(), 22);
             assert_eq!(ensemble.backrefs.len_vals(), 6);
         });
         epoch.lower_and_prune().unwrap();

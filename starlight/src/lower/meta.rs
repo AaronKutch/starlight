@@ -100,13 +100,30 @@ macro_rules! static_lut {
     }};
 }
 
+fn concat(nzbw: NonZeroUsize, vec: SmallVec<[PState; 4]>) -> Awi {
+    if vec.len() == 1 {
+        Awi::from_state(vec[0])
+    } else {
+        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(vec)))
+    }
+}
+
+fn concat_update(bits: &mut Bits, nzbw: NonZeroUsize, vec: SmallVec<[PState; 4]>) {
+    if vec.len() == 1 {
+        bits.set_state(vec[0]);
+    } else {
+        bits.update_state(nzbw, Op::Concat(ConcatType::from_smallvec(vec)))
+            .unwrap_at_runtime();
+    }
+}
+
 pub fn reverse(x: &Bits) -> Awi {
     let nzbw = x.nzbw();
     let mut out = SmallVec::with_capacity(nzbw.get());
     for i in 0..x.bw() {
         out.push(x.get(x.bw() - 1 - i).unwrap().state())
     }
-    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
+    concat(nzbw, out)
 }
 
 /// Given `inx.bw()` bits, this returns `2^inx.bw()` signals for every possible
@@ -163,7 +180,7 @@ pub fn selector_awi(inx: &Bits, cap: Option<usize>) -> Awi {
         }
         signals.push(signal.state());
     }
-    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(signals)))
+    concat(nzbw, signals)
 }
 
 /// Trailing smear, given the value of `inx` it will set all bits in the vector
@@ -237,7 +254,7 @@ pub fn tsmear_awi(inx: &Bits, num_signals: usize) -> Awi {
         }
         signals.push(signal.state());
     }
-    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(signals)))
+    concat(nzbw, signals)
 }
 
 pub fn mux_(x0: &Bits, x1: &Bits, inx: &Bits) -> Awi {
@@ -250,7 +267,7 @@ pub fn mux_(x0: &Bits, x1: &Bits, inx: &Bits) -> Awi {
         static_lut!(tmp; 1100_1010; x0.get(i).unwrap(), x1.get(i).unwrap(), inx);
         signals.push(tmp.state());
     }
-    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(signals)))
+    concat(nzbw, signals)
 }
 
 /*
@@ -285,8 +302,7 @@ pub fn dynamic_to_static_lut(out: &mut Bits, table: &Bits, inx: &Bits) {
         }
         tmp_output.push(column.state());
     }
-    out.update_state(nzbw, Op::Concat(ConcatType::from_smallvec(tmp_output)))
-        .unwrap_at_runtime();
+    concat_update(out, nzbw, tmp_output)
 }
 
 pub fn dynamic_to_static_get(bits: &Bits, inx: &Bits) -> inlawi_ty!(1) {
@@ -314,7 +330,7 @@ pub fn dynamic_to_static_set(bits: &Bits, inx: &Bits, bit: &Bits) -> Awi {
         static_lut!(tmp; 1101_1000; signal, bit, bits.get(i).unwrap());
         out.push(tmp.state());
     }
-    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
+    concat(nzbw, out)
 }
 
 pub fn resize(x: &Bits, w: NonZeroUsize, signed: bool) -> Awi {
@@ -330,22 +346,10 @@ pub fn resize(x: &Bits, w: NonZeroUsize, signed: bool) -> Awi {
             NonZeroUsize::new(w.get() - x.bw()).unwrap(),
             Op::Repeat([x.msb().state()]),
         );
-        Awi::new(
-            w,
-            Op::Concat(ConcatType::from_smallvec(smallvec![
-                x.state(),
-                extension.state()
-            ])),
-        )
+        concat(w, smallvec![x.state(), extension.state()])
     } else {
         let zero = Awi::zero(NonZeroUsize::new(w.get() - x.bw()).unwrap());
-        Awi::new(
-            w,
-            Op::Concat(ConcatType::from_smallvec(smallvec![
-                x.state(),
-                zero.state()
-            ])),
-        )
+        concat(w, smallvec![x.state(), zero.state()])
     }
 }
 
@@ -363,13 +367,7 @@ pub fn resize_cond(x: &Bits, w: NonZeroUsize, signed: &Bits) -> Awi {
             NonZeroUsize::new(w.get() - x.bw()).unwrap(),
             Op::Repeat([signed.state()]),
         );
-        Awi::new(
-            w,
-            Op::Concat(ConcatType::from_smallvec(smallvec![
-                x.state(),
-                extension.state()
-            ])),
-        )
+        concat(w, smallvec![x.state(), extension.state()])
     }
 }
 
@@ -434,7 +432,7 @@ pub fn field_width(lhs: &Bits, rhs: &Bits, width: &Bits) -> Awi {
         static_lut!(tmp; 1100_1010; lhs.get(i).unwrap(), rhs.get(i).unwrap(), signal);
         mux_part.push(tmp.state());
     }
-    let mux_part = Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(mux_part)));
+    let mux_part = concat(nzbw, mux_part);
     if let Some(lhs_rem_hi) = NonZeroUsize::new(lhs.bw() - nzbw.get()) {
         Awi::new(
             lhs.nzbw(),
@@ -479,9 +477,7 @@ pub fn crossbar(
         }
         tmp_output.push(out_bar.state());
     }
-    output
-        .update_state(nzbw, Op::Concat(ConcatType::from_smallvec(tmp_output)))
-        .unwrap_at_runtime();
+    concat_update(output, nzbw, tmp_output)
 }
 
 pub fn funnel_(x: &Bits, s: &Bits) -> Awi {
@@ -613,7 +609,7 @@ pub fn bitwise_not(x: &Bits) -> Awi {
         static_lut!(tmp; 01; x.get(i).unwrap());
         out.push(tmp.state());
     }
-    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
+    concat(nzbw, out)
 }
 
 pub fn bitwise(lhs: &Bits, rhs: &Bits, lut: awi::Awi) -> Awi {
@@ -633,7 +629,7 @@ pub fn bitwise(lhs: &Bits, rhs: &Bits, lut: awi::Awi) -> Awi {
         .unwrap_at_runtime();
         out.push(tmp.state());
     }
-    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
+    concat(nzbw, out)
 }
 
 pub fn incrementer(x: &Bits, cin: &Bits, dec: bool) -> (Awi, inlawi_ty!(1)) {
@@ -660,10 +656,7 @@ pub fn incrementer(x: &Bits, cin: &Bits, dec: bool) -> (Awi, inlawi_ty!(1)) {
             static_lut!(carry; 1000; carry, b);
         }
     }
-    (
-        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out))),
-        carry,
-    )
+    (concat(nzbw, out), carry)
 }
 
 // TODO select carry adder
@@ -720,11 +713,7 @@ pub fn cin_sum(cin: &Bits, lhs: &Bits, rhs: &Bits) -> (Awi, inlawi_ty!(1), inlaw
             }),
         )
         .unwrap_at_runtime();
-    (
-        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out))),
-        carry,
-        signed_overflow,
-    )
+    (concat(nzbw, out), carry, signed_overflow)
 }
 
 pub fn negator(x: &Bits, neg: &Bits) -> Awi {
@@ -741,7 +730,7 @@ pub fn negator(x: &Bits, neg: &Bits) -> Awi {
         out.push(sum.state());
         carry = next_carry;
     }
-    Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
+    concat(nzbw, out)
 }
 
 /// Setting `width` to 0 guarantees that nothing happens even with other
@@ -791,7 +780,7 @@ pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
             );
             out.push(lut_out.state());
         }
-        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
+        concat(nzbw, out)
     } else {
         let lut = inlawi!(rhs[0], lhs[0]).unwrap();
         let mut out = awi!(0);
@@ -859,7 +848,7 @@ pub fn field(lhs: &Bits, to: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Aw
             );
             out.push(lut_out.state());
         }
-        Awi::new(nzbw, Op::Concat(ConcatType::from_smallvec(out)))
+        concat(nzbw, out)
     } else {
         // `lhs.bw() == 1`, `rhs.bw() == 1`, `width` is the only thing that matters
         let lut = inlawi!(rhs[0], lhs[0]).unwrap();
