@@ -63,7 +63,34 @@ impl Lineage for LazyAwi {
     }
 }
 
+macro_rules! retro_primitives {
+    ($($f:ident $x:ident);*;) => {
+        $(
+            /// Retroactively-assigns by `rhs`
+            pub fn $f(&self, rhs: $x) -> Result<(), EvalError> {
+                self.retro_(&awi::InlAwi::from(rhs))
+            }
+        )*
+    };
+}
+
 impl LazyAwi {
+    retro_primitives!(
+        retro_bool_ bool;
+        retro_u8_ u8;
+        retro_i8_ i8;
+        retro_u16_ u16;
+        retro_i16_ i16;
+        retro_u32_ u32;
+        retro_i32_ i32;
+        retro_u64_ u64;
+        retro_i64_ i64;
+        retro_u128_ u128;
+        retro_i128_ i128;
+        retro_usize_ usize;
+        retro_isize_ isize;
+    );
+
     fn internal_as_ref(&self) -> &dag::Bits {
         &self.opaque
     }

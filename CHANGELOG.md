@@ -13,6 +13,7 @@
 ### Additions
 - Added `Epoch::suspend`
 - Optimization now compresses allocations
+- Added many primitive versions of `retro_` and `eval` functions
 
 ## [0.2.0] - 2023-12-08
 ### Crate

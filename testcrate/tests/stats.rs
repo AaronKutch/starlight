@@ -86,7 +86,7 @@ fn stats_different_prunings() {
             inx.usize_(i);
             lazy.retro_(&inx).unwrap();
             epoch.drive_loops().unwrap();
-            awi::assert_eq!(eval_res.eval().unwrap().to_bool(), i >= num_ports);
+            awi::assert_eq!(eval_res.eval_bool().unwrap(), i >= num_ports);
             if i < num_ports {
                 awi::assert_eq!(eval_net.eval().unwrap().to_usize(), i);
             }

@@ -2,7 +2,7 @@ use std::{fmt, num::NonZeroUsize, thread::panicking};
 
 use awint::{
     awint_dag::{dag, EvalError, Lineage, PState},
-    awint_internals::forward_debug_fmt,
+    awint_internals::{forward_debug_fmt, BITS},
 };
 
 use crate::{
@@ -76,6 +76,24 @@ macro_rules! evalawi_from_impl {
     }
 }
 
+macro_rules! eval_primitives {
+    ($($f:ident $x:ident $to_x:ident $w:expr);*;) => {
+        $(
+            /// The same as [EvalAwi::eval], except that it returns a primitive
+            /// and returns an error if the bitwidth of the evaluation does not
+            /// match the bitwidth of the primitive
+            pub fn $f(&self) -> Result<$x, EvalError> {
+                let awi = self.eval()?;
+                if awi.bw() == $w {
+                    Ok(awi.$to_x())
+                } else {
+                    Err(EvalError::WrongBitwidth)
+                }
+            }
+        )*
+    };
+}
+
 impl EvalAwi {
     evalawi_from_impl!(
         from_bool bool;
@@ -91,6 +109,22 @@ impl EvalAwi {
         from_i128 i128;
         from_usize usize;
         from_isize isize;
+    );
+
+    eval_primitives!(
+        eval_bool bool to_bool 1;
+        eval_u8 u8 to_u8 8;
+        eval_i8 i8 to_i8 8;
+        eval_u16 u16 to_u16 16;
+        eval_i16 i16 to_i16 16;
+        eval_u32 u32 to_u32 32;
+        eval_i32 i32 to_i32 32;
+        eval_u64 u64 to_u64 64;
+        eval_i64 i64 to_i64 64;
+        eval_u128 u128 to_u128 128;
+        eval_i128 i128 to_i128 128;
+        eval_usize usize to_usize BITS;
+        eval_isize isize to_isize BITS;
     );
 
     pub fn p_external(&self) -> PExternal {
@@ -150,6 +184,11 @@ impl EvalAwi {
         Self::from_state(bits.state())
     }
 
+    /// Evaluates the value that `self` would evaluate to given the current
+    /// state of any `LazyAwi`s. Depending on the conditions of internal LUTs,
+    /// it may be possible to evaluate to a known value even if some inputs are
+    /// `opaque`, but in general this will return an error that a bit could not
+    /// be evaluated to a known value, if any upstream inputs are `opaque`.
     pub fn eval(&self) -> Result<awi::Awi, EvalError> {
         let nzbw = self.try_get_nzbw()?;
         let mut res = awi::Awi::zero(nzbw);

@@ -44,13 +44,13 @@ fn invert_twice() {
     let y = EvalAwi::from(a);
 
     {
-        use awi::{assert_eq, *};
+        use awi::assert;
 
-        x.retro_(&awi!(0)).unwrap();
-        assert_eq!(y.eval().unwrap(), awi!(0));
+        x.retro_bool_(false).unwrap();
+        assert!(!y.eval_bool().unwrap());
         epoch.verify_integrity().unwrap();
-        x.retro_(&awi!(1)).unwrap();
-        assert_eq!(y.eval().unwrap(), awi!(1));
+        x.retro_bool_(true).unwrap();
+        assert!(y.eval_bool().unwrap());
     }
     drop(epoch);
 }
@@ -65,16 +65,14 @@ fn multiplier() {
     let output = EvalAwi::from(output);
 
     {
-        use awi::*;
-
-        input_a.retro_(&awi!(123u16)).unwrap();
-        input_b.retro_(&awi!(77u16)).unwrap();
-        std::assert_eq!(output.eval().unwrap(), awi!(9471u32));
+        input_a.retro_u16_(123u16).unwrap();
+        input_b.retro_u16_(77u16).unwrap();
+        std::assert_eq!(output.eval_u32().unwrap(), 9471u32);
 
         epoch.optimize().unwrap();
 
-        input_a.retro_(&awi!(10u16)).unwrap();
-        std::assert_eq!(output.eval().unwrap(), awi!(770u32));
+        input_a.retro_u16_(10u16).unwrap();
+        std::assert_eq!(output.eval_u32().unwrap(), 770u32);
     }
     drop(epoch);
 }

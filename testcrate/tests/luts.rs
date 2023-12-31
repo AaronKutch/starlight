@@ -2,7 +2,7 @@ use starlight::{awi, dag::*, ensemble::LNodeKind, Epoch, EvalAwi, LazyAwi, StarR
 
 // Test static LUT simplifications
 #[test]
-fn luts_states() {
+fn luts_optimization() {
     let mut rng = StarRng::new(0);
     let mut inp_bits = 0;
     for input_w in 1usize..=8 {
@@ -44,8 +44,6 @@ fn luts_states() {
                 use awi::{assert, assert_eq, *};
 
                 let opt_res = EvalAwi::from(&x);
-
-                epoch.lower().unwrap();
 
                 epoch.optimize().unwrap();
 

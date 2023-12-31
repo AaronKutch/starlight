@@ -137,12 +137,12 @@ fn loop_net() {
         let eval_res = EvalAwi::from_bool(res.is_none());
         {
             use awi::{assert_eq, *};
-            lazy.retro_(&awi!(0)).unwrap();
+            lazy.retro_bool_(false).unwrap();
             epoch.drive_loops().unwrap();
             assert_eq!(eval_res.eval().unwrap(), awi!(0));
             assert_eq!(eval_net.eval().unwrap(), awi!(0xa_u5));
             // any nonzero index always returns a `None` from the function
-            lazy.retro_(&awi!(1)).unwrap();
+            lazy.retro_bool_(true).unwrap();
             epoch.drive_loops().unwrap();
             assert_eq!(eval_res.eval().unwrap(), awi!(1));
         }
