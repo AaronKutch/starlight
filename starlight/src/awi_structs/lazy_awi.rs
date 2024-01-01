@@ -13,7 +13,7 @@ use awint::{
 
 use crate::{
     awi,
-    ensemble::{Ensemble, PExternal},
+    ensemble::{BasicValue, BasicValueKind, CommonValue, Ensemble, PExternal},
     epoch::get_current_epoch,
 };
 
@@ -74,6 +74,51 @@ macro_rules! retro_primitives {
     };
 }
 
+macro_rules! init {
+    ($($f:ident $retro_:ident);*;) => {
+        $(
+            /// Initializes a `LazyAwi` with the corresponding dynamic value
+            pub fn $f(w: NonZeroUsize) -> Self {
+                let res = Self::opaque(w);
+                res.$retro_().unwrap();
+                res
+            }
+        )*
+    };
+}
+
+macro_rules! init_inl {
+    ($($f:ident $retro_:ident);*;) => {
+        $(
+            /// Initializes a `LazyInlAwi` with the corresponding dynamic value
+            pub fn $f() -> Self {
+                let res = Self::opaque();
+                res.$retro_().unwrap();
+                res
+            }
+        )*
+    };
+}
+
+macro_rules! retro {
+    ($($f:ident $kind:ident);*;) => {
+        $(
+            /// Retroactively-assigns by `rhs`. Returns an error if this
+            /// is being called after the corresponding Epoch is dropped.
+            pub fn $f(&self) -> Result<(), EvalError> {
+                Ensemble::change_thread_local_rnode_value(
+                    self.p_external,
+                    CommonValue::Basic(BasicValue {
+                        kind: BasicValueKind::$kind,
+                        nzbw: self.nzbw(),
+                    }),
+                    false,
+                )
+            }
+        )*
+    };
+}
+
 impl LazyAwi {
     retro_primitives!(
         retro_bool_ bool;
@@ -89,6 +134,22 @@ impl LazyAwi {
         retro_i128_ i128;
         retro_usize_ usize;
         retro_isize_ isize;
+    );
+
+    init!(
+        zero retro_zero_;
+        umax retro_umax_;
+        imax retro_imax_;
+        imin retro_imin_;
+        uone retro_uone_;
+    );
+
+    retro!(
+        retro_zero_ Zero;
+        retro_umax_ Umax;
+        retro_imax_ Imax;
+        retro_imin_ Imin;
+        retro_uone_ Uone;
     );
 
     fn internal_as_ref(&self) -> &dag::Bits {
@@ -107,7 +168,7 @@ impl LazyAwi {
         self.nzbw().get()
     }
 
-    // TODO the name regards what it is initially dynamically set to, add zero etc
+    /// Initializes a `LazyAwi` with an unknown dynamic value
     pub fn opaque(w: NonZeroUsize) -> Self {
         let opaque = dag::Awi::opaque(w);
         let p_external = get_current_epoch()
@@ -121,28 +182,31 @@ impl LazyAwi {
     }
 
     /// Retroactively-assigns by `rhs`. Returns an error if bitwidths mismatch
-    /// or if this is being called after the corresponding Epoch is dropped
-    /// and states have been pruned.
+    /// or if this is being called after the corresponding Epoch is dropped.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_rnode_value(self.p_external, rhs, false)
+        Ensemble::change_thread_local_rnode_value(self.p_external, CommonValue::Bits(rhs), false)
     }
 
-    /*
     /// Retroactively-unknown-assigns, the same as `retro_` except it sets the
     /// bits to a dynamically unknown value
     pub fn retro_unknown_(&self) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_rnode_value(self.p_external, rhs, false)
+        Ensemble::change_thread_local_rnode_value(
+            self.p_external,
+            CommonValue::Basic(BasicValue {
+                kind: BasicValueKind::Opaque,
+                nzbw: self.nzbw(),
+            }),
+            false,
+        )
     }
-    */
 
     /// Retroactively-constant-assigns by `rhs`, the same as `retro_` except it
-    /// adds the guarantee that the value will never be changed again
+    /// adds the guarantee that the value will never be changed again (or else
+    /// it will result in errors if you try another `retro_*` function on
+    /// `self`)
     pub fn retro_const_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_rnode_value(self.p_external, rhs, true)
+        Ensemble::change_thread_local_rnode_value(self.p_external, CommonValue::Bits(rhs), true)
     }
-
-    // TODO
-    //pub fn retro_zero_
 }
 
 impl Deref for LazyAwi {
@@ -231,6 +295,22 @@ impl<const BW: usize, const LEN: usize> Lineage for LazyInlAwi<BW, LEN> {
 }
 
 impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
+    init_inl!(
+        zero retro_zero_;
+        umax retro_umax_;
+        imax retro_imax_;
+        imin retro_imin_;
+        uone retro_uone_;
+    );
+
+    retro!(
+        retro_zero_ Zero;
+        retro_umax_ Umax;
+        retro_imax_ Imax;
+        retro_imin_ Imin;
+        retro_uone_ Uone;
+    );
+
     pub fn p_external(&self) -> PExternal {
         self.p_external
     }
@@ -261,16 +341,28 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
     }
 
     /// Retroactively-assigns by `rhs`. Returns an error if bitwidths mismatch
-    /// or if this is being called after the corresponding Epoch is dropped
-    /// and states have been pruned.
+    /// or if this is being called after the corresponding Epoch is dropped.
     pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_rnode_value(self.p_external, rhs, false)
+        Ensemble::change_thread_local_rnode_value(self.p_external, CommonValue::Bits(rhs), false)
+    }
+
+    /// Retroactively-unknown-assigns, the same as `retro_` except it sets the
+    /// bits to a dynamically unknown value
+    pub fn retro_unknown_(&self) -> Result<(), EvalError> {
+        Ensemble::change_thread_local_rnode_value(
+            self.p_external,
+            CommonValue::Basic(BasicValue {
+                kind: BasicValueKind::Opaque,
+                nzbw: self.nzbw(),
+            }),
+            false,
+        )
     }
 
     /// Retroactively-constant-assigns by `rhs`, the same as `retro_` except it
     /// adds the guarantee that the value will never be changed again
     pub fn retro_const_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
-        Ensemble::change_thread_local_rnode_value(self.p_external, rhs, true)
+        Ensemble::change_thread_local_rnode_value(self.p_external, CommonValue::Bits(rhs), true)
     }
 }
 

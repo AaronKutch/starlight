@@ -13,6 +13,77 @@ use crate::{
     epoch::EpochShared,
 };
 
+#[derive(Debug, Clone, Copy)]
+pub enum BasicValueKind {
+    Opaque,
+    Zero,
+    Umax,
+    Imax,
+    Imin,
+    Uone,
+}
+
+/// Used when we need to pass an argument that can multiplex over the basic
+/// initial values
+#[derive(Debug, Clone, Copy)]
+pub struct BasicValue {
+    pub kind: BasicValueKind,
+    pub nzbw: NonZeroUsize,
+}
+
+impl BasicValue {
+    pub fn nzbw(&self) -> NonZeroUsize {
+        self.nzbw
+    }
+
+    pub fn bw(&self) -> usize {
+        self.nzbw().get()
+    }
+
+    pub fn get(&self, inx: usize) -> Option<Option<bool>> {
+        if inx >= self.bw() {
+            None
+        } else {
+            Some(match self.kind {
+                BasicValueKind::Opaque => None,
+                BasicValueKind::Zero => Some(false),
+                BasicValueKind::Umax => Some(true),
+                BasicValueKind::Imax => Some(inx != (self.bw() - 1)),
+                BasicValueKind::Imin => Some(inx == (self.bw() - 1)),
+                BasicValueKind::Uone => Some(inx == 0),
+            })
+        }
+    }
+}
+
+/// Used when we need to pass an argument that can multiplex over common initial
+/// values
+#[derive(Debug, Clone)]
+pub enum CommonValue<'a> {
+    Bits(&'a Bits),
+    Basic(BasicValue),
+}
+
+impl<'a> CommonValue<'a> {
+    pub fn nzbw(&self) -> NonZeroUsize {
+        match self {
+            CommonValue::Bits(x) => x.nzbw(),
+            CommonValue::Basic(basic) => basic.nzbw(),
+        }
+    }
+
+    pub fn bw(&self) -> usize {
+        self.nzbw().get()
+    }
+
+    pub fn get(&self, inx: usize) -> Option<Option<bool>> {
+        match self {
+            CommonValue::Bits(bits) => bits.get(inx).map(Some),
+            CommonValue::Basic(basic) => basic.get(inx),
+        }
+    }
+}
+
 /// The value of a multistate boolean
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {

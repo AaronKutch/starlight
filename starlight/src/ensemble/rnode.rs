@@ -7,8 +7,8 @@ use awint::awint_dag::{
 };
 
 use crate::{
-    awi,
-    ensemble::{Ensemble, PBack, Referent, Value},
+    awi::*,
+    ensemble::{CommonValue, Ensemble, PBack, Referent, Value},
     epoch::get_current_epoch,
 };
 
@@ -189,9 +189,11 @@ impl Ensemble {
         }
     }
 
+    /// Note: `make_const` cannot be true at the same time as the basic type is
+    /// opaque
     pub fn change_thread_local_rnode_value(
         p_external: PExternal,
-        bits: &awi::Bits,
+        common_value: CommonValue<'_>,
         make_const: bool,
     ) -> Result<(), EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
@@ -200,21 +202,21 @@ impl Ensemble {
         if let Some(p_rnode) = ensemble.notary.rnodes.find_key(&p_external) {
             ensemble.initialize_rnode_if_needed(p_rnode, true)?;
             if !ensemble.notary.rnodes[p_rnode].bits.is_empty() {
-                if ensemble.notary.rnodes[p_rnode].bits.len() != bits.bw() {
+                if ensemble.notary.rnodes[p_rnode].bits.len() != common_value.bw() {
                     return Err(EvalError::WrongBitwidth);
                 }
-                for bit_i in 0..bits.bw() {
+                for bit_i in 0..common_value.bw() {
                     let p_back = ensemble.notary.rnodes[p_rnode].bits[bit_i];
                     if let Some(p_back) = p_back {
-                        if make_const {
-                            ensemble
-                                .change_value(p_back, Value::Const(bits.get(bit_i).unwrap()))
-                                .unwrap();
+                        let bit = common_value.get(bit_i).unwrap();
+                        let bit = if make_const {
+                            Value::Const(bit.unwrap())
+                        } else if let Some(bit) = bit {
+                            Value::Dynam(bit)
                         } else {
-                            ensemble
-                                .change_value(p_back, Value::Dynam(bits.get(bit_i).unwrap()))
-                                .unwrap();
-                        }
+                            Value::Unknown
+                        };
+                        ensemble.change_value(p_back, bit).unwrap();
                     }
                 }
             }
