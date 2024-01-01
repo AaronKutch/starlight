@@ -216,7 +216,7 @@ impl Ensemble {
                         } else {
                             Value::Unknown
                         };
-                        ensemble.change_value(p_back, bit).unwrap();
+                        ensemble.change_value(p_back, bit)?;
                     }
                 }
             }

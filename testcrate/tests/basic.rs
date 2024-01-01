@@ -1,7 +1,8 @@
-use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi};
+use starlight::{awi, awi::*, dag, Epoch, EvalAwi, LazyAwi};
 
 #[test]
-fn lazy_awi() -> Option<()> {
+fn lazy_awi() {
+    use dag::*;
     let epoch = Epoch::new();
 
     let x = LazyAwi::opaque(bw(1));
@@ -28,12 +29,11 @@ fn lazy_awi() -> Option<()> {
     // cleans up everything not still used by `LazyAwi`s, `LazyAwi`s deregister
     // rnodes when dropped
     drop(epoch);
-
-    Some(())
 }
 
 #[test]
 fn invert_twice() {
+    use dag::*;
     let epoch = Epoch::new();
     let x = LazyAwi::opaque(bw(1));
     let mut a = awi!(x);
@@ -57,6 +57,7 @@ fn invert_twice() {
 
 #[test]
 fn multiplier() {
+    use dag::*;
     let epoch = Epoch::new();
     let input_a = LazyAwi::opaque(bw(16));
     let input_b = LazyAwi::opaque(bw(16));
@@ -74,5 +75,88 @@ fn multiplier() {
         input_a.retro_u16_(10u16).unwrap();
         std::assert_eq!(output.eval_u32().unwrap(), 770u32);
     }
+    drop(epoch);
+}
+
+#[test]
+fn all_variations() {
+    let epoch = Epoch::new();
+
+    let x1 = LazyAwi::opaque(bw(1));
+    let x7 = LazyAwi::opaque(bw(7));
+    let x8 = LazyAwi::opaque(bw(8));
+    let x16 = LazyAwi::opaque(bw(16));
+    let x32 = LazyAwi::opaque(bw(32));
+    let x64 = LazyAwi::opaque(bw(64));
+    let x128 = LazyAwi::opaque(bw(128));
+    let x_zero = LazyAwi::zero(bw(7));
+    let x_umax = LazyAwi::umax(bw(7));
+    let x_imax = LazyAwi::imax(bw(7));
+    let x_imin = LazyAwi::imin(bw(7));
+    let x_uone = LazyAwi::uone(bw(7));
+
+    let y1 = EvalAwi::from(&x1);
+    let y7 = EvalAwi::from(&x7);
+    let y8 = EvalAwi::from(&x8);
+    let y16 = EvalAwi::from(&x16);
+    let y32 = EvalAwi::from(&x32);
+    let y64 = EvalAwi::from(&x64);
+    let y128 = EvalAwi::from(&x128);
+    let y_zero = EvalAwi::from(&x_zero);
+    let y_umax = EvalAwi::from(&x_umax);
+    let y_imax = EvalAwi::from(&x_imax);
+    let y_imin = EvalAwi::from(&x_imin);
+    let y_uone = EvalAwi::from(&x_uone);
+
+    epoch.verify_integrity().unwrap();
+    assert!(y1.eval().is_err());
+    x1.retro_bool_(true).unwrap();
+    assert_eq!(y1.eval_bool().unwrap(), true);
+    assert!(y8.eval().is_err());
+    x8.retro_u8_(u8::MAX).unwrap();
+    assert_eq!(y8.eval_u8().unwrap(), u8::MAX);
+    x8.retro_i8_(i8::MAX).unwrap();
+    assert_eq!(y8.eval_i8().unwrap(), i8::MAX);
+    assert!(y16.eval().is_err());
+    x16.retro_u16_(u16::MAX).unwrap();
+    assert_eq!(y16.eval_u16().unwrap(), u16::MAX);
+    x16.retro_i16_(i16::MAX).unwrap();
+    assert_eq!(y16.eval_i16().unwrap(), i16::MAX);
+    assert!(y32.eval().is_err());
+    x32.retro_u32_(u32::MAX).unwrap();
+    assert_eq!(y32.eval_u32().unwrap(), u32::MAX);
+    x32.retro_i32_(i32::MAX).unwrap();
+    assert_eq!(y32.eval_i32().unwrap(), i32::MAX);
+    assert!(y64.eval().is_err());
+    x64.retro_u64_(u64::MAX).unwrap();
+    assert_eq!(y64.eval_u64().unwrap(), u64::MAX);
+    x64.retro_i64_(i64::MAX).unwrap();
+    assert_eq!(y64.eval_i64().unwrap(), i64::MAX);
+    assert!(y128.eval().is_err());
+    x128.retro_u128_(u128::MAX).unwrap();
+    assert_eq!(y128.eval_u128().unwrap(), u128::MAX);
+    x128.retro_i128_(i128::MAX).unwrap();
+    assert_eq!(y128.eval_i128().unwrap(), i128::MAX);
+    assert_eq!(y_zero.eval().unwrap(), awi!(0u7));
+    assert_eq!(y_umax.eval().unwrap(), awi!(umax: ..7));
+    assert_eq!(y_imax.eval().unwrap(), awi!(imax: ..7));
+    assert_eq!(y_imin.eval().unwrap(), awi!(imin: ..7));
+    assert_eq!(y_uone.eval().unwrap(), awi!(uone: ..7));
+    x7.retro_zero_().unwrap();
+    assert_eq!(y7.eval().unwrap(), awi!(zero: ..7));
+    x7.retro_umax_().unwrap();
+    assert_eq!(y7.eval().unwrap(), awi!(umax: ..7));
+    x7.retro_imax_().unwrap();
+    assert_eq!(y7.eval().unwrap(), awi!(imax: ..7));
+    x7.retro_imin_().unwrap();
+    assert_eq!(y7.eval().unwrap(), awi!(imin: ..7));
+    x7.retro_uone_().unwrap();
+    assert_eq!(y7.eval().unwrap(), awi!(uone: ..7));
+    x7.retro_unknown_().unwrap();
+    assert!(y7.eval().is_err());
+    x7.retro_const_(&awi!(-2i7)).unwrap();
+    assert_eq!(y7.eval().unwrap(), awi!(-2i7));
+    assert!(x7.retro_unknown_().is_err());
+
     drop(epoch);
 }
