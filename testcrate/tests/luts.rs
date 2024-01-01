@@ -104,14 +104,6 @@ fn lut_optimization_with_dup() {
     }
 }
 
-// The first number is the base number of iterations, the others are counters to
-// make sure the rng isn't broken
-const N: (u64, u64, u64) = if cfg!(debug_assertions) {
-    (16, 193536, 14778)
-} else {
-    (128, 1548288, 107245)
-};
-
 // these functions need to stay the same in case the ones in the library are
 // changed
 
@@ -176,6 +168,13 @@ use DynamicBool::*;
 /// cases
 #[test]
 fn lut_optimization() {
+    // The first number is the base number of iterations, the others are counters to
+    // make sure the rng isn't broken
+    const N: (u64, u64, u64) = if cfg!(debug_assertions) {
+        (16, 193536, 14778)
+    } else {
+        (128, 1548288, 107245)
+    };
     let mut rng = StarRng::new(0);
     let mut num_lut_bits = 0u64;
     let mut num_simplified_lut_bits = 0u64;
@@ -339,6 +338,180 @@ fn lut_optimization() {
 
                 drop(epoch);
             }
+        }
+    }
+    assert_eq!((num_lut_bits, num_simplified_lut_bits), (N.1, N.2));
+}
+
+/// Test dynamic LUT optimizations
+#[test]
+fn lut_dynamic_optimization() {
+    // The first number is the base number of iterations, the others are counters to
+    // make sure the rng isn't broken
+    const N: (u64, u64, u64) = if cfg!(debug_assertions) {
+        (32, 1984, 470)
+    } else {
+        (512, 31744, 7371)
+    };
+    let mut rng = StarRng::new(0);
+    let mut num_lut_bits = 0u64;
+    let mut num_simplified_lut_bits = 0u64;
+    let mut expected_output = awi!(0);
+    for w in 1..=5 {
+        let n = N.0;
+        let lut_w = NonZeroUsize::new(1 << w).unwrap();
+        let w = NonZeroUsize::new(w).unwrap();
+        let mut lut_input = Awi::zero(w);
+        let mut known_inputs = Awi::zero(w);
+        let mut lut = Awi::zero(lut_w);
+        let mut known_lut_bits = Awi::zero(lut_w);
+        let mut pad = lut.clone();
+        let mut lut_pad = known_lut_bits.clone();
+
+        for _ in 0..n {
+            num_lut_bits += lut.bw() as u64;
+            rng.next_bits(&mut known_inputs);
+            rng.next_bits(&mut lut_input);
+            rng.linear_fuzz_step(&mut lut, &mut pad);
+            // now only some bits of the LUT might be known
+            rng.linear_fuzz_step(&mut known_lut_bits, &mut lut_pad);
+            let mut known_lut_bits_reduced = known_lut_bits.clone();
+            expected_output.lut_(&lut, &lut_input).unwrap();
+            let mut expected_lut = lut.clone();
+            let mut remaining_inp_len = w.get();
+            for i in (0..w.get()).rev() {
+                if known_inputs.get(i).unwrap() {
+                    expected_lut = general_reduce_lut(&expected_lut, i, lut_input.get(i).unwrap());
+                    known_lut_bits_reduced =
+                        general_reduce_lut(&known_lut_bits_reduced, i, lut_input.get(i).unwrap());
+                    remaining_inp_len -= 1;
+                }
+            }
+            for i in (0..remaining_inp_len).rev() {
+                if expected_lut.bw() == 1 {
+                    break
+                }
+                if general_reduce_independent_lut(&mut expected_lut, i) {
+                    known_lut_bits_reduced =
+                        general_reduce_lut(&known_lut_bits_reduced, i, lut_input.get(i).unwrap());
+                }
+            }
+            num_simplified_lut_bits += expected_lut.bw() as u64;
+
+            {
+                let epoch = Epoch::new();
+                use dag::*;
+                // prepare inputs for the subtests
+                let mut inputs: SmallVec<[DynamicBool; 12]> = smallvec![];
+                for i in 0..w.get() {
+                    if known_inputs.get(i).unwrap() {
+                        inputs.push(Bool(lut_input.get(i).unwrap()))
+                    } else {
+                        inputs.push(Lazy(LazyAwi::opaque(bw(1))));
+                    }
+                }
+                let mut lut_bits = vec![];
+                for i in 0..lut.bw() {
+                    if known_lut_bits.get(i).unwrap() {
+                        lut_bits.push(Bool(lut.get(i).unwrap()))
+                    } else {
+                        lut_bits.push(Lazy(LazyAwi::opaque(bw(1))));
+                    }
+                }
+                let mut total = Awi::zero(w);
+                for (i, input) in inputs.iter().enumerate() {
+                    match input {
+                        Bool(b) => total.set(i, *b).unwrap(),
+                        Lazy(b) => total.set(i, b.to_bool()).unwrap(),
+                    }
+                }
+                let mut total_lut_bits = Awi::zero(lut.nzbw());
+                for (i, input) in lut_bits.iter().enumerate() {
+                    match input {
+                        Bool(b) => total_lut_bits.set(i, *b).unwrap(),
+                        Lazy(b) => total_lut_bits.set(i, b.to_bool()).unwrap(),
+                    }
+                }
+
+                let mut output = Awi::zero(bw(1));
+                output.lut_(&total_lut_bits, &total).unwrap();
+                let output = EvalAwi::from(&output);
+                epoch.optimize().unwrap();
+
+                /*{
+                    use awi::*;
+                    epoch.ensemble(|ensemble| {
+                        if expected_lut.bw() == 1 {
+                            // there should be no `LNode` since it was optimized to a
+                            // constant
+                            let mut tmp = ensemble.lnodes.vals();
+                            awi::assert!(tmp.next().is_none());
+                            awi::assert_eq!(expected_lut.bw(), 1);
+                        } else {
+                            // get the sole `LNode` that should exist by this point
+                            let mut tmp = ensemble.lnodes.vals();
+                            let lnode = tmp.next().unwrap();
+                            awi::assert!(tmp.next().is_none());
+                            match &lnode.kind {
+                                LNodeKind::Lut(_, lnode_lut) => {
+                                    awi::assert_eq!(*lnode_lut, expected_lut);
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                    });
+                }*/
+
+                // set unknown inputs
+                for (i, input) in inputs.iter().enumerate() {
+                    if let Lazy(b) = input {
+                        b.retro_bool_(lut_input.get(i).unwrap()).unwrap();
+                    }
+                }
+                for (i, input) in lut_bits.iter().enumerate() {
+                    if let Lazy(b) = input {
+                        b.retro_bool_(lut.get(i).unwrap()).unwrap();
+                    }
+                }
+                awi::assert_eq!(output.eval_bool().unwrap(), expected_output.to_bool());
+                drop(epoch);
+            }
+
+            /*
+            // subtest 3: make sure evaluation can handle dynamically unknown inputs in
+            // several cases
+            {
+                let epoch = Epoch::new();
+                use dag::*;
+                // here, "known" will mean what bits are set to dynamically known values
+                let mut total = Awi::zero(w);
+                let mut inputs: SmallVec<[LazyAwi; 12]> = smallvec![];
+                for i in 0..w.get() {
+                    let tmp = LazyAwi::opaque(bw(1));
+                    total.set(i, tmp.to_bool()).unwrap();
+                    inputs.push(tmp);
+                }
+
+                let mut output = Awi::zero(bw(1));
+                output.lut_(&Awi::from(&lut), &total).unwrap();
+                let output = EvalAwi::from(&output);
+                epoch.optimize().unwrap();
+
+                for i in 0..w.get() {
+                    if known_inputs.get(i).unwrap() {
+                        inputs[i].retro_bool_(lut_input.get(i).unwrap()).unwrap();
+                    }
+                }
+                if expected_lut.bw() == 1 {
+                    // evaluation should produce a known value
+                    awi::assert_eq!(output.eval_bool().unwrap(), expected_output.to_bool());
+                } else {
+                    // evaluation fails
+                    awi::assert!(output.eval().is_err());
+                }
+
+                drop(epoch);
+            }*/
         }
     }
     assert_eq!((num_lut_bits, num_simplified_lut_bits), (N.1, N.2));
