@@ -323,6 +323,10 @@ impl Ensemble {
                     }
                 }
                 let mut lut = original_lut.clone();
+                // note: we do this in this order, it turns out that doing independence
+                // reduction instead of constant reduction first will not prevent optimizations,
+                // also we don't have to remove bits from `fixed` and `unknown`
+
                 // if fixed and unknown bits can influence the value,
                 // then the value of this equivalence can also be fixed
                 // to unknown
@@ -339,8 +343,7 @@ impl Ensemble {
                         return vec![];
                     }
                 }
-                // FIXME does this go before and catch some more cases that can eval to a known
-                // val reduce the LUT based on fixed and known bits
+                // reduce the LUT based on fixed and known bits
                 for i in (0..len).rev() {
                     if fixed.get(i).unwrap() && (!unknown.get(i).unwrap()) {
                         LNode::reduce_lut(&mut lut, i, inp_val.get(i).unwrap());
