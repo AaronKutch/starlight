@@ -31,7 +31,7 @@ const USIZE_BITS: usize = usize::BITS as usize;
 
 // even though we have later stages that would optimize LUTs, we find it good to
 // optimize as early as possible for this common case.
-fn create_static_lut(
+pub fn create_static_lut(
     mut inxs: SmallVec<[PState; 4]>,
     mut lut: awi::Awi,
 ) -> Result<Op<PState>, PState> {

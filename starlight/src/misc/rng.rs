@@ -196,6 +196,57 @@ impl StarRng {
         let inx = self.index(slice.len())?;
         slice.get_mut(inx)
     }
+
+    // TODO I think what I need is public "or,and,xor"_ones functions for `Bits`
+    // that the macros should probably also be using for common zero and umax cases
+    // and for the potential repeat cases. This would also eliminate padding
+    // needs in several places such as here
+
+    /// This performs one step of a fuzzer where a random width of ones is
+    /// rotated randomly and randomly ORed, ANDed, or XORed to `x`. `pad` needs
+    /// to have the same bitwidth as `x`.
+    ///
+    /// In many cases there are issues that involve long lines of all set or
+    /// unset bits, and the `next_bits` function is unsuitable for this as
+    /// `x.bw()` gets larger than a few bits. This function produces random
+    /// length strings of ones and zeros concatenated together, which can
+    /// rapidly probe a more structured space even for large `x`.
+    ///
+    /// ```
+    /// use starlight::{awi::*, StarRng};
+    ///
+    /// let mut rng = StarRng::new(0);
+    /// let mut x = awi!(0u128);
+    /// let mut pad = x.clone();
+    /// // this should be done in a loop with thousands of iterations,
+    /// // here I have unrolled a few for example
+    /// rng.linear_fuzz_step(&mut x, &mut pad);
+    /// assert_eq!(x, awi!(0x1ff_ffffffc0_00000000_u128));
+    /// rng.linear_fuzz_step(&mut x, &mut pad);
+    /// assert_eq!(x, awi!(0xffffffff_fffffe00_3fffffc0_0000000f_u128));
+    /// rng.linear_fuzz_step(&mut x, &mut pad);
+    /// assert_eq!(x, awi!(0xffffffff_e00001ff_c01fffc0_0000000f_u128));
+    /// rng.linear_fuzz_step(&mut x, &mut pad);
+    /// assert_eq!(x, awi!(0x1ffffe00_3fe0003f_fffffff0_u128));
+    /// rng.linear_fuzz_step(&mut x, &mut pad);
+    /// assert_eq!(x, awi!(0xffffffff_e03fffff_c01fffc0_0000000f_u128));
+    /// ```
+    pub fn linear_fuzz_step(&mut self, x: &mut Bits, pad: &mut Bits) {
+        let r0 = self.index(x.bw()).unwrap();
+        let r1 = self.index(x.bw()).unwrap();
+        pad.umax_();
+        pad.shl_(r0).unwrap();
+        pad.rotl_(r1).unwrap();
+        // note: it needs to be 2 parts XOR to 1 part OR and 1 part AND, the ordering
+        // guarantees this
+        if self.next_bool() {
+            x.xor_(pad).unwrap();
+        } else if self.next_bool() {
+            x.or_(pad).unwrap();
+        } else {
+            x.and_(pad).unwrap();
+        }
+    }
 }
 
 impl RngCore for StarRng {

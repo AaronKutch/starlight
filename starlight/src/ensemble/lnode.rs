@@ -50,6 +50,7 @@ impl Recast<PBack> for LNode {
     }
 }
 
+/// When the `i`th input to a LUT is known to be `bit`, this will reduce the LUT
 fn general_reduce_lut(lut: &Awi, i: usize, bit: bool) -> Awi {
     let next_bw = lut.bw() / 2;
     let mut next_lut = Awi::zero(NonZeroUsize::new(next_bw).unwrap());
@@ -66,6 +67,8 @@ fn general_reduce_lut(lut: &Awi, i: usize, bit: bool) -> Awi {
     next_lut
 }
 
+/// When a LUT's output is determined to be independent of the `i`th bit, this
+/// will reduce it and return true
 fn general_reduce_independent_lut(lut: &mut Awi, i: usize) -> bool {
     let nzbw = lut.nzbw();
     debug_assert!(nzbw.get().is_power_of_two());

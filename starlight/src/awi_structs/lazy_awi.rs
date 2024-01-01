@@ -107,6 +107,7 @@ impl LazyAwi {
         self.nzbw().get()
     }
 
+    // TODO the name regards what it is initially dynamically set to, add zero etc
     pub fn opaque(w: NonZeroUsize) -> Self {
         let opaque = dag::Awi::opaque(w);
         let p_external = get_current_epoch()
@@ -119,36 +120,6 @@ impl LazyAwi {
         Self { opaque, p_external }
     }
 
-    // TODO it probably does need to be an extra `Awi` in the `Opaque` variant,
-    // or does this make sense at all?
-    /*pub fn from_bits(bits: &awi::Bits) -> Self {
-        Self { opaque: dag::Awi::opaque(bits.nzbw()), lazy_value: Some(awi::Awi::from_bits(bits)) }
-    }*/
-
-    /*pub fn zero(w: NonZeroUsize) -> Self {
-        let mut res = Self {
-            opaque: dag::Awi::opaque(w),
-        };
-        //res.retro_(&awi!(zero: ..w.get()).unwrap()).unwrap();
-        res
-    }*/
-
-    /*pub fn umax(w: NonZeroUsize) -> Self {
-        Self::from_bits(&awi::Awi::umax(w))
-    }
-
-    pub fn imax(w: NonZeroUsize) -> Self {
-        Self::from_bits(&awi::Awi::imax(w))
-    }
-
-    pub fn imin(w: NonZeroUsize) -> Self {
-        Self::from_bits(&awi::Awi::imin(w))
-    }
-
-    pub fn uone(w: NonZeroUsize) -> Self {
-        Self::from_bits(&awi::Awi::uone(w))
-    }*/
-
     /// Retroactively-assigns by `rhs`. Returns an error if bitwidths mismatch
     /// or if this is being called after the corresponding Epoch is dropped
     /// and states have been pruned.
@@ -156,11 +127,22 @@ impl LazyAwi {
         Ensemble::change_thread_local_rnode_value(self.p_external, rhs, false)
     }
 
+    /*
+    /// Retroactively-unknown-assigns, the same as `retro_` except it sets the
+    /// bits to a dynamically unknown value
+    pub fn retro_unknown_(&self) -> Result<(), EvalError> {
+        Ensemble::change_thread_local_rnode_value(self.p_external, rhs, false)
+    }
+    */
+
     /// Retroactively-constant-assigns by `rhs`, the same as `retro_` except it
     /// adds the guarantee that the value will never be changed again
     pub fn retro_const_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
         Ensemble::change_thread_local_rnode_value(self.p_external, rhs, true)
     }
+
+    // TODO
+    //pub fn retro_zero_
 }
 
 impl Deref for LazyAwi {
