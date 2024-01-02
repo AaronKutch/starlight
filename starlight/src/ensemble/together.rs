@@ -9,11 +9,10 @@ use awint::{
     Awi, Bits,
 };
 
-use super::DynamicValue;
 use crate::{
     ensemble::{
-        value::Evaluator, LNode, LNodeKind, Notary, Optimizer, PLNode, PRNode, PTNode, State,
-        Stator, TNode, Value,
+        value::Evaluator, DynamicValue, LNode, LNodeKind, Notary, Optimizer, PLNode, PRNode,
+        PTNode, State, Stator, TNode, Value,
     },
     triple_arena::{ptr_struct, Arena, SurjectArena},
 };
@@ -115,46 +114,64 @@ impl Ensemble {
             match referent {
                 Referent::ThisEquiv => (),
                 Referent::ThisLNode(p_lnode) => {
-                    if p_lnode.recast(&p_lnode_recaster).is_err() {
-                        return Err(EvalError::OtherStr("recast error with a PLNode"));
+                    if let Err(e) = p_lnode.recast(&p_lnode_recaster) {
+                        return Err(EvalError::OtherString(format!(
+                            "recast error with {e} in a `Referent::ThisLNode`"
+                        )));
                     }
                 }
                 Referent::ThisTNode(p_tnode) => {
-                    if p_tnode.recast(&p_tnode_recaster).is_err() {
-                        return Err(EvalError::OtherStr("recast error with a PTNode"));
+                    if let Err(e) = p_tnode.recast(&p_tnode_recaster) {
+                        return Err(EvalError::OtherString(format!(
+                            "recast error with {e} in a `Referent::ThisTNode`"
+                        )));
                     }
                 }
                 Referent::ThisStateBit(..) => unreachable!(),
                 Referent::Input(p_lnode) => {
-                    if p_lnode.recast(&p_lnode_recaster).is_err() {
-                        return Err(EvalError::OtherStr("recast error with a PLNode"));
+                    if let Err(e) = p_lnode.recast(&p_lnode_recaster) {
+                        return Err(EvalError::OtherString(format!(
+                            "recast error with {e} in a `Referent::Input`"
+                        )));
                     }
                 }
                 Referent::LoopDriver(p_tnode) => {
-                    if p_tnode.recast(&p_tnode_recaster).is_err() {
-                        return Err(EvalError::OtherStr("recast error with a PTNode"));
+                    if let Err(e) = p_tnode.recast(&p_tnode_recaster) {
+                        return Err(EvalError::OtherString(format!(
+                            "recast error with {e} in a `Referent::LoopDriver`"
+                        )));
                     }
                 }
                 Referent::ThisRNode(p_rnode) => {
-                    if p_rnode.recast(&p_rnode_recaster).is_err() {
-                        return Err(EvalError::OtherStr("recast error with a PRNode"));
+                    if let Err(e) = p_rnode.recast(&p_rnode_recaster) {
+                        return Err(EvalError::OtherString(format!(
+                            "recast error with {e} in a `Referent::ThisRNode`"
+                        )));
                     }
                 }
             }
         }
 
         let p_back_recaster = self.backrefs.compress_and_shrink_recaster();
-        if self.backrefs.recast(&p_back_recaster).is_err() {
-            return Err(EvalError::OtherStr("recast error with a PBack"));
+        if let Err(e) = self.backrefs.recast(&p_back_recaster) {
+            return Err(EvalError::OtherString(format!(
+                "recast error with {e} in the backrefs"
+            )));
         }
-        if self.notary.recast(&p_back_recaster).is_err() {
-            return Err(EvalError::OtherStr("recast error with a PBack"));
+        if let Err(e) = self.notary.recast(&p_back_recaster) {
+            return Err(EvalError::OtherString(format!(
+                "recast error with {e} in the notary"
+            )));
         }
-        if self.lnodes.recast(&p_back_recaster).is_err() {
-            return Err(EvalError::OtherStr("recast error with a PBack"));
+        if let Err(e) = self.lnodes.recast(&p_back_recaster) {
+            return Err(EvalError::OtherString(format!(
+                "recast error with {e} in the lnodes"
+            )));
         }
-        if self.tnodes.recast(&p_back_recaster).is_err() {
-            return Err(EvalError::OtherStr("recast error with a PBack"));
+        if let Err(e) = self.tnodes.recast(&p_back_recaster) {
+            return Err(EvalError::OtherString(format!(
+                "recast error with {e} in the tnodes"
+            )));
         }
         Ok(())
     }
@@ -551,6 +568,7 @@ impl Ensemble {
         Some(p_equiv)
     }
 
+    /// Creates separate unique `Referent::Input`s as necessary
     #[must_use]
     pub fn make_dynamic_lut(
         &mut self,

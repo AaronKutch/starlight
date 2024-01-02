@@ -438,6 +438,9 @@ impl Ensemble {
                 }
                 // reduce the LUT based on fixed and known bits
                 for i in (0..len).rev() {
+                    if len == 1 {
+                        break
+                    }
                     if fixed.get(i).unwrap() && (!unknown.get(i).unwrap()) {
                         LNode::reduce_lut(&mut lut, i, inp_val.get(i).unwrap());
                         LNode::reduce_lut(&mut lut_unknown, i, inp_val.get(i).unwrap());

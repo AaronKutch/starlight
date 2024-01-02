@@ -5,9 +5,10 @@ use awint::{
     awint_macro_internals::triple_arena::Arena,
 };
 
-use super::DynamicValue;
 use crate::{
-    ensemble::{Ensemble, Equiv, LNode, LNodeKind, PBack, PRNode, PTNode, Referent, State},
+    ensemble::{
+        DynamicValue, Ensemble, Equiv, LNode, LNodeKind, PBack, PRNode, PTNode, Referent, State,
+    },
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
     Epoch,

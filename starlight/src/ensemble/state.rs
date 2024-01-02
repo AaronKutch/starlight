@@ -464,6 +464,35 @@ fn lower_elementary_to_lnodes_intermediate(
                 this.union_equiv(p_equiv0, p_equiv1).unwrap();
             }
         }
+        Lut([lut, inx]) => {
+            let inx_len = this.stator.states[inx].p_self_bits.len();
+            let out_bw = this.stator.states[p_state].p_self_bits.len();
+            let num_entries = 1usize.checked_shl(u32::try_from(inx_len).unwrap()).unwrap();
+            // this must be handled upstream
+            debug_assert_eq!(
+                out_bw * num_entries,
+                this.stator.states[lut].p_self_bits.len()
+            );
+
+            let out_bw = this.stator.states[p_state].p_self_bits.len();
+            for bit_i in 0..out_bw {
+                let mut p_lut_bits = vec![];
+                let inx_bits = this.stator.states[inx].p_self_bits.clone();
+                let lut_bits = &this.stator.states[lut].p_self_bits;
+                for i in 0..num_entries {
+                    if let Some(p_back) = lut_bits[(i * out_bw) + bit_i] {
+                        p_lut_bits.push(DynamicValue::Dynam(p_back));
+                    } else {
+                        p_lut_bits.push(DynamicValue::Unknown);
+                    }
+                }
+                let p_equiv0 = this
+                    .make_dynamic_lut(&inx_bits, &p_lut_bits, Some(p_state))
+                    .unwrap();
+                let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
+                this.union_equiv(p_equiv0, p_equiv1).unwrap();
+            }
+        }
         Mux([lhs, rhs, b]) => {
             let inx_bit = &this.stator.states[b].p_self_bits;
             debug_assert_eq!(inx_bit.len(), 1);

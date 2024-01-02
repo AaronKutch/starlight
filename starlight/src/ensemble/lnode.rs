@@ -1,9 +1,9 @@
-use std::num::NonZeroUsize;
+use std::{mem, num::NonZeroUsize};
 
 use awint::{
     awint_dag::{
         smallvec,
-        triple_arena::{Recast, Recaster},
+        triple_arena::{Recast, Recaster, SurjectArena},
         PState,
     },
     Awi,
@@ -11,7 +11,7 @@ use awint::{
 use smallvec::SmallVec;
 
 use crate::{
-    ensemble::{DynamicValue, PBack},
+    ensemble::{DynamicValue, Equiv, PBack, Referent},
     triple_arena::ptr_struct,
 };
 
@@ -43,10 +43,13 @@ impl Recast<PBack> for LNode {
         recaster: &R,
     ) -> Result<(), <R as Recaster>::Item> {
         self.p_self.recast(recaster)?;
+        let mut res = Ok(());
         self.inputs_mut(|inp| {
-            inp.recast(recaster).unwrap();
+            if let Err(e) = inp.recast(recaster) {
+                res = Err(e);
+            }
         });
-        Ok(())
+        res
     }
 }
 
@@ -196,6 +199,7 @@ impl LNode {
     /// input bit to `bit`
     pub fn reduce_lut(lut: &mut Awi, i: usize, bit: bool) {
         debug_assert!(lut.bw().is_power_of_two());
+        debug_assert!(i < (lut.bw().trailing_zeros() as usize));
         let half = NonZeroUsize::new(lut.bw() / 2).unwrap();
         if lut.bw() > 64 {
             *lut = general_reduce_lut(lut, i, bit);
@@ -214,6 +218,7 @@ impl LNode {
         bit: bool,
     ) -> (Vec<DynamicValue>, Vec<PBack>) {
         debug_assert!(lut.len().is_power_of_two());
+        debug_assert!(i < (lut.len().trailing_zeros() as usize));
         let next_bw = lut.len() / 2;
         let mut next_lut = vec![DynamicValue::Unknown; next_bw];
         let mut removed = Vec::with_capacity(next_bw);
@@ -222,8 +227,13 @@ impl LNode {
         let mut to = 0;
         while to < next_bw {
             for j in 0..w {
-                next_lut[to + j] = lut[if bit { from + j } else { from }];
-                if let DynamicValue::Dynam(p_back) = lut[if !bit { from + j } else { from }] {
+                let mut tmp0 = lut[from + j];
+                let mut tmp1 = lut[from + w + j];
+                if bit {
+                    mem::swap(&mut tmp0, &mut tmp1);
+                }
+                next_lut[to + j] = tmp0;
+                if let DynamicValue::Dynam(p_back) = tmp1 {
                     removed.push(p_back);
                 }
             }
@@ -238,6 +248,7 @@ impl LNode {
     #[must_use]
     pub fn reduce_independent_lut(lut: &mut Awi, i: usize) -> bool {
         debug_assert!(lut.bw().is_power_of_two());
+        debug_assert!(i < (lut.bw().trailing_zeros() as usize));
         let half = NonZeroUsize::new(lut.bw() / 2).unwrap();
         if lut.bw() > 64 {
             general_reduce_independent_lut(lut, i)
@@ -248,5 +259,66 @@ impl LNode {
         } else {
             false
         }
+    }
+
+    /// The same as `reduce_independent_lut`, except it checks for independence
+    /// regarding dynamic LUT bits with equal constants or source equivalences
+    pub fn reduce_independent_dynamic_lut(
+        backrefs: &SurjectArena<PBack, Referent, Equiv>,
+        lut: &[DynamicValue],
+        i: usize,
+    ) -> Option<(Vec<DynamicValue>, Vec<PBack>)> {
+        debug_assert!(lut.len().is_power_of_two());
+        let next_bw = lut.len() / 2;
+        let w = 1 << i;
+        let mut from = 0;
+        let mut to = 0;
+        while to < next_bw {
+            for j in 0..w {
+                let tmp0 = &lut[from + j];
+                let tmp1 = &lut[from + w + j];
+                match tmp0 {
+                    DynamicValue::Unknown => return None,
+                    DynamicValue::Const(b0) => match tmp1 {
+                        DynamicValue::Unknown => return None,
+                        DynamicValue::Const(b1) => {
+                            if *b0 != *b1 {
+                                return None
+                            }
+                        }
+                        DynamicValue::Dynam(_) => return None,
+                    },
+                    DynamicValue::Dynam(p0) => match tmp1 {
+                        DynamicValue::Unknown => return None,
+                        DynamicValue::Const(_) => return None,
+                        DynamicValue::Dynam(p1) => {
+                            if !backrefs.in_same_set(*p0, *p1).unwrap() {
+                                return None
+                            }
+                        }
+                    },
+                }
+            }
+            from += 2 * w;
+            to += w;
+        }
+        // we can reduce if the loop did not terminate early
+        let mut res = Vec::with_capacity(next_bw);
+        let mut removed = Vec::with_capacity(next_bw);
+        let mut from = 0;
+        let mut to = 0;
+        while to < next_bw {
+            for j in 0..w {
+                let tmp0 = &lut[from + j];
+                let tmp1 = &lut[from + w + j];
+                res.push(*tmp0);
+                if let DynamicValue::Dynam(p) = tmp1 {
+                    removed.push(*p);
+                }
+            }
+            from += 2 * w;
+            to += w;
+        }
+        Some((res, removed))
     }
 }

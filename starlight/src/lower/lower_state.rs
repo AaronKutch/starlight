@@ -242,10 +242,10 @@ impl Ensemble {
                                     StaticLut(ConcatType::from_iter([inx]), lit);
                             }
                             lock.ensemble.dec_rc(lut).unwrap();
-                            false
-                        } else {
-                            true
                         }
+                        // else it is a dynamic LUT that could be lowered on the
+                        // `LNode` side if needed
+                        false
                     }
                     Get([bits, inx]) => {
                         if let Literal(ref lit) = lock.ensemble.stator.states[inx].op {
