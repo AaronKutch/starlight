@@ -196,7 +196,20 @@ impl Ensemble {
                     false
                 }
             }
-            LNodeKind::DynamicLut(inp, lut) => {
+            LNodeKind::DynamicLut(inp, ref mut lut) => {
+                // acquire LUT table inputs, convert to constants
+                for lut_bit in lut.iter_mut() {
+                    if let DynamicValue::Dynam(p) = lut_bit {
+                        let equiv = self.backrefs.get_val(*p).unwrap();
+                        if let Value::Const(val) = equiv.val {
+                            // we will be removing the input, mark it to be investigated
+                            self.optimizer
+                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                            self.backrefs.remove_key(*p).unwrap();
+                            *lut_bit = DynamicValue::Const(val);
+                        }
+                    }
+                }
                 // acquire LUT inputs, for every constant input reduce the LUT
                 let mut len = usize::from(u8::try_from(inp.len()).unwrap());
                 for i in (0..len).rev() {
@@ -265,12 +278,11 @@ impl Ensemble {
                     break
                 }*/
 
-                /*
                 // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
                 for i in (0..len).rev() {
                     if lut.len() > 1 {
                         if let Some((reduced, removed)) =
-                            LNode::reduce_independent_dynamic_lut(&self.backrefs, &lut, i)
+                            LNode::reduce_independent_dynamic_lut(&self.backrefs, lut, i)
                         {
                             // independent of the `i`th bit
                             *lut = reduced;
@@ -290,7 +302,6 @@ impl Ensemble {
                 }
                 // sort inputs so that `LNode`s can be compared later
                 // TODO?
-                */
 
                 let w = NonZeroUsize::new(lut.len()).unwrap();
 

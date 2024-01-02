@@ -350,9 +350,9 @@ fn lut_dynamic_optimization() {
     // The first number is the base number of iterations, the others are counters to
     // make sure the rng isn't broken
     const N: (u64, u64, u64) = if cfg!(debug_assertions) {
-        (32, 1984, 470)
+        (32, 1984, 690)
     } else {
-        (512, 31744, 7371)
+        (512, 31744, 9575)
     };
     let mut rng = StarRng::new(0);
     let mut num_lut_bits = 0u64;
@@ -388,13 +388,18 @@ fn lut_dynamic_optimization() {
                     remaining_inp_len -= 1;
                 }
             }
-            for i in (0..remaining_inp_len).rev() {
-                if expected_lut.bw() == 1 {
-                    break
-                }
-                if general_reduce_independent_lut(&mut expected_lut, i) {
-                    known_lut_bits_reduced =
-                        general_reduce_lut(&known_lut_bits_reduced, i, lut_input.get(i).unwrap());
+            if known_lut_bits_reduced.is_umax() {
+                for i in (0..remaining_inp_len).rev() {
+                    if expected_lut.bw() == 1 {
+                        break
+                    }
+                    if general_reduce_independent_lut(&mut expected_lut, i) {
+                        known_lut_bits_reduced = general_reduce_lut(
+                            &known_lut_bits_reduced,
+                            i,
+                            lut_input.get(i).unwrap(),
+                        );
+                    }
                 }
             }
             num_simplified_lut_bits += expected_lut.bw() as u64;
@@ -440,15 +445,19 @@ fn lut_dynamic_optimization() {
                 epoch.optimize().unwrap();
 
                 {
-                    use awi::*;
                     epoch.ensemble(|ensemble| {
-                        if known_lut_bits_reduced.is_umax() {
-                            if known_lut_bits_reduced.bw() == 1 {
-                                // there should be no `LNode` since it was optimized to a
-                                // constant
+                        if known_lut_bits_reduced.bw() == 1 {
+                            // there should be no `LNode` since it was optimized to a
+                            // constant or forwarded
+                            let mut tmp = ensemble.lnodes.vals();
+                            awi::assert!(tmp.next().is_none());
+                            awi::assert_eq!(expected_lut.bw(), 1);
+                        } else if known_lut_bits_reduced.is_umax() {
+                            if (expected_lut.bw() == 1)
+                                || ((expected_lut.bw() == 2) && expected_lut.get(1).unwrap())
+                            {
                                 let mut tmp = ensemble.lnodes.vals();
                                 awi::assert!(tmp.next().is_none());
-                                awi::assert_eq!(expected_lut.bw(), 1);
                             } else {
                                 // there should be one static LUT `LNode`
                                 let mut tmp = ensemble.lnodes.vals();
@@ -488,6 +497,7 @@ fn lut_dynamic_optimization() {
                     }
                 }
                 awi::assert_eq!(output.eval_bool().unwrap(), expected_output.to_bool());
+                epoch.verify_integrity().unwrap();
                 drop(epoch);
             }
 
