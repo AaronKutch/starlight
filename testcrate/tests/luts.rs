@@ -501,8 +501,7 @@ fn lut_dynamic_optimization() {
                 drop(epoch);
             }
 
-            /*
-            // subtest 3: make sure evaluation can handle dynamically unknown inputs in
+            // subtest to make sure evaluation can handle dynamically unknown inputs in
             // several cases
             {
                 let epoch = Epoch::new();
@@ -515,9 +514,16 @@ fn lut_dynamic_optimization() {
                     total.set(i, tmp.to_bool()).unwrap();
                     inputs.push(tmp);
                 }
+                let mut total_lut_bits = Awi::zero(lut.nzbw());
+                let mut lut_bits = vec![];
+                for i in 0..lut.bw() {
+                    let tmp = LazyAwi::opaque(bw(1));
+                    total_lut_bits.set(i, tmp.to_bool()).unwrap();
+                    lut_bits.push(tmp);
+                }
 
                 let mut output = Awi::zero(bw(1));
-                output.lut_(&Awi::from(&lut), &total).unwrap();
+                output.lut_(&total_lut_bits, &total).unwrap();
                 let output = EvalAwi::from(&output);
                 epoch.optimize().unwrap();
 
@@ -526,7 +532,12 @@ fn lut_dynamic_optimization() {
                         inputs[i].retro_bool_(lut_input.get(i).unwrap()).unwrap();
                     }
                 }
-                if expected_lut.bw() == 1 {
+                for i in 0..lut_w.get() {
+                    if known_lut_bits.get(i).unwrap() {
+                        lut_bits[i].retro_bool_(lut.get(i).unwrap()).unwrap();
+                    }
+                }
+                if (expected_lut.bw() == 1) && (known_lut_bits_reduced.is_umax()) {
                     // evaluation should produce a known value
                     awi::assert_eq!(output.eval_bool().unwrap(), expected_output.to_bool());
                 } else {
@@ -535,7 +546,7 @@ fn lut_dynamic_optimization() {
                 }
 
                 drop(epoch);
-            }*/
+            }
         }
     }
     assert_eq!((num_lut_bits, num_simplified_lut_bits), (N.1, N.2));
