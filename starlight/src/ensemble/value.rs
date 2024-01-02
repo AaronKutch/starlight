@@ -378,7 +378,7 @@ impl Ensemble {
                         //
                     } else {}
                 }*/
-                for i in (0..len).rev() {
+                for i in (0..inp.len()).rev() {
                     if (!fixed.get(i).unwrap()) || unknown.get(i).unwrap() {
                         res.push(RequestLNode {
                             depth: depth - 1,
@@ -463,50 +463,41 @@ impl Ensemble {
                         reduced_lut = LNode::reduce_dynamic_lut(&reduced_lut, i, bit).0;
                         // remove the input bits
                         len = len.checked_sub(1).unwrap();
-                        if len == 0 {
-                            // only one LUT bit left, no inputs
-                            if lut_fixed.get(0).unwrap() {
-                                if lut_unknown.get(0).unwrap() {
-                                    self.evaluator.insert(Eval::Change(Change {
-                                        depth,
-                                        p_equiv,
-                                        value: Value::Unknown,
-                                    }));
-                                    return vec![];
-                                } else {
-                                    self.evaluator.insert(Eval::Change(Change {
-                                        depth,
-                                        p_equiv,
-                                        value: Value::Dynam(lut.get(0).unwrap()),
-                                    }));
-                                    return vec![];
-                                }
-                            } else {
-                                let lut_bit = reduced_lut[0];
-                                match lut_bit {
-                                    DynamicValue::Unknown | DynamicValue::Const(_) => {
-                                        unreachable!()
-                                    }
-                                    DynamicValue::Dynam(p) => {
-                                        res.push(RequestLNode {
-                                            depth: depth - 1,
-                                            number_a: 0,
-                                            p_back_lnode: p,
-                                        });
-                                        return res;
-                                    }
-                                }
+                    }
+                }
+                if len == 0 {
+                    // only one LUT bit left, no inputs
+                    if lut_fixed.get(0).unwrap() {
+                        if lut_unknown.get(0).unwrap() {
+                            self.evaluator.insert(Eval::Change(Change {
+                                depth,
+                                p_equiv,
+                                value: Value::Unknown,
+                            }));
+                            return vec![];
+                        } else {
+                            self.evaluator.insert(Eval::Change(Change {
+                                depth,
+                                p_equiv,
+                                value: Value::Dynam(lut.get(0).unwrap()),
+                            }));
+                            return vec![];
+                        }
+                    } else {
+                        let lut_bit = reduced_lut[0];
+                        match lut_bit {
+                            DynamicValue::Unknown | DynamicValue::Const(_) => {
+                                unreachable!()
+                            }
+                            DynamicValue::Dynam(p) => {
+                                res.push(RequestLNode {
+                                    depth: depth - 1,
+                                    number_a: 0,
+                                    p_back_lnode: p,
+                                });
+                                return res;
                             }
                         }
-                        let w = NonZeroUsize::new(len).unwrap();
-                        if i != len {
-                            cc!(.., inp_val[(i + 1)..], ..i; inp_val).unwrap();
-                            cc!(.., fixed[(i + 1)..], ..i; fixed).unwrap();
-                            cc!(.., unknown[(i + 1)..], ..i; unknown).unwrap();
-                        }
-                        inp_val.zero_resize(w);
-                        fixed.zero_resize(w);
-                        unknown.zero_resize(w);
                     }
                 }
                 // TODO better early `Unknown` change detection
@@ -532,7 +523,7 @@ impl Ensemble {
                     }
                 }
 
-                for i in (0..len).rev() {
+                for i in (0..inp.len()).rev() {
                     if (!fixed.get(i).unwrap()) || unknown.get(i).unwrap() {
                         res.push(RequestLNode {
                             depth: depth - 1,
