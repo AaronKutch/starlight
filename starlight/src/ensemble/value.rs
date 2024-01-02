@@ -414,6 +414,7 @@ impl Ensemble {
                     }
                 }
                 let mut lut = Awi::zero(NonZeroUsize::new(original_lut.len()).unwrap());
+                let mut reduced_lut = original_lut.clone();
                 // this kind of unknown includes unfixed bits
                 let mut lut_unknown = lut.clone();
                 for (i, value) in original_lut.iter().enumerate() {
@@ -442,8 +443,10 @@ impl Ensemble {
                         break
                     }
                     if fixed.get(i).unwrap() && (!unknown.get(i).unwrap()) {
-                        LNode::reduce_lut(&mut lut, i, inp_val.get(i).unwrap());
-                        LNode::reduce_lut(&mut lut_unknown, i, inp_val.get(i).unwrap());
+                        let bit = inp_val.get(i).unwrap();
+                        LNode::reduce_lut(&mut lut, i, bit);
+                        LNode::reduce_lut(&mut lut_unknown, i, bit);
+                        reduced_lut = LNode::reduce_dynamic_lut(&reduced_lut, i, bit).0;
                         // remove the input bits
                         len -= 1;
                         let w = NonZeroUsize::new(len).unwrap();
@@ -510,6 +513,17 @@ impl Ensemble {
                             depth: depth - 1,
                             number_a: 0,
                             p_back_lnode: inp[i],
+                        });
+                    }
+                }
+                // make sure we only request the LUT bits we need
+                for lut_bit in reduced_lut {
+                    if let DynamicValue::Dynam(p) = lut_bit {
+                        // TODO make the priority make the index bits always requested fully first
+                        res.push(RequestLNode {
+                            depth: depth - 1,
+                            number_a: 0,
+                            p_back_lnode: p,
                         });
                     }
                 }

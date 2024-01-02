@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{mem, num::NonZeroUsize};
 
 use awint::{
     awint_dag::{
@@ -292,8 +292,10 @@ impl Ensemble {
                 // TODO?
                 */
 
-                // special case
-                if lut.len() == 1 {
+                let w = NonZeroUsize::new(lut.len()).unwrap();
+
+                // special case forwarding
+                if w.get() == 1 {
                     let bit = lut[0];
                     match bit {
                         DynamicValue::Unknown => {
@@ -313,15 +315,41 @@ impl Ensemble {
                         }
                         DynamicValue::Dynam(bit) => {
                             lnode.kind = LNodeKind::Copy(bit);
+                            self.optimizer
+                                .insert(Optimization::ForwardEquiv(lnode.p_self));
+                            return Ok(false)
                         }
                     }
                 }
 
-                // TODO all const
+                // check if all const
+                let mut all_const = true;
+                for lut_bit in lut.iter() {
+                    match lut_bit {
+                        DynamicValue::Const(_) => (),
+                        DynamicValue::Unknown | DynamicValue::Dynam(_) => {
+                            all_const = false;
+                            break
+                        }
+                    }
+                }
 
-                // input independence automatically reduces all zeros and all ones LUTs, so just
-                // need to check if the LUT is one bit for constant generation
-
+                if all_const {
+                    let mut awi_lut = Awi::zero(w);
+                    for (i, lut_bit) in lut.iter().enumerate() {
+                        if let DynamicValue::Const(b) = lut_bit {
+                            awi_lut.set(i, *b).unwrap();
+                        }
+                    }
+                    if (w.get() == 2) && awi_lut.get(1).unwrap() {
+                        lnode.kind = LNodeKind::Copy(inp[0]);
+                        self.optimizer
+                            .insert(Optimization::ForwardEquiv(lnode.p_self));
+                    } else {
+                        let inp = mem::take(inp);
+                        lnode.kind = LNodeKind::Lut(inp, awi_lut);
+                    }
+                }
                 false
             }
         })
