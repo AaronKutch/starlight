@@ -210,7 +210,7 @@ impl Ensemble {
                         self.backrefs.remove_key(p_inp).unwrap();
                         inp.remove(i);
 
-                        let (tmp, removed) = LNode::reduce_dynamic_lut(&lut, i, val);
+                        let (tmp, removed) = LNode::reduce_dynamic_lut(lut, i, val);
                         *lut = tmp;
                         for remove in removed {
                             let equiv = self.backrefs.get_val(remove).unwrap();

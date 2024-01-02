@@ -158,6 +158,7 @@ fn general_reduce_independent_lut(lut: &mut Awi, i: usize) -> bool {
     }
 }
 
+#[derive(Debug)]
 enum DynamicBool {
     Bool(bool),
     Lazy(LazyAwi),
@@ -438,29 +439,42 @@ fn lut_dynamic_optimization() {
                 let output = EvalAwi::from(&output);
                 epoch.optimize().unwrap();
 
-                /*{
+                {
                     use awi::*;
                     epoch.ensemble(|ensemble| {
-                        if expected_lut.bw() == 1 {
-                            // there should be no `LNode` since it was optimized to a
-                            // constant
-                            let mut tmp = ensemble.lnodes.vals();
-                            awi::assert!(tmp.next().is_none());
-                            awi::assert_eq!(expected_lut.bw(), 1);
+                        if known_lut_bits_reduced.is_umax() {
+                            if known_lut_bits_reduced.bw() == 1 {
+                                // there should be no `LNode` since it was optimized to a
+                                // constant
+                                let mut tmp = ensemble.lnodes.vals();
+                                awi::assert!(tmp.next().is_none());
+                                awi::assert_eq!(expected_lut.bw(), 1);
+                            } else {
+                                // there should be one static LUT `LNode`
+                                let mut tmp = ensemble.lnodes.vals();
+                                let lnode = tmp.next().unwrap();
+                                awi::assert!(tmp.next().is_none());
+                                match &lnode.kind {
+                                    LNodeKind::Lut(_, lnode_lut) => {
+                                        awi::assert_eq!(*lnode_lut, expected_lut);
+                                    }
+                                    _ => unreachable!(),
+                                }
+                            }
                         } else {
-                            // get the sole `LNode` that should exist by this point
+                            // there should be one dynamic LUT `LNode`
                             let mut tmp = ensemble.lnodes.vals();
                             let lnode = tmp.next().unwrap();
                             awi::assert!(tmp.next().is_none());
                             match &lnode.kind {
-                                LNodeKind::Lut(_, lnode_lut) => {
-                                    awi::assert_eq!(*lnode_lut, expected_lut);
+                                LNodeKind::DynamicLut(_, lnode_lut) => {
+                                    awi::assert_eq!(lnode_lut.len(), expected_lut.bw());
                                 }
                                 _ => unreachable!(),
                             }
                         }
                     });
-                }*/
+                }
 
                 // set unknown inputs
                 for (i, input) in inputs.iter().enumerate() {
@@ -473,11 +487,7 @@ fn lut_dynamic_optimization() {
                         b.retro_bool_(lut.get(i).unwrap()).unwrap();
                     }
                 }
-                // TODO
-                //awi::assert_eq!(output.eval_bool().unwrap(), expected_output.to_bool());
-                if let awi::Ok(res) = output.eval_bool() {
-                    awi::assert_eq!(res, expected_output.to_bool());
-                }
+                awi::assert_eq!(output.eval_bool().unwrap(), expected_output.to_bool());
                 drop(epoch);
             }
 

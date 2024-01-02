@@ -111,7 +111,7 @@ fn all_variations() {
     epoch.verify_integrity().unwrap();
     assert!(y1.eval().is_err());
     x1.retro_bool_(true).unwrap();
-    assert_eq!(y1.eval_bool().unwrap(), true);
+    assert!(y1.eval_bool().unwrap());
     assert!(y8.eval().is_err());
     x8.retro_u8_(u8::MAX).unwrap();
     assert_eq!(y8.eval_u8().unwrap(), u8::MAX);
