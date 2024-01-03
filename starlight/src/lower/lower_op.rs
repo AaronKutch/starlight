@@ -661,7 +661,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                     x0.clone()
                 }
             } else {
-                mux_(&x0, &x1, &inx_tmp)
+                static_mux(&x0, &x1, &inx_tmp)
             };
             m.graft(&[out.state(), x0.state(), x1.state(), inx_tmp.state()]);
         }

@@ -123,10 +123,6 @@ pub fn reverse(x: &Bits) -> Awi {
     concat(nzbw, out)
 }
 
-/// Given `inx.bw()` bits, this returns `2^inx.bw()` signals for every possible
-/// state of `inx`. The `i`th signal is true only if `inx.to_usize() == i`.
-/// `cap` optionally restricts the number of signals. If `cap` is 0, there is
-/// one signal line set to true unconditionally.
 pub fn selector(inx: &Bits, cap: Option<usize>) -> Vec<inlawi_ty!(1)> {
     let num = cap.unwrap_or_else(|| 1usize << inx.bw());
     if num == 0 {
@@ -137,7 +133,7 @@ pub fn selector(inx: &Bits, cap: Option<usize>) -> Vec<inlawi_ty!(1)> {
         return vec![inlawi!(1)]
     }
     let lb_num = num.next_power_of_two().trailing_zeros() as usize;
-    let mut signals = vec![];
+    let mut signals = Vec::with_capacity(num);
     for i in 0..num {
         let mut signal = inlawi!(1);
         for j in 0..lb_num {
@@ -178,6 +174,45 @@ pub fn selector_awi(inx: &Bits, cap: Option<usize>) -> Awi {
         signals.push(signal.state());
     }
     concat(nzbw, signals)
+}
+
+pub fn static_mux(x0: &Bits, x1: &Bits, inx: &Bits) -> Awi {
+    debug_assert_eq!(x0.bw(), x1.bw());
+    debug_assert_eq!(inx.bw(), 1);
+    let nzbw = x0.nzbw();
+    let mut signals = SmallVec::with_capacity(nzbw.get());
+    for i in 0..x0.bw() {
+        let mut tmp = inlawi!(0);
+        static_lut!(tmp; 1100_1010; x0.get(i).unwrap(), x1.get(i).unwrap(), inx);
+        signals.push(tmp.state());
+    }
+    concat(nzbw, signals)
+}
+
+// uses dynamic LUTs to wholesale multiplex one or more inputs
+pub fn general_mux(inputs: &[Awi], inx: &Bits) -> Awi {
+    debug_assert!(!inputs.is_empty());
+    let nzbw = inputs[0].nzbw();
+    let lut_w = NonZeroUsize::new(inputs.len().next_power_of_two()).unwrap();
+    debug_assert_eq!(1 << inx.bw(), lut_w.get());
+    let mut out_signals = SmallVec::with_capacity(nzbw.get());
+    let unknown = Awi::opaque(bw(1));
+    for out_i in 0..nzbw.get() {
+        let mut lut = Vec::with_capacity(lut_w.get());
+        for input in inputs {
+            lut.push((input.state(), out_i, bw(1)));
+        }
+        // fill up the rest of the way as necessary
+        for _ in lut.len()..lut_w.get() {
+            lut.push((unknown.state(), 0, bw(1)));
+        }
+        let lut = Awi::new(
+            lut_w,
+            Op::ConcatFields(ConcatFieldsType::from_iter(lut.iter().cloned())),
+        );
+        out_signals.push(Awi::new(bw(1), Op::Lut([lut.state(), inx.state()])).state());
+    }
+    concat(nzbw, out_signals)
 }
 
 /// Trailing smear, given the value of `inx` it will set all bits in the vector
@@ -250,19 +285,6 @@ pub fn tsmear_awi(inx: &Bits, num_signals: usize) -> Awi {
             }
         }
         signals.push(signal.state());
-    }
-    concat(nzbw, signals)
-}
-
-pub fn mux_(x0: &Bits, x1: &Bits, inx: &Bits) -> Awi {
-    debug_assert_eq!(x0.bw(), x1.bw());
-    debug_assert_eq!(inx.bw(), 1);
-    let nzbw = x0.nzbw();
-    let mut signals = SmallVec::with_capacity(nzbw.get());
-    for i in 0..x0.bw() {
-        let mut tmp = inlawi!(0);
-        static_lut!(tmp; 1100_1010; x0.get(i).unwrap(), x1.get(i).unwrap(), inx);
-        signals.push(tmp.state());
     }
     concat(nzbw, signals)
 }
