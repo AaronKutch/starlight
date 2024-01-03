@@ -15,16 +15,16 @@ fn stats_optimize_funnel() {
     epoch.lower().unwrap();
     epoch.assert_assertions(true).unwrap();
     epoch.ensemble(|ensemble| {
-        awi::assert_eq!(ensemble.stator.states.len(), 2356);
-        awi::assert_eq!(ensemble.backrefs.len_keys(), 8303);
-        awi::assert_eq!(ensemble.backrefs.len_vals(), 1237);
+        awi::assert_eq!(ensemble.stator.states.len(), 68);
+        awi::assert_eq!(ensemble.backrefs.len_keys(), 2607);
+        awi::assert_eq!(ensemble.backrefs.len_vals(), 101);
     });
     epoch.optimize().unwrap();
     epoch.assert_assertions(true).unwrap();
     epoch.ensemble(|ensemble| {
         awi::assert_eq!(ensemble.stator.states.len(), 0);
-        awi::assert_eq!(ensemble.backrefs.len_keys(), 5818);
-        awi::assert_eq!(ensemble.backrefs.len_vals(), 1237);
+        awi::assert_eq!(ensemble.backrefs.len_keys(), 1418);
+        awi::assert_eq!(ensemble.backrefs.len_vals(), 101);
     });
 }
 

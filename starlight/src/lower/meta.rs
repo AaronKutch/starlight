@@ -478,11 +478,13 @@ pub fn field_width(lhs: &Bits, rhs: &Bits, width: &Bits) -> Awi {
     }
 }
 
+// old static strategy if we need it
+
 /// Given the diagonal control lines and input of a crossbar with output width
 /// s.t. `input.bw() + out.bw() - 1 = signals.bw()`, returns the output. The
-/// `i`th input bit and `j`th output bit are controlled by the `out.bw()
-/// - 1 + i - j`th control line. `signal_range` uses a virtual `..` range of the
-///   possible signals.
+/// `i`th input bit and `j`th output bit are controlled by the
+/// `out.bw() - 1 + i - j`th control line.
+/// `signal_range` uses a virtual `..` range of the possible signals.
 pub fn crossbar(
     output: &mut Bits,
     input: &Bits,
@@ -512,7 +514,7 @@ pub fn crossbar(
     concat_update(output, nzbw, tmp_output)
 }
 
-pub fn funnel_(x: &Bits, s: &Bits) -> Awi {
+/*pub fn funnel(x: &Bits, s: &Bits) -> Awi {
     debug_assert_eq!(x.bw() & 1, 0);
     debug_assert_eq!(x.bw() / 2, 1 << s.bw());
     let mut out = Awi::zero(NonZeroUsize::new(x.bw() / 2).unwrap());
@@ -522,13 +524,25 @@ pub fn funnel_(x: &Bits, s: &Bits) -> Awi {
     let range = (out.bw() - 1, out.bw() - 1 + out.bw());
     crossbar(&mut out, x, &signals, range);
     out
+}*/
+
+pub fn funnel(x: &Bits, s: &Bits) -> Awi {
+    debug_assert!((s.bw() < (USIZE_BITS - 1)) && ((2usize << s.bw()) == x.bw()));
+    let out_w = NonZeroUsize::new(1 << s.bw()).unwrap();
+    let mut output = SmallVec::with_capacity(out_w.get());
+    for j in 0..out_w.get() {
+        let lut = Awi::new(
+            out_w,
+            Op::ConcatFields(ConcatFieldsType::from_iter([(x.state(), j, out_w)])),
+        );
+        output.push(Awi::new(bw(1), Op::Lut([lut.state(), s.state()])).state());
+    }
+    concat(out_w, output)
 }
 
 /// Setting `width` to 0 guarantees that nothing happens even with other
 /// arguments being invalid
 pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
-    debug_assert_eq!(from.bw(), USIZE_BITS);
-    debug_assert_eq!(width.bw(), USIZE_BITS);
     let mut out = Awi::from_bits(lhs);
     // the `width == 0` case will result in a no-op from the later `field_width`
     // part, so we need to be able to handle just `rhs.bw()` possible shifts for
@@ -539,9 +553,19 @@ pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
     let range = (rhs.bw() - 1, 2 * rhs.bw() - 1);
     let mut tmp = Awi::zero(rhs.nzbw());
     crossbar(&mut tmp, rhs, &signals, range);
-    out.field_width(&tmp, width.to_usize()).unwrap();
+
+    /*let s_w = rhs.bw().next_power_of_two().trailing_zeros() as usize;
+    let mut s = Awi::zero(NonZeroUsize::new(s_w).unwrap());
+    s.resize_(&from, false);
+    let mut x = Awi::opaque(NonZeroUsize::new(2 << s_w).unwrap());
+    // this is done on purpose so there are opaque bits
+    x.field_width(&rhs, rhs.bw()).unwrap_at_runtime();
+    let tmp = funnel(&x, &s);*/
+    let _ = out.field_width(&tmp, width.to_usize());
     out
 }
+
+// FIXME use `unwrap_at_runtime` or dropping `let _ =` in more places
 
 pub fn shl(x: &Bits, s: &Bits) -> Awi {
     debug_assert_eq!(s.bw(), USIZE_BITS);
