@@ -494,14 +494,16 @@ fn lower_elementary_to_lnodes_intermediate(
             }
         }
         Mux([lhs, rhs, b]) => {
+            let out_bw = this.stator.states[p_state].p_self_bits.len();
             let inx_bit = &this.stator.states[b].p_self_bits;
             debug_assert_eq!(inx_bit.len(), 1);
+            debug_assert_eq!(out_bw, this.stator.states[lhs].p_self_bits.len());
+            debug_assert_eq!(out_bw, this.stator.states[rhs].p_self_bits.len());
             let inx_bit = inx_bit[0];
 
-            let out_bw = this.stator.states[p_state].p_self_bits.len();
             for bit_i in 0..out_bw {
-                let lut0 = this.stator.states[lhs].p_self_bits[0].unwrap();
-                let lut1 = this.stator.states[rhs].p_self_bits[0].unwrap();
+                let lut0 = this.stator.states[lhs].p_self_bits[bit_i].unwrap();
+                let lut1 = this.stator.states[rhs].p_self_bits[bit_i].unwrap();
                 let p_equiv0 = this
                     .make_dynamic_lut(
                         &[inx_bit],

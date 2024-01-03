@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use std::num::NonZeroUsize;
 
 use starlight::{

@@ -217,8 +217,7 @@ impl Ensemble {
                     Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..) | Repeat(_)
                     | StaticLut(..) => false,
                     // for dynamic LUTs
-                    // FIXME
-                    Mux(_) => true,
+                    Mux(_) => false,
                     Lut([lut, inx]) => {
                         if let Literal(ref lit) = lock.ensemble.stator.states[lut].op {
                             let lit = lit.clone();

@@ -245,6 +245,18 @@ impl fmt::Debug for LazyAwi {
 
 forward_debug_fmt!(LazyAwi);
 
+impl From<&LazyAwi> for dag::Awi {
+    fn from(value: &LazyAwi) -> Self {
+        dag::Awi::from(value.as_ref())
+    }
+}
+
+impl From<&LazyAwi> for dag::ExtAwi {
+    fn from(value: &LazyAwi) -> Self {
+        dag::ExtAwi::from(value.as_ref())
+    }
+}
+
 /// The same as [LazyAwi](crate::LazyAwi), except that it allows for checking
 /// bitwidths at compile time.
 #[derive(Clone)]
