@@ -215,6 +215,31 @@ pub fn general_mux(inputs: &[Awi], inx: &Bits) -> Awi {
     concat(nzbw, out_signals)
 }
 
+// uses dynamic LUTs under the hood
+pub fn dynamic_to_static_get(bits: &Bits, inx: &Bits) -> inlawi_ty!(1) {
+    if bits.bw() == 1 {
+        return InlAwi::from(bits.to_bool())
+    }
+    /*let signals = selector(inx, Some(bits.bw()));
+    let mut out = inlawi!(0);
+    for (i, signal) in signals.iter().enumerate() {
+        static_lut!(out; 1111_1000; signal, bits.get(i).unwrap(), out);
+    }
+    out*/
+    let lut_w = NonZeroUsize::new(bits.bw().next_power_of_two()).unwrap();
+    let inx_w = NonZeroUsize::new(lut_w.get().trailing_zeros() as usize).unwrap();
+    let mut true_inx = Awi::zero(inx_w);
+    true_inx.field_width(&inx, inx_w.get()).unwrap();
+    let base = if bits.bw() == lut_w.get() {
+        Awi::from(bits)
+    } else {
+        let unknowns =
+            Awi::opaque(NonZeroUsize::new(lut_w.get().checked_sub(bits.bw()).unwrap()).unwrap());
+        concat(lut_w, smallvec![bits.state(), unknowns.state()])
+    };
+    InlAwi::new(Op::Lut([base.state(), true_inx.state()]))
+}
+
 /// Trailing smear, given the value of `inx` it will set all bits in the vector
 /// up to but not including the one indexed by `inx`. This means that
 /// `inx.to_usize() == 0` sets no bits, and `inx.to_usize() == num_bits` sets
@@ -322,18 +347,6 @@ pub fn dynamic_to_static_lut(out: &mut Bits, table: &Bits, inx: &Bits) {
         tmp_output.push(column.state());
     }
     concat_update(out, nzbw, tmp_output)
-}
-
-pub fn dynamic_to_static_get(bits: &Bits, inx: &Bits) -> inlawi_ty!(1) {
-    if bits.bw() == 1 {
-        return InlAwi::from(bits.to_bool())
-    }
-    let signals = selector(inx, Some(bits.bw()));
-    let mut out = inlawi!(0);
-    for (i, signal) in signals.iter().enumerate() {
-        static_lut!(out; 1111_1000; signal, bits.get(i).unwrap(), out);
-    }
-    out
 }
 
 pub fn dynamic_to_static_set(bits: &Bits, inx: &Bits, bit: &Bits) -> Awi {
