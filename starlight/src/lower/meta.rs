@@ -571,8 +571,9 @@ pub fn shl(x: &Bits, s: &Bits) -> Awi {
     if let Some(small_s_w) = Bits::nontrivial_bits(x.bw() - 1) {
         let mut small_s = Awi::zero(small_s_w);
         small_s.resize_(s, false);
-        // FIXME
-        let mut wide_x = Awi::zero(NonZeroUsize::new(2 << small_s_w.get()).unwrap());
+        let mut wide_x = Awi::opaque(NonZeroUsize::new(2 << small_s_w.get()).unwrap());
+        // need zeros for the bits that are shifted in
+        let _ = wide_x.field_to(x.bw(), &Awi::zero(x.nzbw()), x.bw());
         let mut rev_x = Awi::zero(x.nzbw());
         rev_x.copy_(&x).unwrap();
         // we have two reversals so that the shift acts leftward
