@@ -540,32 +540,29 @@ pub fn funnel(x: &Bits, s: &Bits) -> Awi {
     concat(out_w, output)
 }
 
-/// Setting `width` to 0 guarantees that nothing happens even with other
-/// arguments being invalid
+/// Assumes that `from` and `width` is in range, however setting `width` to 0
+/// guarantees that nothing happens to `lhs` even with `from` being out of range
 pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
     let mut out = Awi::from_bits(lhs);
-    // the `width == 0` case will result in a no-op from the later `field_width`
-    // part, so we need to be able to handle just `rhs.bw()` possible shifts for
-    // `width == 1` cases. There are `rhs.bw()` output bars needed. `from == 0`
-    // should connect the zeroeth crossbars, so the offset is `rhs.bw() - 1 + 0 -
-    // 0`. `j` stays zero and we have `0 <= i < rhs.bw()`
-    /*let signals = selector(from, Some(rhs.bw()));
-    let range = (rhs.bw() - 1, 2 * rhs.bw() - 1);
-    let mut tmp = Awi::zero(rhs.nzbw());
-    crossbar(&mut tmp, rhs, &signals, range);*/
+    // the max shift value that can be anything but a no-op
+    if let Some(s_w) = Bits::nontrivial_bits(rhs.bw() - 1) {
+        let mut s = Awi::zero(s_w);
+        s.resize_(from, false);
+        // TODO make opaque
+        let mut x = Awi::zero(NonZeroUsize::new(2 << s_w.get()).unwrap());
+        // this is done on purpose so there are opaque bits
+        //let _ = x.field_width(&rhs, rhs.bw());
+        x.resize_(rhs, false);
+        let tmp = funnel(&x, &s);
 
-    // FIXME this can go lower
-    let s_w = Bits::nontrivial_bits(rhs.bw()).unwrap();
-    let mut s = Awi::zero(s_w);
-    s.resize_(from, false);
-    // TODO make opaque
-    let mut x = Awi::zero(NonZeroUsize::new(2 << s_w.get()).unwrap());
-    // this is done on purpose so there are opaque bits
-    //let _ = x.field_width(&rhs, rhs.bw());
-    x.resize_(rhs, false);
-    let tmp = funnel(&x, &s);
-
-    let _ = out.field_width(&tmp, width.to_usize());
+        let max_width = min(lhs.bw(), rhs.bw());
+        let mut small_width = Awi::zero(Bits::nontrivial_bits(max_width).unwrap());
+        small_width.resize_(width, false);
+        let _ = out.field_width(&tmp, small_width.to_usize());
+    } else {
+        let small_width = Awi::from_bool(width.lsb());
+        let _ = out.field_width(&rhs, small_width.to_usize());
+    }
     out
 }
 
