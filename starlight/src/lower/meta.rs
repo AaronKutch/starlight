@@ -813,10 +813,14 @@ pub fn negator(x: &Bits, neg: &Bits) -> Awi {
 /// Setting `width` to 0 guarantees that nothing happens even with other
 /// arguments being invalid
 pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
-    debug_assert_eq!(to.bw(), USIZE_BITS);
-    debug_assert_eq!(width.bw(), USIZE_BITS);
-
-    // simplified version of `field` below
+    let mut out = Awi::from_bits(lhs);
+    // the max shift value that can be anything but a no-op
+    if let Some(s_w) = Bits::nontrivial_bits(lhs.bw() - 1) {
+    } else {
+        let small_width = Awi::from_bool(width.lsb());
+        let _ = out.field_width(rhs, small_width.to_usize());
+        return out
+    }
 
     let num = lhs.bw();
     let next_pow = num.next_power_of_two();

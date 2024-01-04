@@ -202,7 +202,8 @@ pub fn lower_op<P: Ptr + DummyDefault>(
 
                 let success =
                     Bits::efficient_add_then_ule(from.to_usize(), width.to_usize(), rhs.bw());
-                let max_width_w = Bits::nontrivial_bits(rhs.bw()).unwrap();
+                let max = min(lhs.bw(), rhs.bw());
+                let max_width_w = Bits::nontrivial_bits(max).unwrap();
                 let width_small =
                     Bits::static_field(&Awi::zero(max_width_w), 0, &width, 0, max_width_w.get())
                         .unwrap();
@@ -491,6 +492,18 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                 ]);
             } else {
                 let to = Awi::opaque(m.get_nzbw(to));
+
+                let success =
+                    Bits::efficient_add_then_ule(to.to_usize(), width.to_usize(), lhs.bw());
+                let max = min(lhs.bw(), rhs.bw());
+                let max_width_w = Bits::nontrivial_bits(max).unwrap();
+                let width_small =
+                    Bits::static_field(&Awi::zero(max_width_w), 0, &width, 0, max_width_w.get())
+                        .unwrap();
+                // to achieve a no-op we simply set the width to zero
+                let mut tmp_width = Awi::zero(max_width_w);
+                tmp_width.mux_(&width_small, success.is_some()).unwrap();
+
                 let out = field_to(&lhs, &to, &rhs, &width);
                 m.graft(&[
                     out.state(),
