@@ -573,9 +573,9 @@ pub fn shl(x: &Bits, s: &Bits) -> Awi {
         small_s.resize_(s, false);
         let mut wide_x = Awi::opaque(NonZeroUsize::new(2 << small_s_w.get()).unwrap());
         // need zeros for the bits that are shifted in
-        let _ = wide_x.field_to(x.bw(), &Awi::zero(x.nzbw()), x.bw());
+        let _ = wide_x.field_to(x.bw(), &Awi::zero(x.nzbw()), x.bw() - 1);
         let mut rev_x = Awi::zero(x.nzbw());
-        rev_x.copy_(&x).unwrap();
+        rev_x.copy_(x).unwrap();
         // we have two reversals so that the shift acts leftward
         rev_x.rev_();
         let _ = wide_x.field_width(&rev_x, x.bw());
@@ -590,11 +590,23 @@ pub fn shl(x: &Bits, s: &Bits) -> Awi {
     out
 }
 
+/// Assumes that `s` is in range
 pub fn lshr(x: &Bits, s: &Bits) -> Awi {
-    debug_assert_eq!(s.bw(), USIZE_BITS);
-    let signals = selector(s, Some(x.bw()));
     let mut out = Awi::zero(x.nzbw());
-    crossbar(&mut out, x, &signals, (x.bw() - 1, 2 * x.bw() - 1));
+    if let Some(small_s_w) = Bits::nontrivial_bits(x.bw() - 1) {
+        let mut small_s = Awi::zero(small_s_w);
+        small_s.resize_(s, false);
+        let mut wide_x = Awi::opaque(NonZeroUsize::new(2 << small_s_w.get()).unwrap());
+        // need zeros for the bits that are shifted in
+        let _ = wide_x.field_to(x.bw(), &Awi::zero(x.nzbw()), x.bw() - 1);
+        let _ = wide_x.field_width(x, x.bw());
+        let tmp = funnel(&wide_x, &small_s);
+        out.resize_(&tmp, false);
+    } else {
+        let small_width = Awi::from_bool(s.lsb());
+        out.resize_(x, false);
+        let _ = out.field_width(x, small_width.to_usize());
+    }
     out
 }
 
