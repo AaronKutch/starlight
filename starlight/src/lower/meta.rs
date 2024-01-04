@@ -635,35 +635,46 @@ pub fn ashr(x: &Bits, s: &Bits) -> Awi {
 }
 
 pub fn rotl(x: &Bits, s: &Bits) -> Awi {
-    debug_assert_eq!(s.bw(), USIZE_BITS);
-    let signals = selector(s, Some(x.bw()));
-    // we will use the whole cross bar, with every signal controlling two diagonals
-    // for the wraparound except for the `x.bw() - 1` one
-    let mut rolled_signals = vec![inlawi!(0); 2 * x.bw() - 1];
-    rolled_signals[x.bw() - 1].copy_(&signals[0]).unwrap();
-    for i in 0..(x.bw() - 1) {
-        rolled_signals[i].copy_(&signals[i + 1]).unwrap();
-        rolled_signals[i + x.bw()].copy_(&signals[i + 1]).unwrap();
-    }
-    rolled_signals.reverse();
     let mut out = Awi::zero(x.nzbw());
-    crossbar(&mut out, x, &rolled_signals, (0, 2 * x.bw() - 1));
+    if let Some(small_s_w) = Bits::nontrivial_bits(x.bw() - 1) {
+        let mut small_s = Awi::zero(small_s_w);
+        small_s.resize_(s, false);
+
+        let mut rev_x = Awi::zero(x.nzbw());
+        rev_x.copy_(x).unwrap();
+        rev_x.rev_();
+
+        let mut wide_x = Awi::opaque(NonZeroUsize::new(2 << small_s_w.get()).unwrap());
+        // extension for the bits that are shifted in
+        let _ = wide_x.field_to(x.bw(), &rev_x, x.bw() - 1);
+        let _ = wide_x.field_width(&rev_x, x.bw());
+        let tmp = funnel(&wide_x, &small_s);
+        out.resize_(&tmp, false);
+        out.rev_();
+    } else {
+        let small_width = Awi::from_bool(s.lsb());
+        out.resize_(x, false);
+        let _ = out.field_width(x, small_width.to_usize());
+    }
     out
 }
 
 pub fn rotr(x: &Bits, s: &Bits) -> Awi {
-    debug_assert_eq!(s.bw(), USIZE_BITS);
-    let signals = selector(s, Some(x.bw()));
-    // we will use the whole cross bar, with every signal controlling two diagonals
-    // for the wraparound except for the `x.bw() - 1` one
-    let mut rolled_signals = vec![inlawi!(0); 2 * x.bw() - 1];
-    rolled_signals[x.bw() - 1].copy_(&signals[0]).unwrap();
-    for i in 0..(x.bw() - 1) {
-        rolled_signals[i].copy_(&signals[i + 1]).unwrap();
-        rolled_signals[i + x.bw()].copy_(&signals[i + 1]).unwrap();
-    }
     let mut out = Awi::zero(x.nzbw());
-    crossbar(&mut out, x, &rolled_signals, (0, 2 * x.bw() - 1));
+    if let Some(small_s_w) = Bits::nontrivial_bits(x.bw() - 1) {
+        let mut small_s = Awi::zero(small_s_w);
+        small_s.resize_(s, false);
+        let mut wide_x = Awi::opaque(NonZeroUsize::new(2 << small_s_w.get()).unwrap());
+        // extension for the bits that are shifted in
+        let _ = wide_x.field_to(x.bw(), x, x.bw() - 1);
+        let _ = wide_x.field_width(x, x.bw());
+        let tmp = funnel(&wide_x, &small_s);
+        out.resize_(&tmp, false);
+    } else {
+        let small_width = Awi::from_bool(s.lsb());
+        out.resize_(x, false);
+        let _ = out.field_width(x, small_width.to_usize());
+    }
     out
 }
 
