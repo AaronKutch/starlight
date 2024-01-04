@@ -552,7 +552,6 @@ pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
         // this is done on purpose so there are opaque bits
         let w = rhs.bw();
         let _ = x.field_width(rhs, w);
-        x.resize_(rhs, false);
         let tmp = funnel(&x, &s);
 
         let max_width = min(lhs.bw(), rhs.bw());
@@ -566,14 +565,27 @@ pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
     out
 }
 
-// FIXME use `unwrap_at_runtime` or dropping `let _ =` in more places
-
+/// Assumes that `s` is in range
 pub fn shl(x: &Bits, s: &Bits) -> Awi {
-    debug_assert_eq!(s.bw(), USIZE_BITS);
-    let mut signals = selector(s, Some(x.bw()));
-    signals.reverse();
     let mut out = Awi::zero(x.nzbw());
-    crossbar(&mut out, x, &signals, (0, x.bw()));
+    if let Some(small_s_w) = Bits::nontrivial_bits(x.bw() - 1) {
+        let mut small_s = Awi::zero(small_s_w);
+        small_s.resize_(s, false);
+        // FIXME
+        let mut wide_x = Awi::zero(NonZeroUsize::new(2 << small_s_w.get()).unwrap());
+        let mut rev_x = Awi::zero(x.nzbw());
+        rev_x.copy_(&x).unwrap();
+        // we have two reversals so that the shift acts leftward
+        rev_x.rev_();
+        let _ = wide_x.field_width(&rev_x, x.bw());
+        let tmp = funnel(&wide_x, &small_s);
+        out.resize_(&tmp, false);
+        out.rev_();
+    } else {
+        let small_width = Awi::from_bool(s.lsb());
+        out.resize_(x, false);
+        let _ = out.field_width(x, small_width.to_usize());
+    }
     out
 }
 
