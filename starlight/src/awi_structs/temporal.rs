@@ -233,6 +233,8 @@ impl Net {
             .checked_add(if max_inx.is_power_of_two() { 1 } else { 0 })
             .unwrap();
 
+        // use this instead of `efficient_ule` because here we can avoid many cases if
+        // `max_inx_bits >= inx.bw()`
         let should_stay_zero = if max_inx_bits < inx.bw() {
             awi!(inx[max_inx_bits..]).unwrap()
         } else {
