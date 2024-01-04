@@ -34,6 +34,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
     out_w: NonZeroUsize,
     mut m: impl LowerManagement<P>,
 ) -> Result<bool, EvalError> {
+    //dbg!(&start_op, out_w);
     match start_op {
         Invalid => return Err(EvalError::OtherStr("encountered `Invalid` in lowering")),
         Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..) | Concat(_)
@@ -142,13 +143,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                 let width = Awi::opaque(width_w);
                 let max = min(lhs_w, rhs_w).get();
                 let success = Bits::efficient_ule(width.to_usize(), max);
-                let max_width_w = NonZeroUsize::new(
-                    usize::try_from(max.next_power_of_two().trailing_zeros())
-                        .unwrap()
-                        .checked_add(if max.is_power_of_two() { 1 } else { 0 })
-                        .unwrap(),
-                )
-                .unwrap();
+                let max_width_w = Bits::nontrivial_bits(max).unwrap();
                 let width_small =
                     Bits::static_field(&Awi::zero(max_width_w), 0, &width, 0, max_width_w.get())
                         .unwrap();
@@ -186,7 +181,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                         if o {
                             out
                         } else {
-                            out.field_width(&tmp1, width.to_usize()).unwrap();
+                            let _ = out.field_width(&tmp1, width.to_usize());
                             out
                         }
                     } else {
@@ -205,12 +200,16 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                 let rhs = Awi::opaque(rhs_w);
                 let from = Awi::opaque(m.get_nzbw(from));
                 let width = Awi::opaque(width_w);
-                let mut tmp = InlAwi::from_usize(rhs_w.get());
-                tmp.sub_(&width).unwrap();
-                // the other two fail conditions are in `field_width`
-                let fail = from.ugt(&tmp).unwrap();
-                let mut tmp_width = width.clone();
-                tmp_width.mux_(&InlAwi::from_usize(0), fail).unwrap();
+
+                let success =
+                    Bits::efficient_add_then_ule(from.to_usize(), width.to_usize(), rhs.bw());
+                let max_width_w = Bits::nontrivial_bits(rhs.bw()).unwrap();
+                let width_small =
+                    Bits::static_field(&Awi::zero(max_width_w), 0, &width, 0, max_width_w.get())
+                        .unwrap();
+                // to achieve a no-op we simply set the width to zero
+                let mut tmp_width = Awi::zero(max_width_w);
+                tmp_width.mux_(&width_small, success.is_some()).unwrap();
                 // the optimizations on `width` are done later on an inner `field_width` call
                 let out = field_from(&lhs, &rhs, &from, &tmp_width);
                 m.graft(&[

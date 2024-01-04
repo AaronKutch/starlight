@@ -228,10 +228,7 @@ impl Net {
             return dag::Option::some_at_dagtime((), inx.is_zero());
         }
         let max_inx = self.len() - 1;
-        let max_inx_bits = usize::try_from(max_inx.next_power_of_two().trailing_zeros())
-            .unwrap()
-            .checked_add(if max_inx.is_power_of_two() { 1 } else { 0 })
-            .unwrap();
+        let max_inx_bits = Bits::nontrivial_bits(max_inx).unwrap().get();
 
         // use this instead of `efficient_ule` because here we can avoid many cases if
         // `max_inx_bits >= inx.bw()`

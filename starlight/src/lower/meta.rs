@@ -549,18 +549,21 @@ pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
     // `width == 1` cases. There are `rhs.bw()` output bars needed. `from == 0`
     // should connect the zeroeth crossbars, so the offset is `rhs.bw() - 1 + 0 -
     // 0`. `j` stays zero and we have `0 <= i < rhs.bw()`
-    let signals = selector(from, Some(rhs.bw()));
+    /*let signals = selector(from, Some(rhs.bw()));
     let range = (rhs.bw() - 1, 2 * rhs.bw() - 1);
     let mut tmp = Awi::zero(rhs.nzbw());
-    crossbar(&mut tmp, rhs, &signals, range);
+    crossbar(&mut tmp, rhs, &signals, range);*/
 
-    /*let s_w = rhs.bw().next_power_of_two().trailing_zeros() as usize;
+    let s_w = rhs.bw().next_power_of_two().trailing_zeros() as usize;
     let mut s = Awi::zero(NonZeroUsize::new(s_w).unwrap());
     s.resize_(&from, false);
-    let mut x = Awi::opaque(NonZeroUsize::new(2 << s_w).unwrap());
+    // TODO make opaque
+    let mut x = Awi::zero(NonZeroUsize::new(2 << s_w).unwrap());
     // this is done on purpose so there are opaque bits
-    x.field_width(&rhs, rhs.bw()).unwrap_at_runtime();
-    let tmp = funnel(&x, &s);*/
+    //let _ = x.field_width(&rhs, rhs.bw());
+    x.resize_(rhs, false);
+    let tmp = funnel(&x, &s);
+
     let _ = out.field_width(&tmp, width.to_usize());
     out
 }
