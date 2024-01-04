@@ -610,43 +610,27 @@ pub fn lshr(x: &Bits, s: &Bits) -> Awi {
     out
 }
 
+/// Assumes that `s` is in range
 pub fn ashr(x: &Bits, s: &Bits) -> Awi {
-    debug_assert_eq!(s.bw(), USIZE_BITS);
-    let signals = selector(s, Some(x.bw()));
     let mut out = Awi::zero(x.nzbw());
-    crossbar(&mut out, x, &signals, (x.bw() - 1, 2 * x.bw() - 1));
-    // Not sure if there is a better way to do this. If we try to use the crossbar
-    // signals in some way, we are guaranteed some kind of > O(1) time thing.
-
-    let msb = x.msb();
-    // get the `lb_num` that `tsmear_inx` uses, it can be `x.bw() - 1` because of
-    // the `s < x.bw()` requirement, this single bit of difference is important
-    // for powers of two because of the `lb_num += 1` condition it avoids.
-    let num = x.bw() - 1;
-    let next_pow = num.next_power_of_two();
-    let mut lb_num = next_pow.trailing_zeros() as usize;
-    if next_pow == num {
-        // need extra bit to get all `n + 1`
-        lb_num += 1;
+    if let Some(small_s_w) = Bits::nontrivial_bits(x.bw() - 1) {
+        let mut small_s = Awi::zero(small_s_w);
+        small_s.resize_(s, false);
+        let mut wide_x = Awi::opaque(NonZeroUsize::new(2 << small_s_w.get()).unwrap());
+        // extension for the bits that are shifted in
+        let _ = wide_x.field_to(
+            x.bw(),
+            &Awi::new(x.nzbw(), Op::Repeat([x.msb().state()])),
+            x.bw() - 1,
+        );
+        let _ = wide_x.field_width(x, x.bw());
+        let tmp = funnel(&wide_x, &small_s);
+        out.resize_(&tmp, false);
+    } else {
+        let small_width = Awi::from_bool(s.lsb());
+        out.resize_(x, false);
+        let _ = out.field_width(x, small_width.to_usize());
     }
-    if let Some(w) = NonZeroUsize::new(lb_num) {
-        let mut gated_s = Awi::zero(w);
-        // `gated_s` will be zero if `x.msb()` is zero, in which case `tsmear_inx`
-        // produces all zeros to be ORed
-        for i in 0..gated_s.bw() {
-            let mut tmp1 = inlawi!(0);
-            static_lut!(tmp1; 1000; s.get(i).unwrap(), msb);
-            gated_s.set(i, tmp1.to_bool()).unwrap();
-        }
-        let or_mask = tsmear_awi(&gated_s, num);
-        for i in 0..or_mask.bw() {
-            let out_i = out.bw() - 1 - i;
-            let mut tmp1 = inlawi!(0);
-            static_lut!(tmp1; 1110; out.get(out_i).unwrap(), or_mask.get(i).unwrap());
-            out.set(out_i, tmp1.to_bool()).unwrap();
-        }
-    }
-
     out
 }
 

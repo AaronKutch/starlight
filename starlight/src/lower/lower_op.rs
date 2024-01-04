@@ -288,7 +288,13 @@ pub fn lower_op<P: Ptr + DummyDefault>(
             } else {
                 let x = Awi::opaque(m.get_nzbw(x));
                 let s = Awi::opaque(m.get_nzbw(s));
-                let out = ashr(&x, &s);
+                let success = Bits::efficient_ule(s.to_usize(), x.bw() - 1);
+                let max_s_w = Bits::nontrivial_bits(x.bw() - 1).unwrap_or(bw(1));
+                let s_small =
+                    Bits::static_field(&Awi::zero(max_s_w), 0, &s, 0, max_s_w.get()).unwrap();
+                let mut tmp_s = Awi::zero(max_s_w);
+                tmp_s.mux_(&s_small, success.is_some()).unwrap();
+                let out = ashr(&x, &tmp_s);
                 m.graft(&[out.state(), x.state(), s.state()]);
             }
         }
