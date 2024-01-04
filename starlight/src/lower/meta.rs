@@ -554,11 +554,12 @@ pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
     let mut tmp = Awi::zero(rhs.nzbw());
     crossbar(&mut tmp, rhs, &signals, range);*/
 
-    let s_w = rhs.bw().next_power_of_two().trailing_zeros() as usize;
-    let mut s = Awi::zero(NonZeroUsize::new(s_w).unwrap());
-    s.resize_(&from, false);
+    // FIXME this can go lower
+    let s_w = Bits::nontrivial_bits(rhs.bw()).unwrap();
+    let mut s = Awi::zero(s_w);
+    s.resize_(from, false);
     // TODO make opaque
-    let mut x = Awi::zero(NonZeroUsize::new(2 << s_w).unwrap());
+    let mut x = Awi::zero(NonZeroUsize::new(2 << s_w.get()).unwrap());
     // this is done on purpose so there are opaque bits
     //let _ = x.field_width(&rhs, rhs.bw());
     x.resize_(rhs, false);
@@ -1157,10 +1158,10 @@ pub fn division(duo: &Bits, div: &Bits) -> (Awi, Awi) {
     let original_w = duo.nzbw();
     let w = NonZeroUsize::new(original_w.get() + 1).unwrap();
     let mut tmp = Awi::zero(w);
-    tmp.zero_resize_(duo);
+    tmp.resize_(duo, false);
     let duo = tmp;
     let mut tmp = Awi::zero(w);
-    tmp.zero_resize_(div);
+    tmp.resize_(div, false);
     let div = tmp;
 
     let div_original = div.clone();
@@ -1246,7 +1247,7 @@ pub fn division(duo: &Bits, div: &Bits) -> (Awi, Awi) {
     // 1 << shl efficiently
     let tmp = selector_awi(&shl, Some(w.get()));
     let mut quo = Awi::zero(w);
-    quo.zero_resize_(&tmp);
+    quo.resize_(&tmp, false);
 
     // if duo < div_original
     let b = duo.ult(&div_original).unwrap();
@@ -1290,7 +1291,7 @@ pub fn division(duo: &Bits, div: &Bits) -> (Awi, Awi) {
 
     let mut tmp0 = Awi::zero(original_w);
     let mut tmp1 = Awi::zero(original_w);
-    tmp0.zero_resize_(&short_quo);
-    tmp1.zero_resize_(&short_rem);
+    tmp0.resize_(&short_quo, false);
+    tmp1.resize_(&short_rem, false);
     (tmp0, tmp1)
 }

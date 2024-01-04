@@ -438,7 +438,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                     lhs.clone()
                 } else if let Some(w) = NonZeroUsize::new(lhs.bw() - to_u) {
                     let (mut lhs_hi, o) = static_field(&Awi::zero(w), 0, &lhs, to_u, w.get());
-                    lhs_hi.field_width(&rhs, width.to_usize()).unwrap();
+                    let _ = lhs_hi.field_width(&rhs, width.to_usize());
                     if o {
                         lhs.clone()
                     } else {
@@ -475,10 +475,9 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                 let from = Awi::opaque(m.get_nzbw(from));
                 let min_w = min(lhs.bw(), rhs.bw());
                 let mut tmp = Awi::zero(NonZeroUsize::new(min_w).unwrap());
-                tmp.field_from(&rhs, from.to_usize(), width.to_usize())
-                    .unwrap();
+                let _ = tmp.field_from(&rhs, from.to_usize(), width.to_usize());
                 let mut out = lhs.clone();
-                out.field_to(to.to_usize(), &tmp, width.to_usize()).unwrap();
+                let _ = out.field_to(to.to_usize(), &tmp, width.to_usize());
 
                 m.graft(&[
                     out.state(),
