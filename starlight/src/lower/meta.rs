@@ -229,7 +229,7 @@ pub fn dynamic_to_static_get(bits: &Bits, inx: &Bits) -> inlawi_ty!(1) {
     let lut_w = NonZeroUsize::new(bits.bw().next_power_of_two()).unwrap();
     let inx_w = NonZeroUsize::new(lut_w.get().trailing_zeros() as usize).unwrap();
     let mut true_inx = Awi::zero(inx_w);
-    true_inx.field_width(&inx, inx_w.get()).unwrap();
+    true_inx.field_width(inx, inx_w.get()).unwrap();
     let base = if bits.bw() == lut_w.get() {
         Awi::from(bits)
     } else {

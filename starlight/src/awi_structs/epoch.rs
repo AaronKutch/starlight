@@ -548,7 +548,7 @@ pub fn _callback() -> EpochCallback {
 #[derive(Debug)]
 struct EpochInnerDrop {
     epoch_shared: EpochShared,
-    is_current: bool,
+    is_suspended: bool,
 }
 
 impl Drop for EpochInnerDrop {
@@ -559,7 +559,7 @@ impl Drop for EpochInnerDrop {
             if let Err(e) = self.epoch_shared.drop_associated() {
                 panic!("{e}");
             }
-            if self.is_current {
+            if !self.is_suspended {
                 if let Err(e) = self.epoch_shared.remove_as_current() {
                     panic!("panicked upon dropping an `Epoch`: {e}");
                 }
@@ -680,7 +680,7 @@ impl SuspendedEpoch {
     /// Resumes the `Epoch` as current
     pub fn resume(mut self) -> Epoch {
         self.inner.epoch_shared.set_as_current();
-        self.inner.is_current = true;
+        self.inner.is_suspended = false;
         Epoch { inner: self.inner }
     }
 
@@ -703,7 +703,7 @@ impl Epoch {
         Self {
             inner: EpochInnerDrop {
                 epoch_shared: new,
-                is_current: true,
+                is_suspended: false,
             },
         }
     }
@@ -719,7 +719,7 @@ impl Epoch {
         Self {
             inner: EpochInnerDrop {
                 epoch_shared: shared,
-                is_current: true,
+                is_suspended: false,
             },
         }
     }
@@ -734,7 +734,7 @@ impl Epoch {
     fn check_current(&self) -> Result<EpochShared, EvalError> {
         let epoch_shared = get_current_epoch().unwrap();
         if Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared().epoch_data) {
-            Ok(epoch_shared)
+            Ok(self.shared().clone())
         } else {
             Err(EvalError::OtherStr("epoch is not the current epoch"))
         }
@@ -747,7 +747,7 @@ impl Epoch {
         // there should be a variant that returns the `Epoch` to prevent it from being
         // dropped and causing another error
         self.inner.epoch_shared.remove_as_current().unwrap();
-        self.inner.is_current = false;
+        self.inner.is_suspended = true;
         Ok(SuspendedEpoch { inner: self.inner })
     }
 

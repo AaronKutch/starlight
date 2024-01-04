@@ -87,6 +87,18 @@ fn epoch_shared0() {
 }
 
 #[test]
+fn epoch_shared1() {
+    let epoch0 = Epoch::new();
+    let epoch1 = Epoch::shared_with(&epoch0);
+    let (lazy1, eval1) = ex();
+    drop(epoch0);
+    epoch1.optimize().unwrap();
+    drop(lazy1);
+    drop(eval1);
+    drop(epoch1);
+}
+
+#[test]
 fn epoch_suspension0() {
     let epoch0 = Epoch::new();
     let (lazy0, eval0) = ex();

@@ -232,14 +232,14 @@ impl Net {
             .unwrap()
             .checked_add(if max_inx.is_power_of_two() { 1 } else { 0 })
             .unwrap();
-        let inx = if max_inx_bits < inx.bw() {
+        let small_inx = if max_inx_bits < inx.bw() {
             awi!(inx[..max_inx_bits]).unwrap()
         } else if max_inx_bits > inx.bw() {
             awi!(zero: .., inx; ..max_inx_bits).unwrap()
         } else {
             Awi::from(inx)
         };
-        let tmp = general_mux(&self.ports, &inx);
+        let tmp = general_mux(&self.ports, &small_inx);
         self.source.drive(&tmp).unwrap();
         dag::Bits::efficient_ule(inx.to_usize(), max_inx)
     }
