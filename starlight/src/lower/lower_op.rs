@@ -593,13 +593,13 @@ pub fn lower_op<P: Ptr + DummyDefault>(
         }
         op @ (IsZero(_) | IsUmax(_) | IsImax(_) | IsImin(_) | IsUone(_)) => {
             let x = Awi::opaque(m.get_nzbw(op.operands()[0]));
-            let w = x.bw();
+            let w = x.nzbw();
             let out = InlAwi::from(match op {
-                IsZero(_) => x.const_eq(&awi!(zero: ..w).unwrap()).unwrap(),
-                IsUmax(_) => x.const_eq(&awi!(umax: ..w).unwrap()).unwrap(),
-                IsImax(_) => x.const_eq(&awi!(imax: ..w).unwrap()).unwrap(),
-                IsImin(_) => x.const_eq(&awi!(imin: ..w).unwrap()).unwrap(),
-                IsUone(_) => x.const_eq(&awi!(uone: ..w).unwrap()).unwrap(),
+                IsZero(_) => x.const_eq(&Awi::zero(w)).unwrap(),
+                IsUmax(_) => x.const_eq(&Awi::umax(w)).unwrap(),
+                IsImax(_) => x.const_eq(&Awi::imax(w)).unwrap(),
+                IsImin(_) => x.const_eq(&Awi::imin(w)).unwrap(),
+                IsUone(_) => x.const_eq(&Awi::uone(w)).unwrap(),
                 _ => unreachable!(),
             });
             m.graft(&[out.state(), x.state()]);

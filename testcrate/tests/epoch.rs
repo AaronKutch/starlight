@@ -69,6 +69,41 @@ fn epoch_nested_fail() {
 
 #[test]
 fn epoch_shared0() {
+    // checking assertions
+    let epoch0 = Epoch::new();
+    let (lazy0, eval0) = ex();
+    let epoch1 = Epoch::shared_with(&epoch0);
+    awi::assert_eq!(
+        epoch0.ensemble(|ensemble| ensemble.notary.rnodes().len()),
+        3
+    );
+    awi::assert_eq!(
+        epoch1.ensemble(|ensemble| ensemble.notary.rnodes().len()),
+        3
+    );
+    awi::assert_eq!(epoch0.assertions().bits.len(), 1);
+    awi::assert!(epoch1.assertions().bits.is_empty());
+    drop(lazy0);
+    drop(eval0);
+    awi::assert_eq!(
+        epoch0.ensemble(|ensemble| ensemble.notary.rnodes().len()),
+        1
+    );
+    awi::assert_eq!(
+        epoch1.ensemble(|ensemble| ensemble.notary.rnodes().len()),
+        1
+    );
+    awi::assert_eq!(epoch0.assertions().bits.len(), 1);
+    drop(epoch0);
+    awi::assert!(epoch1.assertions().bits.is_empty());
+    awi::assert!(epoch1.ensemble(|ensemble| ensemble.notary.rnodes().is_empty()));
+    epoch1.prune_unused_states().unwrap();
+    awi::assert!(epoch1.ensemble(|ensemble| ensemble.stator.states.is_empty()));
+    drop(epoch1);
+}
+
+#[test]
+fn epoch_shared1() {
     let epoch0 = Epoch::new();
     let (lazy0, eval0) = ex();
     let epoch1 = Epoch::shared_with(&epoch0);
@@ -81,13 +116,16 @@ fn epoch_shared0() {
     drop(lazy0);
     drop(eval0);
     drop(epoch0);
+    epoch1.assert_assertions(true).unwrap();
     epoch1.prune_unused_states().unwrap();
+    awi::assert!(epoch1.ensemble(|ensemble| ensemble.notary.rnodes().is_empty()));
+    awi::assert!(epoch1.assertions().bits.is_empty());
     awi::assert!(epoch1.ensemble(|ensemble| ensemble.stator.states.is_empty()));
     drop(epoch1);
 }
 
 #[test]
-fn epoch_shared1() {
+fn epoch_shared2() {
     let epoch0 = Epoch::new();
     let epoch1 = Epoch::shared_with(&epoch0);
     let (lazy1, eval1) = ex();
