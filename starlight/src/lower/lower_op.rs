@@ -140,23 +140,21 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                 let lhs = Awi::opaque(lhs_w);
                 let rhs = Awi::opaque(rhs_w);
                 let width = Awi::opaque(width_w);
-                /*
                 let max = min(lhs_w, rhs_w).get();
                 let success = Bits::efficient_ule(width.to_usize(), max);
-                let max_width_w = if max == 1 {
-                    bw(1)
-                } else {
-                    NonZeroUsize::new(max.next_power_of_two().trailing_zeros() as usize).unwrap()
-                };
-                let width_small = Bits::static_field(&Awi::zero(max_width_w), 0, &width, 0,  max_width_w.get()).unwrap();
+                let max_width_w = NonZeroUsize::new(
+                    usize::try_from(max.next_power_of_two().trailing_zeros())
+                        .unwrap()
+                        .checked_add(if max.is_power_of_two() { 1 } else { 0 })
+                        .unwrap(),
+                )
+                .unwrap();
+                let width_small =
+                    Bits::static_field(&Awi::zero(max_width_w), 0, &width, 0, max_width_w.get())
+                        .unwrap();
                 // to achieve a no-op we simply set the width to zero
                 let mut tmp_width = Awi::zero(max_width_w);
                 tmp_width.mux_(&width_small, success.is_some()).unwrap();
-                */
-                let fail = width.ugt(&InlAwi::from_usize(lhs_w.get())).unwrap()
-                    | width.ugt(&InlAwi::from_usize(rhs_w.get())).unwrap();
-                let mut tmp_width = width.clone();
-                tmp_width.mux_(&InlAwi::from_usize(0), fail).unwrap();
                 let out = field_width(&lhs, &rhs, &tmp_width);
                 m.graft(&[out.state(), lhs.state(), rhs.state(), width.state()]);
             }
