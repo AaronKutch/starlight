@@ -2,7 +2,7 @@ use std::{borrow::Borrow, num::NonZeroUsize, ops::Deref};
 
 use awint::{
     awint_dag::{smallvec::smallvec, Lineage, Op},
-    dag::{self, awi, Awi, Bits},
+    dag::{self, awi, Awi, Bits, InlAwi},
 };
 
 use crate::{epoch::get_current_epoch, lower::meta::general_mux};
@@ -232,6 +232,21 @@ impl Net {
             .unwrap()
             .checked_add(if max_inx.is_power_of_two() { 1 } else { 0 })
             .unwrap();
+
+        let should_stay_zero = if max_inx_bits < inx.bw() {
+            awi!(inx[max_inx_bits..]).unwrap()
+        } else {
+            awi!(0)
+        };
+        let mut in_range = should_stay_zero.is_zero();
+        if (!self.len().is_power_of_two()) && (inx.bw() >= max_inx_bits) {
+            // dance to avoid stuff that can get lowered into a full `BITS` sized comparison
+            let mut max = Awi::zero(inx.nzbw());
+            max.usize_(max_inx);
+            let le = inx.ule(&max).unwrap();
+            in_range &= le;
+        }
+
         let small_inx = if max_inx_bits < inx.bw() {
             awi!(inx[..max_inx_bits]).unwrap()
         } else if max_inx_bits > inx.bw() {
@@ -241,7 +256,8 @@ impl Net {
         };
         let tmp = general_mux(&self.ports, &small_inx);
         self.source.drive(&tmp).unwrap();
-        dag::Bits::efficient_ule(inx.to_usize(), max_inx)
+
+        dag::Option::some_at_dagtime((), in_range)
     }
 
     // TODO we can do this
