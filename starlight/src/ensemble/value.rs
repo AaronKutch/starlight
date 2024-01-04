@@ -323,32 +323,24 @@ impl Ensemble {
                     }
                 }
                 let mut lut = original_lut.clone();
-                // note: we do this in this order, it turns out that doing independence
-                // reduction instead of constant reduction first will not prevent optimizations,
-                // also we don't have to remove bits from `fixed` and `unknown`
 
-                // if fixed and unknown bits can influence the value,
-                // then the value of this equivalence can also be fixed
-                // to unknown
-                for i in 0..len {
-                    if fixed.get(i).unwrap()
-                        && unknown.get(i).unwrap()
-                        && (!LNode::reduce_independent_lut(&mut lut.clone(), i))
-                    {
-                        self.evaluator.insert(Eval::Change(Change {
-                            depth,
-                            p_equiv,
-                            value: Value::Unknown,
-                        }));
-                        return vec![];
-                    }
-                }
+                // In an earlier version there was a test where if fixed and unknown bits
+                // influence the value, then the equiv can be fixed to unknown. However,
+                // consider a lookup table 0100 and an inputs (fixed unknown, 0), where the 0
+                // may be a later fixed value. It will see that the output value is dependent on
+                // the fixed unknown, but misses that the 0 reduces the LUT to 00 which is
+                // independent of the fixed value. We have to wait for all bits to be fixed,
+                // reduce the LUT on known bits, then only change to unknown if the
+                // `lut.is_zero()` and `lut.is_umax` checks fail. The only tables where you
+                // could safely set to unknown earlier are unoptimized.
+
                 // reduce the LUT based on fixed and known bits
                 for i in (0..len).rev() {
                     if fixed.get(i).unwrap() && (!unknown.get(i).unwrap()) {
                         LNode::reduce_lut(&mut lut, i, inp_val.get(i).unwrap());
                     }
                 }
+
                 // if the LUT is all ones or all zeros, we can know that any unfixed or
                 // unknown changes will be unable to affect the
                 // output
@@ -367,17 +359,19 @@ impl Ensemble {
                     }));
                     return vec![];
                 }
+                if fixed.is_umax() {
+                    // there are fixed unknown bits influencing the value
+                    self.evaluator.insert(Eval::Change(Change {
+                        depth,
+                        p_equiv,
+                        value: Value::Unknown,
+                    }));
+                    return vec![];
+                }
                 // TODO prioritize bits that could lead to number_a optimization
-                /*let mut skip = 0;
-                for i in 0..len {
-                    if fixed.get(i).unwrap() && !unknown.get(i).unwrap() {
-                        skip += 1;
-                    } else if unknown.get(i).unwrap() {
-                        // assume unchanging
-                        lut = LNode::reduce_lut(&lut, i, inp.get(i).unwrap());
-                        //
-                    } else {}
-                }*/
+
+                // note: we can do this because `fixed` and `unknown` were not reduced along
+                // with the test `lut`
                 for i in (0..inp.len()).rev() {
                     if (!fixed.get(i).unwrap()) || unknown.get(i).unwrap() {
                         res.push(RequestLNode {

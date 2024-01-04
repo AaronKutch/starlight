@@ -548,10 +548,10 @@ pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
     if let Some(s_w) = Bits::nontrivial_bits(rhs.bw() - 1) {
         let mut s = Awi::zero(s_w);
         s.resize_(from, false);
-        // TODO make opaque
-        let mut x = Awi::zero(NonZeroUsize::new(2 << s_w.get()).unwrap());
+        let mut x = Awi::opaque(NonZeroUsize::new(2 << s_w.get()).unwrap());
         // this is done on purpose so there are opaque bits
-        //let _ = x.field_width(&rhs, rhs.bw());
+        let w = rhs.bw();
+        let _ = x.field_width(rhs, w);
         x.resize_(rhs, false);
         let tmp = funnel(&x, &s);
 
@@ -561,7 +561,7 @@ pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
         let _ = out.field_width(&tmp, small_width.to_usize());
     } else {
         let small_width = Awi::from_bool(width.lsb());
-        let _ = out.field_width(&rhs, small_width.to_usize());
+        let _ = out.field_width(rhs, small_width.to_usize());
     }
     out
 }

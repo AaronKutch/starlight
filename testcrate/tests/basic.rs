@@ -79,6 +79,24 @@ fn multiplier() {
 }
 
 #[test]
+fn unknown_masking() {
+    use dag::*;
+    let epoch = Epoch::new();
+    let x = awi!(opaque: ..3, 1);
+    let mut out = awi!(0u3);
+    let width = LazyAwi::uone(bw(2));
+    out.field_width(&x, width.to_usize()).unwrap();
+    let eval = EvalAwi::from(&out);
+    {
+        use awi::*;
+        awi::assert_eq!(eval.eval().unwrap(), awi!(1u3));
+        epoch.optimize().unwrap();
+        awi::assert_eq!(eval.eval().unwrap(), awi!(1u3));
+    }
+    drop(epoch);
+}
+
+#[test]
 fn all_variations() {
     let epoch = Epoch::new();
 

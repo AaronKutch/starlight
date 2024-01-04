@@ -34,7 +34,6 @@ pub fn lower_op<P: Ptr + DummyDefault>(
     out_w: NonZeroUsize,
     mut m: impl LowerManagement<P>,
 ) -> Result<bool, EvalError> {
-    //dbg!(&start_op, out_w);
     match start_op {
         Invalid => return Err(EvalError::OtherStr("encountered `Invalid` in lowering")),
         Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..) | Concat(_)
