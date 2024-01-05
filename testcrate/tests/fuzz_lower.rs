@@ -115,7 +115,7 @@ impl Mem {
 
     /// Calls `next` with a random integer in 1..5, returning a tuple of the
     /// width chosen and the Ptr to what `next` returned.
-    pub fn next1_5(&mut self) -> (usize, P0) {
+    pub fn next4(&mut self) -> (usize, P0) {
         let w = ((self.rng.next_u8() as usize) % 4) + 1;
         (w, self.next(w))
     }
@@ -182,8 +182,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
     match next_op {
         // Lut, StaticLut
         0 => {
-            let (out_w, out) = m.next1_5();
-            let (inx_w, inx) = m.next1_5();
+            let (out_w, out) = m.next4();
+            let (inx_w, inx) = m.next4();
             let lut = m.next(out_w * (1 << inx_w));
             let lut_a = m.get_awi(lut);
             let inx_a = m.get_awi(inx);
@@ -194,7 +194,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Get, StaticGet
         1 => {
-            let (bits_w, bits) = m.next1_5();
+            let (bits_w, bits) = m.next4();
             let inx = m.next_usize(bits_w);
             let out = m.next(1);
             let bits_a = m.get_awi(bits);
@@ -208,7 +208,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Set, StaticSet
         2 => {
-            let (bits_w, bits) = m.next1_5();
+            let (bits_w, bits) = m.next4();
             let inx = m.next_usize(bits_w);
             let bit = m.next(1);
             let inx_a = m.get_awi(inx);
@@ -224,9 +224,9 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // FieldBit
         3 => {
-            let (lhs_w, lhs) = m.next1_5();
+            let (lhs_w, lhs) = m.next4();
             let to = m.next_usize(lhs_w);
-            let (rhs_w, rhs) = m.next1_5();
+            let (rhs_w, rhs) = m.next4();
             let from = m.next_usize(rhs_w);
             let to_a = m.get_awi(to);
             let rhs_a = m.get_awi(rhs);
@@ -243,8 +243,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // ZeroResize
         4 => {
-            let lhs = m.next1_5().1;
-            let rhs = m.next1_5().1;
+            let lhs = m.next4().1;
+            let rhs = m.next4().1;
             let rhs_a = m.get_awi(rhs);
             m.get_mut_awi(lhs).zero_resize_(&rhs_a);
             let rhs_b = m.get_dag(rhs);
@@ -252,8 +252,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // SignResize
         5 => {
-            let lhs = m.next1_5().1;
-            let rhs = m.next1_5().1;
+            let lhs = m.next4().1;
+            let rhs = m.next4().1;
             let rhs_a = m.get_awi(rhs);
             m.get_mut_awi(lhs).sign_resize_(&rhs_a);
             let rhs_b = m.get_dag(rhs);
@@ -261,13 +261,13 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Not
         6 => {
-            let x = m.next1_5().1;
+            let x = m.next4().1;
             m.get_mut_awi(x).not_();
             m.get_mut_dag(x).not_();
         }
         // Or, And, Xor
         7 => {
-            let (lhs_w, lhs) = m.next1_5();
+            let (lhs_w, lhs) = m.next4();
             let rhs = m.next(lhs_w);
             let rhs_a = m.get_awi(rhs);
             let rhs_b = m.get_dag(rhs);
@@ -289,7 +289,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Inc, IncCout, Dec, DecCout
         8 => {
-            let x = m.next1_5().1;
+            let x = m.next4().1;
             let cin = m.next(1);
             let cout = m.next(1);
             let cin_a = m.get_awi(cin);
@@ -309,7 +309,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         // CinSum, UnsignedOverflow, SignedOverflow
         9 => {
             let cin = m.next(1);
-            let (lhs_w, lhs) = m.next1_5();
+            let (lhs_w, lhs) = m.next4();
             let rhs = m.next(lhs_w);
             let out = m.next(lhs_w);
             let unsigned = m.next(1);
@@ -337,7 +337,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Lsb, Msb
         10 => {
-            let x = m.next1_5().1;
+            let x = m.next4().1;
             let out = m.next(1);
             if (rng.next_u32() & 1) == 0 {
                 let a = m.get_awi(x).lsb();
@@ -353,7 +353,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Neg, Abs
         11 => {
-            let x = m.next1_5().1;
+            let x = m.next4().1;
             if (rng.next_u32() & 1) == 0 {
                 let neg = m.next(1);
                 let a = m.get_awi(neg).to_bool();
@@ -380,8 +380,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // FieldWidth
         13 => {
-            let (w0, lhs) = m.next1_5();
-            let (w1, rhs) = m.next1_5();
+            let (w0, lhs) = m.next4();
+            let (w1, rhs) = m.next4();
             let min_w = min(w0, w1);
             let width = m.next_usize(min_w + 1);
             let rhs_a = m.get_awi(rhs);
@@ -397,8 +397,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // FieldFrom
         14 => {
-            let (w0, lhs) = m.next1_5();
-            let (w1, rhs) = m.next1_5();
+            let (w0, lhs) = m.next4();
+            let (w1, rhs) = m.next4();
             let min_w = min(w0, w1);
             let width = m.next_usize(min_w + 1);
             let from = m.next_usize(1 + w1 - m.get_awi(width).to_usize());
@@ -417,7 +417,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Shl, Lshr, Ashr, Rotl, Rotr
         15 => {
-            let (w, x) = m.next1_5();
+            let (w, x) = m.next4();
             let s = m.next_usize(w);
             let s_a = m.get_awi(s);
             let s_b = m.get_dag(s);
@@ -447,8 +447,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // FieldTo
         16 => {
-            let (w0, lhs) = m.next1_5();
-            let (w1, rhs) = m.next1_5();
+            let (w0, lhs) = m.next4();
+            let (w1, rhs) = m.next4();
             let min_w = min(w0, w1);
             let width = m.next_usize(min_w + 1);
             let to = m.next_usize(1 + w0 - m.get_awi(width).to_usize());
@@ -467,7 +467,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Add, Sub, Rsb
         17 => {
-            let (w, lhs) = m.next1_5();
+            let (w, lhs) = m.next4();
             let rhs = m.next(w);
             let rhs_a = m.get_awi(rhs);
             let rhs_b = m.get_dag(rhs);
@@ -489,8 +489,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Field
         18 => {
-            let (w0, lhs) = m.next1_5();
-            let (w1, rhs) = m.next1_5();
+            let (w0, lhs) = m.next4();
+            let (w1, rhs) = m.next4();
             let min_w = min(w0, w1);
             let width = m.next_usize(min_w + 1);
             let to = m.next_usize(1 + w0 - m.get_awi(width).to_usize());
@@ -523,13 +523,13 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Rev
         19 => {
-            let x = m.next1_5().1;
+            let x = m.next4().1;
             m.get_mut_awi(x).rev_();
             m.get_mut_dag(x).rev_();
         }
         // Eq, Ne, Ult, Ule, Ilt, Ile
         20 => {
-            let (w, lhs) = m.next1_5();
+            let (w, lhs) = m.next4();
             let rhs = m.next(w);
             let lhs_a = m.get_awi(lhs);
             let lhs_b = m.get_dag(lhs);
@@ -566,7 +566,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // IsZero, IsUmax, IsImax, IsImin, IsUone
         21 => {
-            let x = m.next1_5().1;
+            let x = m.next4().1;
             let x_a = m.get_awi(x);
             let x_b = m.get_dag(x);
             let out = m.next(1);
@@ -596,7 +596,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // CountOnes, Lz, Tz, Sig
         22 => {
-            let x = m.next1_5().1;
+            let x = m.next4().1;
             let x_a = m.get_awi(x);
             let x_b = m.get_dag(x);
             let out = m.next_usize(usize::MAX);
@@ -622,8 +622,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // LutSet
         23 => {
-            let (entry_w, entry) = m.next1_5();
-            let (inx_w, inx) = m.next1_5();
+            let (entry_w, entry) = m.next4();
+            let (inx_w, inx) = m.next4();
             let table_w = entry_w * (1 << inx_w);
             let table = m.next(table_w);
             let entry_a = m.get_awi(entry);
@@ -635,8 +635,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Resize
         24 => {
-            let lhs = m.next1_5().1;
-            let rhs = m.next1_5().1;
+            let lhs = m.next4().1;
+            let rhs = m.next4().1;
             let b = m.next(1);
             let rhs_a = m.get_awi(rhs);
             let b_a = m.get_awi(b);
@@ -647,8 +647,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // ZeroResizeOverflow, SignResizeOverflow
         25 => {
-            let lhs = m.next1_5().1;
-            let rhs = m.next1_5().1;
+            let lhs = m.next4().1;
+            let rhs = m.next4().1;
             let out = m.next(1);
             let mut lhs_a = m.get_awi(lhs);
             let rhs_a = m.get_awi(rhs);
@@ -668,7 +668,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // ArbMulAdd
         26 => {
-            let (w, lhs) = m.next1_5();
+            let (w, lhs) = m.next4();
             match rng.next_u32() % 3 {
                 0 => {
                     let rhs = m.next(w);
@@ -681,8 +681,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
                     m.get_mut_dag(out).mul_add_(&lhs_b, &rhs_b).unwrap();
                 }
                 1 => {
-                    let rhs = m.next1_5().1;
-                    let out = m.next1_5().1;
+                    let rhs = m.next4().1;
+                    let out = m.next4().1;
                     let lhs_a = m.get_awi(lhs);
                     let rhs_a = m.get_awi(rhs);
                     let lhs_b = m.get_dag(lhs);
@@ -691,8 +691,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
                     m.get_mut_dag(out).arb_umul_add_(&lhs_b, &rhs_b);
                 }
                 2 => {
-                    let rhs = m.next1_5().1;
-                    let out = m.next1_5().1;
+                    let rhs = m.next4().1;
+                    let out = m.next4().1;
                     let mut lhs_a = m.get_awi(lhs);
                     let mut rhs_a = m.get_awi(rhs);
                     let mut lhs_b = m.get_dag(lhs);
@@ -705,7 +705,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Mux
         27 => {
-            let (w, lhs) = m.next1_5();
+            let (w, lhs) = m.next4();
             let rhs = m.next(w);
             let b = m.next(1);
             let rhs_a = m.get_awi(rhs);
@@ -717,7 +717,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // UQuo, URem, IQuo, IRem
         28 => {
-            let (w, duo) = m.next1_5();
+            let (w, duo) = m.next4();
             let div = m.next(w);
             let quo = m.next(w);
             let rem = m.next(w);

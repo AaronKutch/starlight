@@ -86,7 +86,7 @@ impl Mem {
         }
     }
 
-    pub fn next1_5(&mut self) -> (usize, P0) {
+    pub fn next4(&mut self) -> (usize, P0) {
         let w = ((self.rng.next_u8() as usize) % 4) + 1;
         (w, self.next(w))
     }
@@ -125,7 +125,7 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
         0 => {
             // doesn't actually do anything on the DAG side, but we use it to get parallel
             // things in the fuzzing
-            let (w, from) = m.next1_5();
+            let (w, from) = m.next4();
             let to = m.next(w);
             if to != from {
                 let (to, from) = m.a.get2_mut(to, from).unwrap();
@@ -135,8 +135,8 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
         }
         // Get-Set
         1 => {
-            let (w0, from) = m.next1_5();
-            let (w1, to) = m.next1_5();
+            let (w0, from) = m.next4();
+            let (w1, to) = m.next4();
             let usize_inx0 = (rng.next_u32() as usize) % w0;
             let usize_inx1 = (rng.next_u32() as usize) % w1;
             let b = m.a[from].awi.get(usize_inx0).unwrap();
@@ -146,8 +146,8 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
         }
         // Lut
         2 => {
-            let (out_w, out) = m.next1_5();
-            let (inx_w, inx) = m.next1_5();
+            let (out_w, out) = m.next4();
+            let (inx_w, inx) = m.next4();
             let lut = m.next(out_w * (1 << inx_w));
             let lut_a = m.get(lut);
             let inx_a = m.get(inx);
