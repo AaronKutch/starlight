@@ -602,7 +602,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             let x_a = m.get_awi(x);
             let x_b = m.get_dag(x);
             let out = m.next_usize(usize::MAX);
-            match rng.next_u32() % 4 {
+            match rng.index(4).unwrap() {
                 0 => {
                     m.get_mut_awi(out).usize_(x_a.count_ones());
                     m.get_mut_dag(out).usize_(x_b.count_ones());
@@ -656,22 +656,18 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             let rhs_a = m.get_awi(rhs);
             let mut lhs_b = m.get_dag(lhs);
             let rhs_b = m.get_dag(rhs);
-            match rng.next_u32() % 2 {
-                0 => {
-                    m.get_mut_awi(out).bool_(lhs_a.zero_resize_(&rhs_a));
-                    m.get_mut_dag(out).bool_(lhs_b.zero_resize_(&rhs_b));
-                }
-                1 => {
-                    m.get_mut_awi(out).bool_(lhs_a.sign_resize_(&rhs_a));
-                    m.get_mut_dag(out).bool_(lhs_b.sign_resize_(&rhs_b));
-                }
-                _ => unreachable!(),
+            if rng.next_bool() {
+                m.get_mut_awi(out).bool_(lhs_a.zero_resize_(&rhs_a));
+                m.get_mut_dag(out).bool_(lhs_b.zero_resize_(&rhs_b));
+            } else {
+                m.get_mut_awi(out).bool_(lhs_a.sign_resize_(&rhs_a));
+                m.get_mut_dag(out).bool_(lhs_b.sign_resize_(&rhs_b));
             }
         }
         // ArbMulAdd
         26 => {
-            let (w, lhs) = m.next4();
-            match rng.next_u32() % 3 {
+            let (w, lhs) = m.next9();
+            match rng.index(3).unwrap() {
                 0 => {
                     let rhs = m.next(w);
                     let out = m.next(w);
@@ -707,7 +703,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
         }
         // Mux
         27 => {
-            let (w, lhs) = m.next4();
+            let (w, lhs) = m.next9();
             let rhs = m.next(w);
             let b = m.next(1);
             let rhs_a = m.get_awi(rhs);
@@ -719,7 +715,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
         }
         // UQuo, URem, IQuo, IRem
         28 => {
-            let (w, duo) = m.next4();
+            let (w, duo) = m.next9();
             let div = m.next(w);
             let quo = m.next(w);
             let rem = m.next(w);
@@ -739,16 +735,12 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             let mut div_b = m.get_dag(div);
             let mut quo_b = m.get_dag(quo);
             let mut rem_b = m.get_dag(rem);
-            match rng.next_u32() % 2 {
-                0 => {
-                    awi::Bits::udivide(&mut quo_a, &mut rem_a, &duo_a, &div_a).unwrap();
-                    dag::Bits::udivide(&mut quo_b, &mut rem_b, &duo_b, &div_b).unwrap();
-                }
-                1 => {
-                    awi::Bits::idivide(&mut quo_a, &mut rem_a, &mut duo_a, &mut div_a).unwrap();
-                    dag::Bits::idivide(&mut quo_b, &mut rem_b, &mut duo_b, &mut div_b).unwrap();
-                }
-                _ => unreachable!(),
+            if rng.next_bool() {
+                awi::Bits::udivide(&mut quo_a, &mut rem_a, &duo_a, &div_a).unwrap();
+                dag::Bits::udivide(&mut quo_b, &mut rem_b, &duo_b, &div_b).unwrap();
+            } else {
+                awi::Bits::idivide(&mut quo_a, &mut rem_a, &mut duo_a, &mut div_a).unwrap();
+                dag::Bits::idivide(&mut quo_b, &mut rem_b, &mut duo_b, &mut div_b).unwrap();
             }
             m.get_mut_awi(out0).copy_(&quo_a).unwrap();
             m.get_mut_awi(out1).copy_(&rem_a).unwrap();
