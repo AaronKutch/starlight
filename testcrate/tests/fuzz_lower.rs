@@ -12,9 +12,9 @@ use rand_xoshiro::{
 use starlight::{
     awi,
     awint_dag::EvalError,
-    dag,
+    dag::{self},
     triple_arena::{ptr_struct, Arena},
-    Epoch, EvalAwi, LazyAwi,
+    Epoch, EvalAwi, LazyAwi, StarRng,
 };
 
 // miri is just here to check that the unsized deref hacks are working
@@ -43,7 +43,7 @@ struct Mem {
     // random querying
     v: Vec<Vec<P0>>,
     v_len: usize,
-    rng: Xoshiro128StarStar,
+    rng: StarRng,
 }
 
 impl Mem {
@@ -58,7 +58,7 @@ impl Mem {
             roots: vec![],
             v,
             v_len,
-            rng: Xoshiro128StarStar::seed_from_u64(0),
+            rng: StarRng::new(0),
         }
     }
 
@@ -73,19 +73,16 @@ impl Mem {
 
     /// Randomly creates a new pair or gets an existing one under the `cap`
     pub fn next_capped(&mut self, w: usize, cap: usize) -> P0 {
-        let try_query = (self.rng.next_u32() % 4) != 0;
-        if try_query && (!self.v[w].is_empty()) {
-            let p = self.v[w][(self.rng.next_u32() as usize) % self.v[w].len()];
-            if self.get_awi(p).to_usize() < cap {
-                return p
+        if self.rng.out_of_4(3) && (!self.v[w].is_empty()) {
+            let p = self.rng.index_slice(&self.v[w]).unwrap();
+            if self.get_awi(*p).to_usize() < cap {
+                return *p
             }
         }
         let nzbw = NonZeroUsize::new(w).unwrap();
         let lazy = LazyAwi::opaque(nzbw);
         let mut lit = awi::Awi::zero(nzbw);
-        lit.rand_(&mut self.rng).unwrap();
-        let tmp = lit.to_usize() % cap;
-        lit.usize_(tmp);
+        lit.usize_(self.rng.index(cap).unwrap());
         let p = self.a.insert(Pair {
             awi: lit.clone(),
             dag: dag::Awi::from(lazy.as_ref()),
@@ -98,14 +95,13 @@ impl Mem {
 
     /// Randomly creates a new pair or gets an existing one
     pub fn next(&mut self, w: usize) -> P0 {
-        let try_query = (self.rng.next_u32() % 4) != 0;
-        if try_query && (!self.v[w].is_empty()) {
-            self.v[w][(self.rng.next_u32() as usize) % self.v[w].len()]
+        if self.rng.out_of_4(3) && (!self.v[w].is_empty()) {
+            *self.rng.index_slice(&self.v[w]).unwrap()
         } else {
             let nzbw = NonZeroUsize::new(w).unwrap();
             let lazy = LazyAwi::opaque(nzbw);
             let mut lit = awi::Awi::zero(nzbw);
-            lit.rand_(&mut self.rng).unwrap();
+            self.rng.next_bits(&mut lit);
             let p = self.a.insert(Pair {
                 awi: lit.clone(),
                 dag: dag::Awi::from(lazy.as_ref()),
@@ -120,7 +116,7 @@ impl Mem {
     /// Calls `next` with a random integer in 1..5, returning a tuple of the
     /// width chosen and the Ptr to what `next` returned.
     pub fn next1_5(&mut self) -> (usize, P0) {
-        let w = ((self.rng.next_u32() as usize) % 4) + 1;
+        let w = ((self.rng.next_u8() as usize) % 4) + 1;
         (w, self.next(w))
     }
 
@@ -159,7 +155,7 @@ impl Mem {
         // set half of the roots randomly
         let len = self.roots.len();
         for _ in 0..(len / 2) {
-            let inx = (self.rng.next_u64() % (self.roots.len() as u64)) as usize;
+            let inx = self.rng.index(self.roots.len()).unwrap();
             let (lazy, lit) = self.roots.remove(inx);
             lazy.retro_(&lit).unwrap();
         }
