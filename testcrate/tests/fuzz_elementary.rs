@@ -86,6 +86,8 @@ impl Mem {
         }
     }
 
+    /// Calls `next` with a random integer in 1..=4, returning a tuple of the
+    /// width chosen and the Ptr to what `next` returned.
     pub fn next4(&mut self) -> (usize, P0) {
         let w = ((self.rng.next_u8() as usize) % 4) + 1;
         (w, self.next(w))

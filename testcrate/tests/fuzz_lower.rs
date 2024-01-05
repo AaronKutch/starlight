@@ -5,10 +5,6 @@ use std::{
     num::NonZeroUsize,
 };
 
-use rand_xoshiro::{
-    rand_core::{RngCore, SeedableRng},
-    Xoshiro128StarStar,
-};
 use starlight::{
     awi,
     awint_dag::EvalError,
@@ -113,10 +109,17 @@ impl Mem {
         }
     }
 
-    /// Calls `next` with a random integer in 1..5, returning a tuple of the
+    /// Calls `next` with a random integer in 1..=4, returning a tuple of the
     /// width chosen and the Ptr to what `next` returned.
     pub fn next4(&mut self) -> (usize, P0) {
         let w = ((self.rng.next_u8() as usize) % 4) + 1;
+        (w, self.next(w))
+    }
+
+    /// Calls `next` with a random integer in 1..=9, returning a tuple of the
+    /// width chosen and the Ptr to what `next` returned.
+    pub fn next9(&mut self) -> (usize, P0) {
+        let w = ((self.rng.next_u8() as usize) % 9) + 1;
         (w, self.next(w))
     }
 
@@ -177,7 +180,7 @@ impl Mem {
     }
 }
 
-fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
+fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
     let next_op = rng.next_u32() % 29;
     match next_op {
         // Lut, StaticLut
@@ -194,7 +197,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Get, StaticGet
         1 => {
-            let (bits_w, bits) = m.next4();
+            let (bits_w, bits) = m.next9();
             let inx = m.next_usize(bits_w);
             let out = m.next(1);
             let bits_a = m.get_awi(bits);
@@ -208,7 +211,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Set, StaticSet
         2 => {
-            let (bits_w, bits) = m.next4();
+            let (bits_w, bits) = m.next9();
             let inx = m.next_usize(bits_w);
             let bit = m.next(1);
             let inx_a = m.get_awi(inx);
@@ -224,9 +227,9 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // FieldBit
         3 => {
-            let (lhs_w, lhs) = m.next4();
+            let (lhs_w, lhs) = m.next9();
             let to = m.next_usize(lhs_w);
-            let (rhs_w, rhs) = m.next4();
+            let (rhs_w, rhs) = m.next9();
             let from = m.next_usize(rhs_w);
             let to_a = m.get_awi(to);
             let rhs_a = m.get_awi(rhs);
@@ -243,8 +246,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // ZeroResize
         4 => {
-            let lhs = m.next4().1;
-            let rhs = m.next4().1;
+            let lhs = m.next9().1;
+            let rhs = m.next9().1;
             let rhs_a = m.get_awi(rhs);
             m.get_mut_awi(lhs).zero_resize_(&rhs_a);
             let rhs_b = m.get_dag(rhs);
@@ -252,8 +255,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // SignResize
         5 => {
-            let lhs = m.next4().1;
-            let rhs = m.next4().1;
+            let lhs = m.next9().1;
+            let rhs = m.next9().1;
             let rhs_a = m.get_awi(rhs);
             m.get_mut_awi(lhs).sign_resize_(&rhs_a);
             let rhs_b = m.get_dag(rhs);
@@ -261,17 +264,17 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Not
         6 => {
-            let x = m.next4().1;
+            let x = m.next9().1;
             m.get_mut_awi(x).not_();
             m.get_mut_dag(x).not_();
         }
         // Or, And, Xor
         7 => {
-            let (lhs_w, lhs) = m.next4();
+            let (lhs_w, lhs) = m.next9();
             let rhs = m.next(lhs_w);
             let rhs_a = m.get_awi(rhs);
             let rhs_b = m.get_dag(rhs);
-            match rng.next_u32() % 3 {
+            match rng.index(3).unwrap() {
                 0 => {
                     m.get_mut_awi(lhs).or_(&rhs_a).unwrap();
                     m.get_mut_dag(lhs).or_(&rhs_b).unwrap();
@@ -289,14 +292,14 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Inc, IncCout, Dec, DecCout
         8 => {
-            let x = m.next4().1;
+            let x = m.next9().1;
             let cin = m.next(1);
             let cout = m.next(1);
             let cin_a = m.get_awi(cin);
             let cin_b = m.get_dag(cin);
             let out_a;
             let out_b;
-            if (rng.next_u32() & 1) == 0 {
+            if rng.next_bool() {
                 out_a = m.get_mut_awi(x).inc_(cin_a.to_bool());
                 out_b = m.get_mut_dag(x).inc_(cin_b.to_bool());
             } else {
@@ -309,7 +312,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         // CinSum, UnsignedOverflow, SignedOverflow
         9 => {
             let cin = m.next(1);
-            let (lhs_w, lhs) = m.next4();
+            let (lhs_w, lhs) = m.next9();
             let rhs = m.next(lhs_w);
             let out = m.next(lhs_w);
             let unsigned = m.next(1);
@@ -337,9 +340,9 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Lsb, Msb
         10 => {
-            let x = m.next4().1;
+            let x = m.next9().1;
             let out = m.next(1);
-            if (rng.next_u32() & 1) == 0 {
+            if rng.next_bool() {
                 let a = m.get_awi(x).lsb();
                 m.get_mut_awi(out).bool_(a);
                 let b = m.get_dag(x).lsb();
@@ -353,8 +356,8 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
         }
         // Neg, Abs
         11 => {
-            let x = m.next4().1;
-            if (rng.next_u32() & 1) == 0 {
+            let x = m.next9().1;
+            if rng.next_bool() {
                 let neg = m.next(1);
                 let a = m.get_awi(neg).to_bool();
                 m.get_mut_awi(x).neg_(a);
@@ -759,7 +762,7 @@ fn num_dag_duo(rng: &mut Xoshiro128StarStar, m: &mut Mem) {
 
 #[test]
 fn fuzz_lower() {
-    let mut rng = Xoshiro128StarStar::seed_from_u64(0);
+    let mut rng = StarRng::new(0);
     let mut m = Mem::new();
 
     for _ in 0..N.1 {
