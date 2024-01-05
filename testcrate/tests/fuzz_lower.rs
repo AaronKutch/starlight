@@ -598,7 +598,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
         }
         // CountOnes, Lz, Tz, Sig
         22 => {
-            let x = m.next4().1;
+            let x = m.next9().1;
             let x_a = m.get_awi(x);
             let x_b = m.get_dag(x);
             let out = m.next_usize(usize::MAX);
@@ -637,8 +637,8 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
         }
         // Resize
         24 => {
-            let lhs = m.next4().1;
-            let rhs = m.next4().1;
+            let lhs = m.next9().1;
+            let rhs = m.next9().1;
             let b = m.next(1);
             let rhs_a = m.get_awi(rhs);
             let b_a = m.get_awi(b);
@@ -649,8 +649,8 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
         }
         // ZeroResizeOverflow, SignResizeOverflow
         25 => {
-            let lhs = m.next4().1;
-            let rhs = m.next4().1;
+            let lhs = m.next9().1;
+            let rhs = m.next9().1;
             let out = m.next(1);
             let mut lhs_a = m.get_awi(lhs);
             let rhs_a = m.get_awi(rhs);
@@ -679,8 +679,8 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
                     m.get_mut_dag(out).mul_add_(&lhs_b, &rhs_b).unwrap();
                 }
                 1 => {
-                    let rhs = m.next4().1;
-                    let out = m.next4().1;
+                    let rhs = m.next9().1;
+                    let out = m.next9().1;
                     let lhs_a = m.get_awi(lhs);
                     let rhs_a = m.get_awi(rhs);
                     let lhs_b = m.get_dag(lhs);
@@ -689,8 +689,8 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
                     m.get_mut_dag(out).arb_umul_add_(&lhs_b, &rhs_b);
                 }
                 2 => {
-                    let rhs = m.next4().1;
-                    let out = m.next4().1;
+                    let rhs = m.next9().1;
+                    let out = m.next9().1;
                     let mut lhs_a = m.get_awi(lhs);
                     let mut rhs_a = m.get_awi(rhs);
                     let mut lhs_b = m.get_dag(lhs);
