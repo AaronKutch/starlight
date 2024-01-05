@@ -129,7 +129,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                 let rhs = Awi::opaque(rhs_w);
                 // If `width_u` is out of bounds `out` is created as a no-op of `lhs` as
                 // expected
-                let out = static_field(&lhs, 0, &rhs, 0, width_u).0;
+                let out = Bits::static_field(&lhs, 0, &rhs, 0, width_u).unwrap();
                 m.graft(&[
                     out.state(),
                     lhs.state(),
@@ -175,13 +175,12 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                     let sub_rhs_w = rhs.bw() - from_u;
                     if let Some(w) = NonZeroUsize::new(sub_rhs_w) {
                         let tmp0 = Awi::zero(w);
-                        let (tmp1, o) = static_field(&tmp0, 0, &rhs, from_u, sub_rhs_w);
-                        let mut out = lhs.clone();
-                        if o {
-                            out
-                        } else {
+                        if let Some(tmp1) = Bits::static_field(&tmp0, 0, &rhs, from_u, sub_rhs_w) {
+                            let mut out = lhs.clone();
                             let _ = out.field_width(&tmp1, width.to_usize());
                             out
+                        } else {
+                            lhs.clone()
                         }
                     } else {
                         lhs.clone()
@@ -229,7 +228,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                     x.clone()
                 } else {
                     let tmp = Awi::zero(x.nzbw());
-                    static_field(&tmp, s_u, &x, 0, x.bw() - s_u).0
+                    Bits::static_field(&tmp, s_u, &x, 0, x.bw() - s_u).unwrap()
                 };
                 m.graft(&[out.state(), x.state(), Awi::opaque(m.get_nzbw(s)).state()]);
             } else {
@@ -255,7 +254,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                     x.clone()
                 } else {
                     let tmp = Awi::zero(x.nzbw());
-                    static_field(&tmp, 0, &x, s_u, x.bw() - s_u).0
+                    Bits::static_field(&tmp, 0, &x, s_u, x.bw() - s_u).unwrap()
                 };
                 m.graft(&[out.state(), x.state(), Awi::opaque(m.get_nzbw(s)).state()]);
             } else {
@@ -283,7 +282,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                     for i in 0..x.bw() {
                         tmp.set(i, x.msb()).unwrap();
                     }
-                    static_field(&tmp, 0, &x, s_u, x.bw() - s_u).0
+                    Bits::static_field(&tmp, 0, &x, s_u, x.bw() - s_u).unwrap()
                 };
                 m.graft(&[out.state(), x.state(), Awi::opaque(m.get_nzbw(s)).state()]);
             } else {
@@ -307,8 +306,9 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                 let out = if (s_u == 0) || (x.bw() <= s_u) {
                     x.clone()
                 } else {
-                    let tmp = static_field(&Awi::zero(x.nzbw()), s_u, &x, 0, x.bw() - s_u).0;
-                    static_field(&tmp, 0, &x, x.bw() - s_u, s_u).0
+                    let tmp =
+                        Bits::static_field(&Awi::zero(x.nzbw()), s_u, &x, 0, x.bw() - s_u).unwrap();
+                    Bits::static_field(&tmp, 0, &x, x.bw() - s_u, s_u).unwrap()
                 };
                 m.graft(&[out.state(), x.state(), Awi::opaque(m.get_nzbw(s)).state()]);
             } else {
@@ -332,8 +332,9 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                 let out = if (s_u == 0) || (x.bw() <= s_u) {
                     x.clone()
                 } else {
-                    let tmp = static_field(&Awi::zero(x.nzbw()), 0, &x, s_u, x.bw() - s_u).0;
-                    static_field(&tmp, x.bw() - s_u, &x, 0, s_u).0
+                    let tmp =
+                        Bits::static_field(&Awi::zero(x.nzbw()), 0, &x, s_u, x.bw() - s_u).unwrap();
+                    Bits::static_field(&tmp, x.bw() - s_u, &x, 0, s_u).unwrap()
                 };
                 m.graft(&[out.state(), x.state(), Awi::opaque(m.get_nzbw(s)).state()]);
             } else {
@@ -473,12 +474,13 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                 let out = if lhs.bw() < to_u {
                     lhs.clone()
                 } else if let Some(w) = NonZeroUsize::new(lhs.bw() - to_u) {
-                    let (mut lhs_hi, o) = static_field(&Awi::zero(w), 0, &lhs, to_u, w.get());
-                    let _ = lhs_hi.field_width(&rhs, width.to_usize());
-                    if o {
-                        lhs.clone()
+                    if let Some(mut lhs_hi) =
+                        Bits::static_field(&Awi::zero(w), 0, &lhs, to_u, w.get())
+                    {
+                        let _ = lhs_hi.field_width(&rhs, width.to_usize());
+                        Bits::static_field(&lhs, to_u, &lhs_hi, 0, w.get()).unwrap()
                     } else {
-                        static_field(&lhs, to_u, &lhs_hi, 0, w.get()).0
+                        lhs.clone()
                     }
                 } else {
                     lhs.clone()

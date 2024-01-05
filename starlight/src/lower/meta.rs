@@ -403,55 +403,6 @@ pub fn resize_cond(x: &Bits, w: NonZeroUsize, signed: &Bits) -> Awi {
     }
 }
 
-/// Returns (`lhs`, true) if there are invalid values
-pub fn static_field(lhs: &Bits, to: usize, rhs: &Bits, from: usize, width: usize) -> (Awi, bool) {
-    if (width > lhs.bw())
-        || (width > rhs.bw())
-        || (to > (lhs.bw() - width))
-        || (from > (rhs.bw() - width))
-    {
-        return (Awi::from_bits(lhs), true);
-    }
-    let res = if let Some(width) = NonZeroUsize::new(width) {
-        if let Some(lhs_rem_lo) = NonZeroUsize::new(to) {
-            if let Some(lhs_rem_hi) = NonZeroUsize::new(from) {
-                Awi::new(
-                    lhs.nzbw(),
-                    Op::ConcatFields(ConcatFieldsType::from_iter([
-                        (lhs.state(), 0usize, lhs_rem_lo),
-                        (rhs.state(), from, width),
-                        (lhs.state(), to + width.get(), lhs_rem_hi),
-                    ])),
-                )
-            } else {
-                Awi::new(
-                    lhs.nzbw(),
-                    Op::ConcatFields(ConcatFieldsType::from_iter([
-                        (lhs.state(), 0usize, lhs_rem_lo),
-                        (rhs.state(), from, width),
-                    ])),
-                )
-            }
-        } else if let Some(lhs_rem_hi) = NonZeroUsize::new(lhs.bw() - width.get()) {
-            Awi::new(
-                lhs.nzbw(),
-                Op::ConcatFields(ConcatFieldsType::from_iter([
-                    (rhs.state(), from, width),
-                    (lhs.state(), width.get(), lhs_rem_hi),
-                ])),
-            )
-        } else {
-            Awi::new(
-                lhs.nzbw(),
-                Op::ConcatFields(ConcatFieldsType::from_iter([(rhs.state(), from, width)])),
-            )
-        }
-    } else {
-        Awi::from_bits(lhs)
-    };
-    (res, false)
-}
-
 /// This does not handle invalid arguments; set `width` to zero to cause no-ops
 pub fn field_width(lhs: &Bits, rhs: &Bits, width: &Bits) -> Awi {
     let min_w = min(lhs.bw(), rhs.bw());
