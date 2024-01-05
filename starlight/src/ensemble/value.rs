@@ -447,7 +447,7 @@ impl Ensemble {
                         }
                     }
                 }
-                // we need to reduce first, reduce the LUT based on fixed and known bits
+                // reduce the LUT based on fixed and known bits
                 for i in (0..len).rev() {
                     if fixed.get(i).unwrap() && (!unknown.get(i).unwrap()) {
                         let bit = inp_val.get(i).unwrap();
@@ -494,7 +494,6 @@ impl Ensemble {
                         }
                     }
                 }
-                // TODO better early `Unknown` change detection
 
                 // if the LUT is all fixed and known ones or zeros, we can know that any unfixed
                 // or unknown changes will be unable to affect the
@@ -515,6 +514,16 @@ impl Ensemble {
                         }));
                         return vec![];
                     }
+                }
+
+                if fixed.is_umax() && lut_fixed.is_umax() {
+                    // if we did not evaluate to a value earlier, then we know our value is unknown
+                    self.evaluator.insert(Eval::Change(Change {
+                        depth,
+                        p_equiv,
+                        value: Value::Unknown,
+                    }));
+                    return vec![];
                 }
 
                 for i in (0..inp.len()).rev() {
