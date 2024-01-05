@@ -479,7 +479,7 @@ pub fn field_width(lhs: &Bits, rhs: &Bits, width: &Bits) -> Awi {
 }
 
 // old static strategy if we need it
-
+/*
 /// Given the diagonal control lines and input of a crossbar with output width
 /// s.t. `input.bw() + out.bw() - 1 = signals.bw()`, returns the output. The
 /// `i`th input bit and `j`th output bit are controlled by the
@@ -513,6 +513,7 @@ pub fn crossbar(
     }
     concat_update(output, nzbw, tmp_output)
 }
+*/
 
 /*pub fn funnel(x: &Bits, s: &Bits) -> Awi {
     debug_assert_eq!(x.bw() & 1, 0);
@@ -871,68 +872,69 @@ pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
 /// Setting `width` to 0 guarantees that nothing happens even with other
 /// arguments being invalid
 pub fn field(lhs: &Bits, to: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
-    debug_assert_eq!(to.bw(), USIZE_BITS);
-    debug_assert_eq!(from.bw(), USIZE_BITS);
-    debug_assert_eq!(width.bw(), USIZE_BITS);
+    // we can shift both ways now, from the msb of `rhs` to the lsb of `lhs` and the
+    // lsb of `rhs` to the msb of `lhs`.
+    if let Some(s_w) = Bits::nontrivial_bits(lhs.bw() + rhs.bw() - 2) {
+        // we do this to achieve fielding with a single shift construct
 
-    // we use some summation to get the fielding done with a single crossbar
+        // `from` cannot be more than `rhs.bw() - 1` under valid no-op conditions, so we
+        // calculate `to - from` offsetted by `rhs.bw() - 1` to keep it positive. The
+        // opposite extreme of `to == lhs.bw() - 1` and `from == 0` cannot overflow
+        // because of the way `s_w` was made.
+        let mut s = Awi::zero(s_w);
+        let mut small_from = Awi::zero(s_w);
+        let mut small_to = Awi::zero(s_w);
+        small_from.resize_(from, false);
+        small_to.resize_(to, false);
+        s.usize_(rhs.bw() - 1);
+        s.sub_(&small_from).unwrap();
+        s.add_(&small_to).unwrap();
 
-    // the basic shift offset is based on `to - from`, to keep the shift value
-    // positive in case of `to == 0` and `from == rhs.bw()` we add `rhs.bw()` to
-    // this value. The opposite extreme is therefore `to == lhs.bw()` and `from ==
-    // 0`, which will be equal to `lhs.bw() + rhs.bw()` because of the added
-    // `rhs.bw()`.
-    let num = lhs.bw() + rhs.bw();
-    let lb_num = num.next_power_of_two().trailing_zeros() as usize;
-    if let Some(w) = NonZeroUsize::new(lb_num) {
-        let mut shift = Awi::zero(w);
-        shift.usize_(rhs.bw());
-        shift.add_(&awi!(to[..(w.get())]).unwrap()).unwrap();
-        shift.sub_(&awi!(from[..(w.get())]).unwrap()).unwrap();
+        // first, create the shifted image of `rhs`
+        let mut wide_rhs = Awi::opaque(NonZeroUsize::new(2 << s_w.get()).unwrap());
+        let mut rev_rhs = Awi::zero(rhs.nzbw());
+        rev_rhs.copy_(rhs).unwrap();
+        rev_rhs.rev_();
+        let _ = wide_rhs.field_to(lhs.bw() - 1, &rev_rhs, rhs.bw());
+        let tmp = funnel(&wide_rhs, &s);
+        let mut funnel_res = Awi::zero(lhs.nzbw());
+        funnel_res.resize_(&tmp, false);
+        funnel_res.rev_();
 
-        let mut signals = selector(&shift, Some(num));
-        signals.reverse();
+        // second, we need two masks to indicate where the `width`-sized window is
+        // placed
 
-        let mut rhs_to_lhs = Awi::zero(lhs.nzbw());
-        // really what `field` is is a well defined full crossbar, the masking part
-        // after this is optimized to nothing if `rhs` is zero.
-        crossbar(&mut rhs_to_lhs, rhs, &signals, (0, num));
-
-        // `rhs` is now shifted correctly but we need a mask to overwrite the correct
-        // bits of `lhs`. We use opposing `tsmears` and AND them together to get the
-        // `width` window in the correct spot.
-
+        // need an extra bit for the `tsmear_inx` to work in all circumstances
+        let s_w = NonZeroUsize::new(s_w.get().checked_add(1).unwrap()).unwrap();
+        let mut small_to = Awi::zero(s_w);
+        small_to.usize_(to.to_usize());
+        let mut small_width = Awi::zero(s_w);
+        small_width.usize_(width.to_usize());
         // to + width
-        let mut tmp = Awi::zero(w);
-        tmp.usize_(to.to_usize());
-        tmp.add_(&awi!(width[..(w.get())]).unwrap()).unwrap();
-        let tmask = tsmear_inx(&tmp, lhs.bw());
-        // lhs.bw() - to
-        let mut tmp = Awi::zero(w);
-        tmp.usize_(lhs.bw());
-        tmp.sub_(&awi!(to[..(w.get())]).unwrap()).unwrap();
-        let mut lmask = tsmear_inx(&tmp, lhs.bw());
-        lmask.reverse();
+        let mut to_plus_width = small_width;
+        to_plus_width.add_(&small_to).unwrap();
+        // trailing mask that trails `to + width`, exclusive
+        let tmask = tsmear_inx(&to_plus_width, lhs.bw());
+        // leading mask that leads `to`, inclusive, implemented by negating a trailing
+        // mask of `to`
+        let lmask = tsmear_inx(&small_to, lhs.bw());
 
-        let nzbw = lhs.nzbw();
-        let mut out = SmallVec::with_capacity(nzbw.get());
-        // when `tmask` and `lmask` are both set, mux_ in `rhs`
+        // third, multiplex based on the masks
+        let mut out = SmallVec::with_capacity(lhs.bw());
         for i in 0..lhs.bw() {
-            let mut lut_out = inlawi!(0);
-            static_lut!(lut_out; 1011_1111_1000_0000;
-                rhs_to_lhs.get(i).unwrap(),
-                tmask[i],
-                lmask[i],
-                lhs.get(i).unwrap()
+            let mut signal = inlawi!(0);
+            static_lut!(
+                signal; 1111_1011_0100_0000;
+                lmask[i], tmask[i], funnel_res.get(i).unwrap(), lhs.get(i).unwrap()
             );
-            out.push(lut_out.state());
+            out.push(signal.state());
         }
-        concat(nzbw, out)
+
+        concat(lhs.nzbw(), out)
     } else {
-        // `lhs.bw() == 1`, `rhs.bw() == 1`, `width` is the only thing that matters
-        let lut = inlawi!(rhs[0], lhs[0]).unwrap();
-        let mut out = awi!(0);
-        out.lut_(&lut, width).unwrap();
+        let mut out = Awi::from_bits(lhs);
+        let small_width = Awi::from_bool(width.lsb());
+        let _ = out.field_width(rhs, small_width.to_usize());
         out
     }
 }
