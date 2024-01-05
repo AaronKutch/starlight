@@ -86,10 +86,10 @@ impl Mem {
         }
     }
 
-    /// Calls `next` with a random integer in 1..=4, returning a tuple of the
+    /// Calls `next` with a random integer in 1..=6, returning a tuple of the
     /// width chosen and the Ptr to what `next` returned.
-    pub fn next4(&mut self) -> (usize, P0) {
-        let w = ((self.rng.next_u8() as usize) % 4) + 1;
+    pub fn next6(&mut self) -> (usize, P0) {
+        let w = ((self.rng.next_u8() as usize) % 6) + 1;
         (w, self.next(w))
     }
 
@@ -121,13 +121,12 @@ impl Mem {
 }
 
 fn operation(rng: &mut StarRng, m: &mut Mem) {
-    let next_op = rng.next_u8() % 3;
-    match next_op {
+    match rng.index(3).unwrap() {
         // Copy
         0 => {
             // doesn't actually do anything on the DAG side, but we use it to get parallel
             // things in the fuzzing
-            let (w, from) = m.next4();
+            let (w, from) = m.next6();
             let to = m.next(w);
             if to != from {
                 let (to, from) = m.a.get2_mut(to, from).unwrap();
@@ -137,20 +136,20 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
         }
         // Get-Set
         1 => {
-            let (w0, from) = m.next4();
-            let (w1, to) = m.next4();
-            let usize_inx0 = (rng.next_u32() as usize) % w0;
-            let usize_inx1 = (rng.next_u32() as usize) % w1;
+            let (w0, from) = m.next6();
+            let (w1, to) = m.next6();
+            let usize_inx0 = rng.index(w0).unwrap();
+            let usize_inx1 = rng.index(w1).unwrap();
             let b = m.a[from].awi.get(usize_inx0).unwrap();
             m.a[to].awi.set(usize_inx1, b).unwrap();
             let b = m.a[from].dag.get(usize_inx0).unwrap();
             m.a[to].dag.set(usize_inx1, b).unwrap();
         }
-        // Lut
+        // Lut and dynamic luts
         2 => {
-            let (out_w, out) = m.next4();
-            let (inx_w, inx) = m.next4();
-            let lut = m.next(out_w * (1 << inx_w));
+            let out = m.next(1);
+            let (inx_w, inx) = m.next6();
+            let lut = m.next(1 << inx_w);
             let lut_a = m.get(lut);
             let inx_a = m.get(inx);
             m.a[out].awi.lut_(&lut_a.awi, &inx_a.awi).unwrap();
