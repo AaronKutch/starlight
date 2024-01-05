@@ -817,10 +817,10 @@ pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
     if let Some(s_w) = Bits::nontrivial_bits(lhs.bw() - 1) {
         // first, create the shifted image of `rhs`
         let mut s = Awi::zero(s_w);
-        s.resize_(&to, false);
-        let mut wide_rhs = Awi::zero(NonZeroUsize::new(2 << s_w.get()).unwrap());
+        s.resize_(to, false);
+        let mut wide_rhs = Awi::opaque(NonZeroUsize::new(2 << s_w.get()).unwrap());
         let mut rev_rhs = Awi::zero(rhs.nzbw());
-        rev_rhs.copy_(&rhs).unwrap();
+        rev_rhs.copy_(rhs).unwrap();
         rev_rhs.rev_();
         if let Some(field_to) = lhs.bw().checked_sub(rhs.bw()) {
             let _ = wide_rhs.field_to(field_to, &rev_rhs, rhs.bw());
