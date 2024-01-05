@@ -504,7 +504,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
                 let mut tmp_width = Awi::zero(max_width_w);
                 tmp_width.mux_(&width_small, success.is_some()).unwrap();
 
-                let out = field_to(&lhs, &to, &rhs, &width);
+                let out = field_to(&lhs, &to, &rhs, &tmp_width);
                 m.graft(&[
                     out.state(),
                     lhs.state(),

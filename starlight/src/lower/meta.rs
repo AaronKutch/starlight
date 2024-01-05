@@ -252,7 +252,7 @@ pub fn tsmear_inx(inx: &Bits, num_signals: usize) -> Vec<inlawi_ty!(1)> {
         // need extra bit to get all `n + 1`
         lb_num += 1;
     }
-    let mut signals = vec![];
+    let mut signals = Vec::with_capacity(num_signals);
     for i in 0..num_signals {
         // if `inx < i`
         let mut signal = inlawi!(0);
@@ -544,7 +544,7 @@ pub fn funnel(x: &Bits, s: &Bits) -> Awi {
 /// guarantees that nothing happens to `lhs` even with `from` being out of range
 pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
     let mut out = Awi::from_bits(lhs);
-    // the max shift value that can be anything but a no-op
+    // the max shift value that can be anything but an effective no-op
     if let Some(s_w) = Bits::nontrivial_bits(rhs.bw() - 1) {
         let mut s = Awi::zero(s_w);
         s.resize_(from, false);
@@ -813,15 +813,56 @@ pub fn negator(x: &Bits, neg: &Bits) -> Awi {
 /// Setting `width` to 0 guarantees that nothing happens even with other
 /// arguments being invalid
 pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
-    let mut out = Awi::from_bits(lhs);
-    // the max shift value that can be anything but a no-op
+    // the max shift value that can be anything but an effective no-op
     if let Some(s_w) = Bits::nontrivial_bits(lhs.bw() - 1) {
+        // first, create the shifted image of `rhs`
+        let mut s = Awi::zero(s_w);
+        s.resize_(&to, false);
+        let mut wide_rhs = Awi::zero(NonZeroUsize::new(2 << s_w.get()).unwrap());
+        let mut rev_rhs = Awi::zero(rhs.nzbw());
+        rev_rhs.copy_(&rhs).unwrap();
+        rev_rhs.rev_();
+        let _ = wide_rhs.field_to((1 << s_w.get()) - rhs.bw(), &rev_rhs, rhs.bw());
+        let tmp = funnel(&wide_rhs, &s);
+        let mut funnel_res = Awi::zero(lhs.nzbw());
+        funnel_res.resize_(&tmp, false);
+        funnel_res.rev_();
+
+        // second, we need a mask that indicates where the `width`-sized window is
+        // placed
+
+        // need an extra bit for the `tsmear_inx` to work in all circumstances
+        let s_w = NonZeroUsize::new(s_w.get().checked_add(1).unwrap()).unwrap();
+        let mut small_to = Awi::zero(s_w);
+        small_to.usize_(to.to_usize());
+        let mut small_width = Awi::zero(s_w);
+        small_width.usize_(width.to_usize());
+        // to + width
+        let mut to_plus_width = small_width;
+        to_plus_width.add_(&small_to).unwrap();
+        // trailing mask that trails `to + width`, exclusive
+        let tmask = tsmear_inx(&to_plus_width, lhs.bw());
+        // leading mask that leads `to`, inclusive, implemented by negating a trailing
+        // mask of `to`
+        let lmask = tsmear_inx(&small_to, lhs.bw());
+
+        let mut out = SmallVec::with_capacity(lhs.bw());
+        for i in 0..lhs.bw() {
+            let mut signal = inlawi!(0);
+            static_lut!(signal; 1111_1011_0100_0000; lmask[i], tmask[i], funnel_res.get(i).unwrap(), lhs.get(i).unwrap());
+            //static_lut!(signal; 1111000011110000; lmask[i], tmask[i],
+            // funnel_res.get(i).unwrap(), lhs.get(i).unwrap());
+            out.push(signal.state());
+        }
+
+        return concat(lhs.nzbw(), out);
     } else {
+        let mut out = Awi::from_bits(lhs);
         let small_width = Awi::from_bool(width.lsb());
         let _ = out.field_width(rhs, small_width.to_usize());
         return out
     }
-
+    /*
     let num = lhs.bw();
     let next_pow = num.next_power_of_two();
     let mut lb_num = next_pow.trailing_zeros() as usize;
@@ -867,7 +908,7 @@ pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
         let mut out = awi!(0);
         out.lut_(&lut, width).unwrap();
         out
-    }
+    }*/
 }
 
 /// Setting `width` to 0 guarantees that nothing happens even with other
