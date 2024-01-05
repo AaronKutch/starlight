@@ -822,13 +822,18 @@ pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
         let mut rev_rhs = Awi::zero(rhs.nzbw());
         rev_rhs.copy_(&rhs).unwrap();
         rev_rhs.rev_();
-        let _ = wide_rhs.field_to((1 << s_w.get()) - rhs.bw(), &rev_rhs, rhs.bw());
+        if let Some(field_to) = lhs.bw().checked_sub(rhs.bw()) {
+            let _ = wide_rhs.field_to(field_to, &rev_rhs, rhs.bw());
+        } else {
+            let field_from = rhs.bw().wrapping_sub(lhs.bw());
+            let _ = wide_rhs.field_from(&rev_rhs, field_from, lhs.bw());
+        }
         let tmp = funnel(&wide_rhs, &s);
         let mut funnel_res = Awi::zero(lhs.nzbw());
         funnel_res.resize_(&tmp, false);
         funnel_res.rev_();
 
-        // second, we need a mask that indicates where the `width`-sized window is
+        // second, we need two masks to indicate where the `width`-sized window is
         // placed
 
         // need an extra bit for the `tsmear_inx` to work in all circumstances
@@ -846,69 +851,21 @@ pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
         // mask of `to`
         let lmask = tsmear_inx(&small_to, lhs.bw());
 
+        // third, multiplex based on the masks
         let mut out = SmallVec::with_capacity(lhs.bw());
         for i in 0..lhs.bw() {
             let mut signal = inlawi!(0);
             static_lut!(signal; 1111_1011_0100_0000; lmask[i], tmask[i], funnel_res.get(i).unwrap(), lhs.get(i).unwrap());
-            //static_lut!(signal; 1111000011110000; lmask[i], tmask[i],
-            // funnel_res.get(i).unwrap(), lhs.get(i).unwrap());
             out.push(signal.state());
         }
 
-        return concat(lhs.nzbw(), out);
+        concat(lhs.nzbw(), out)
     } else {
         let mut out = Awi::from_bits(lhs);
         let small_width = Awi::from_bool(width.lsb());
         let _ = out.field_width(rhs, small_width.to_usize());
-        return out
-    }
-    /*
-    let num = lhs.bw();
-    let next_pow = num.next_power_of_two();
-    let mut lb_num = next_pow.trailing_zeros() as usize;
-    if next_pow == num {
-        // need extra bit to get all `n + 1`
-        lb_num += 1;
-    }
-    if let Some(w) = NonZeroUsize::new(lb_num) {
-        let mut signals = selector(to, Some(num));
-        signals.reverse();
-
-        let mut rhs_to_lhs = Awi::zero(lhs.nzbw());
-        crossbar(&mut rhs_to_lhs, rhs, &signals, (0, lhs.bw()));
-
-        // to + width
-        let mut tmp = Awi::zero(w);
-        tmp.usize_(to.to_usize());
-        tmp.add_(&awi!(width[..(w.get())]).unwrap()).unwrap();
-        let tmask = tsmear_inx(&tmp, lhs.bw());
-        // lhs.bw() - to
-        let mut tmp = Awi::zero(w);
-        tmp.usize_(lhs.bw());
-        tmp.sub_(&awi!(to[..(w.get())]).unwrap()).unwrap();
-        let mut lmask = tsmear_inx(&tmp, lhs.bw());
-        lmask.reverse();
-
-        let nzbw = lhs.nzbw();
-        let mut out = SmallVec::with_capacity(nzbw.get());
-        // when `tmask` and `lmask` are both set, mux_ in `rhs`
-        for i in 0..lhs.bw() {
-            let mut lut_out = inlawi!(0);
-            static_lut!(lut_out; 1011_1111_1000_0000;
-                rhs_to_lhs.get(i).unwrap(),
-                tmask[i],
-                lmask[i],
-                lhs.get(i).unwrap()
-            );
-            out.push(lut_out.state());
-        }
-        concat(nzbw, out)
-    } else {
-        let lut = inlawi!(rhs[0], lhs[0]).unwrap();
-        let mut out = awi!(0);
-        out.lut_(&lut, width).unwrap();
         out
-    }*/
+    }
 }
 
 /// Setting `width` to 0 guarantees that nothing happens even with other
