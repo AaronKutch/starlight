@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{cmp::min, num::NonZeroUsize};
 
 use starlight::{
     awint::{awi, awint_dag::EvalError, dag},
@@ -86,11 +86,37 @@ impl Mem {
         }
     }
 
+    /// Randomly creates a new pair or gets an existing one under the `cap`
+    pub fn next_capped(&mut self, w: usize, cap: usize) -> P0 {
+        if self.rng.out_of_4(3) && (!self.v[w].is_empty()) {
+            let p = self.rng.index_slice(&self.v[w]).unwrap();
+            if self.get(*p).awi.to_usize() < cap {
+                return *p
+            }
+        }
+        let nzbw = NonZeroUsize::new(w).unwrap();
+        let lazy = LazyAwi::opaque(nzbw);
+        let mut lit = awi::Awi::zero(nzbw);
+        lit.usize_(self.rng.index(cap).unwrap());
+        let p = self.a.insert(Pair {
+            awi: lit.clone(),
+            dag: dag::Awi::from(lazy.as_ref()),
+            eval: None,
+        });
+        self.roots.push((lazy, lit));
+        self.v[w].push(p);
+        p
+    }
+
     /// Calls `next` with a random integer in 1..=6, returning a tuple of the
     /// width chosen and the Ptr to what `next` returned.
     pub fn next6(&mut self) -> (usize, P0) {
         let w = ((self.rng.next_u8() as usize) % 6) + 1;
         (w, self.next(w))
+    }
+
+    pub fn next_usize(&mut self, cap: usize) -> P0 {
+        self.next_capped(usize::BITS as usize, cap)
     }
 
     pub fn get(&self, inx: P0) -> Pair {
@@ -121,7 +147,7 @@ impl Mem {
 }
 
 fn operation(rng: &mut StarRng, m: &mut Mem) {
-    match rng.index(3).unwrap() {
+    match rng.index(4).unwrap() {
         // Copy
         0 => {
             // doesn't actually do anything on the DAG side, but we use it to get parallel
@@ -145,8 +171,43 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
             let b = m.a[from].dag.get(usize_inx0).unwrap();
             m.a[to].dag.set(usize_inx1, b).unwrap();
         }
-        // Lut and dynamic luts
+        // static fielding needed for interacting with the large tables
         2 => {
+            let w0 = 4 << rng.index(4).unwrap();
+            let w1 = 4 << rng.index(4).unwrap();
+            let min_w = min(w0, w1);
+            let width = m.next_usize(min_w + 1);
+            let from = m.next_usize(1 + w0 - m.get(width).awi.to_usize());
+            let to = m.next_usize(1 + w1 - m.get(width).awi.to_usize());
+            let rhs = m.next(w0);
+            let lhs = m.next(w1);
+
+            let from_a = m.get(from);
+            let to_a = m.get(to);
+            let width_a = m.get(width);
+            let rhs_a = m.get(rhs);
+            m.a[lhs]
+                .awi
+                .field(
+                    to_a.awi.to_usize(),
+                    &rhs_a.awi,
+                    from_a.awi.to_usize(),
+                    width_a.awi.to_usize(),
+                )
+                .unwrap();
+            // use the `awi` versions for the shift information
+            m.a[lhs]
+                .dag
+                .field(
+                    to_a.awi.to_usize(),
+                    &rhs_a.dag,
+                    from_a.awi.to_usize(),
+                    width_a.awi.to_usize(),
+                )
+                .unwrap();
+        }
+        // Lut and dynamic luts
+        3 => {
             let out = m.next(1);
             let (inx_w, inx) = m.next6();
             let lut = m.next(1 << inx_w);
