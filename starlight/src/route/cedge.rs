@@ -6,7 +6,7 @@ use awint::{
 use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble,
-    ensemble::{Ensemble, LNodeKind},
+    ensemble::{DynamicValue, Ensemble, LNodeKind},
     route::{channel::Referent, Channeler, PBack},
     triple_arena::ptr_struct,
     Epoch,
@@ -30,12 +30,21 @@ pub enum Behavior {
     /// Nothing can happen between nodes, used for connecting top level nodes
     /// that have no connection to each other
     Noop,
-    /// Routes the bit from `source` to `sink`
-    RouteBit,
+
     StaticLut(Awi),
+
+    // `DynamicLut`s can go in one of two ways: the table bits directly connect with configurable
+    // bits and thus it can behave as an `ArbitraryLut`, or the inx bits directly connect with
+    // configurable bits and thus can behave as `SelectorLut`s. Currently we will trigger
+    // lowerings when a LUT doesn't fit into any category and lower down into just `StaticLut`s if
+    // necessary.
     /// Can behave as an arbitrary lookup table outputting a bit and taking the
     /// input bits.
     ArbitraryLut(usize),
+    /// Can behave as an arbitrary selector that multiplexes one of the input
+    /// bits to the output
+    SelectorLut(usize),
+
     /// Bulk behavior
     Bulk(BulkBehavior),
 }
@@ -161,7 +170,28 @@ impl Channeler {
                         instruction: Instruction::new(),
                     });
                 }
-                LNodeKind::DynamicLut(inp, lut) => todo!(),
+                LNodeKind::DynamicLut(inp, lut) => {
+                    let mut v: SmallVec<[PBack; 8]> =
+                        smallvec![translate(ensemble, &channeler, lnode.p_self)];
+                    for input in inp {
+                        v.push(translate(ensemble, &channeler, *input));
+                    }
+                    for lut_bit in lut.iter() {
+                        match lut_bit {
+                            DynamicValue::Unknown => todo!(),
+                            DynamicValue::Const(_) => todo!(),
+                            DynamicValue::Dynam(_) => todo!(),
+                        }
+                        //v.push(translate(ensemble, &channeler, *input));
+                    }
+                    // TODO detect config bit effects
+
+                    //SelectorLut
+                    /*channeler.make_cedge(&v, Programmability {
+                        behavior: Behavior::ArbitraryLut(awi.clone()),
+                        instruction: Instruction::new(),
+                    });*/
+                }
             }
         }
 

@@ -195,13 +195,12 @@ impl Channeler {
         for p_cedge in self.cedges.ptrs() {
             let cedge = self.cedges.get(p_cedge).unwrap();
             let ok = match &cedge.programmability().behavior {
-                Behavior::Noop | Behavior::RouteBit | Behavior::Bulk(_) => {
-                    cedge.incidences.len() == 2
-                }
+                Behavior::Noop | Behavior::Bulk(_) => cedge.incidences.len() == 2,
                 Behavior::StaticLut(lut) => {
                     lut.bw().is_power_of_two()
                         && ((lut.bw().trailing_zeros() as usize + 1) == cedge.incidences.len())
                 }
+                Behavior::SelectorLut(_) => todo!(),
                 Behavior::ArbitraryLut(input_len) => *input_len == cedge.incidences.len(),
             };
             if !ok {

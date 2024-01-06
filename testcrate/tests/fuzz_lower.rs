@@ -180,6 +180,9 @@ impl Mem {
     }
 }
 
+// TODO I don't think I have fully tested the no-op cases. I should also have
+// some kind of way to test coverage.
+
 fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
     let next_op = rng.next_u32() % 29;
     match next_op {
