@@ -518,7 +518,13 @@ impl Ensemble {
         self.backrefs.insert_with(|p_self_equiv| {
             (
                 Referent::ThisEquiv,
-                Equiv::new(p_self_equiv, Value::from_dag_lit(lit)),
+                Equiv::new(p_self_equiv, {
+                    if let Some(b) = lit {
+                        Value::Const(b)
+                    } else {
+                        Value::Unknown
+                    }
+                }),
             )
         })
     }
@@ -669,9 +675,9 @@ impl Ensemble {
             equiv0.change_visit = equiv1.change_visit;
             equiv0.val = equiv1.val;
         } else if equiv0.val != equiv1.val {
-            if equiv0.val.is_unknown() {
+            if !equiv0.val.is_known() {
                 equiv0.val = equiv1.val;
-            } else if equiv1.val.is_unknown() {
+            } else if !equiv1.val.is_known() {
                 equiv1.val = equiv0.val;
             } else {
                 return Err(EvalError::OtherString(format!(

@@ -25,6 +25,7 @@ ptr_struct!(
 pub struct RNode {
     pub nzbw: NonZeroUsize,
     pub bits: SmallVec<[Option<PBack>; 1]>,
+    pub read_only: bool,
     pub associated_state: Option<PState>,
     pub lower_before_pruning: bool,
 }
@@ -41,11 +42,13 @@ impl Recast<PBack> for RNode {
 impl RNode {
     pub fn new(
         nzbw: NonZeroUsize,
+        read_only: bool,
         associated_state: Option<PState>,
         lower_before_pruning: bool,
     ) -> Self {
         Self {
             nzbw,
+            read_only,
             bits: smallvec![],
             associated_state,
             lower_before_pruning,
@@ -117,12 +120,16 @@ impl Ensemble {
     pub fn make_rnode_for_pstate(
         &mut self,
         p_state: PState,
+        read_only: bool,
         lower_before_pruning: bool,
     ) -> Option<PExternal> {
         let nzbw = self.stator.states[p_state].nzbw;
-        let (_, p_external) =
-            self.notary
-                .insert_rnode(RNode::new(nzbw, Some(p_state), lower_before_pruning));
+        let (_, p_external) = self.notary.insert_rnode(RNode::new(
+            nzbw,
+            read_only,
+            Some(p_state),
+            lower_before_pruning,
+        ));
         Some(p_external)
     }
 
@@ -210,7 +217,11 @@ impl Ensemble {
                     if let Some(p_back) = p_back {
                         let bit = common_value.get(bit_i).unwrap();
                         let bit = if make_const {
-                            Value::Const(bit.unwrap())
+                            if let Some(bit) = bit {
+                                Value::Const(bit)
+                            } else {
+                                Value::ConstUnknown
+                            }
                         } else if let Some(bit) = bit {
                             Value::Dynam(bit)
                         } else {

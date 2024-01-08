@@ -483,7 +483,7 @@ fn lower_elementary_to_lnodes_intermediate(
                     if let Some(p_back) = lut_bits[(i * out_bw) + bit_i] {
                         p_lut_bits.push(DynamicValue::Dynam(p_back));
                     } else {
-                        p_lut_bits.push(DynamicValue::Unknown);
+                        p_lut_bits.push(DynamicValue::ConstUnknown);
                     }
                 }
                 let p_equiv0 = this

@@ -153,7 +153,7 @@ impl EvalAwi {
     pub fn from_state(p_state: PState) -> Self {
         if let Some(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
-            match lock.ensemble.make_rnode_for_pstate(p_state, true) {
+            match lock.ensemble.make_rnode_for_pstate(p_state, true, true) {
                 Some(p_external) => {
                     lock.ensemble
                         .stator

@@ -98,9 +98,10 @@ impl Ensemble {
             LNodeKind::Copy(inp) => {
                 // wire propogation
                 let input_equiv = self.backrefs.get_val_mut(*inp).unwrap();
-                if let Value::Const(val) = input_equiv.val {
+                let val = input_equiv.val;
+                if val.is_const() {
                     let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
-                    equiv.val = Value::Const(val);
+                    equiv.val = val;
                     self.optimizer
                         .insert(Optimization::ConstifyEquiv(equiv.p_self_equiv));
                     true
@@ -114,16 +115,22 @@ impl Ensemble {
                 let mut lut = original_lut.clone();
                 // acquire LUT inputs, for every constant input reduce the LUT
                 let len = usize::from(u8::try_from(inp.len()).unwrap());
+                let mut encountered_const_unknown = false;
                 for i in (0..len).rev() {
                     let p_inp = inp[i];
                     let equiv = self.backrefs.get_val(p_inp).unwrap();
-                    if let Value::Const(val) = equiv.val {
-                        // we will be removing the input, mark it to be investigated
-                        self.optimizer
-                            .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                        self.backrefs.remove_key(p_inp).unwrap();
-                        inp.remove(i);
-                        LNode::reduce_lut(&mut lut, i, val);
+                    match equiv.val {
+                        Value::ConstUnknown => encountered_const_unknown = true,
+                        Value::Const(val) => {
+                            // we will reducing the LUT and removing this input, mark it to be
+                            // investigated
+                            self.optimizer
+                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                            self.backrefs.remove_key(p_inp).unwrap();
+                            inp.remove(i);
+                            LNode::reduce_lut(&mut lut, i, val);
+                        }
+                        Value::Unknown | Value::Dynam(_) => (),
                     }
                 }
 
@@ -183,30 +190,67 @@ impl Ensemble {
                     // fix the `lut` to its new state, do this even if we are doing the constant
                     // optimization
                     *original_lut = lut;
-                    true
+                    return Ok(true)
                 } else if (lut.bw() == 2) && lut.get(1).unwrap() {
                     // the only `lut.bw() == 2` cases that survive independence removal is identity
                     // and inversion. If it is identity, register this for forwarding
                     lnode.kind = LNodeKind::Copy(inp[0]);
                     self.optimizer
                         .insert(Optimization::ForwardEquiv(lnode.p_self));
-                    false
-                } else {
-                    *original_lut = lut;
-                    false
+                    return Ok(false)
                 }
+                // only at the very end do we consider `ConstUnknown` inputs, because if we
+                // naively try to constify to `ConstUnknown` when the LUT does not reduce, we
+                // miss cases where other inputs can cause it to have known output or even const
+                // known output. We only set constify to `ConstUnknown` when all inputs are
+                // `ConstUnknown`, which we need to recheck here. The `ConstUnknown` inputs
+                // otherwise unfortunately need to be kept around for correct evaluation
+                // behavior.
+                if encountered_const_unknown {
+                    let mut all_const_unknown = true;
+                    let len = inp.len();
+                    for i in 0..len {
+                        let p_inp = inp[i];
+                        let equiv = self.backrefs.get_val(p_inp).unwrap();
+                        match equiv.val {
+                            Value::ConstUnknown => (),
+                            Value::Const(_) | Value::Dynam(_) | Value::Unknown => {
+                                all_const_unknown = false;
+                                break
+                            }
+                        }
+                    }
+                    if all_const_unknown {
+                        let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
+                        equiv.val = Value::ConstUnknown;
+                        *original_lut = lut;
+                        return Ok(true)
+                    }
+                }
+                *original_lut = lut;
+                false
             }
             LNodeKind::DynamicLut(inp, ref mut lut) => {
                 // acquire LUT table inputs, convert to constants
                 for lut_bit in lut.iter_mut() {
                     if let DynamicValue::Dynam(p) = lut_bit {
                         let equiv = self.backrefs.get_val(*p).unwrap();
-                        if let Value::Const(val) = equiv.val {
-                            // we will be removing the input, mark it to be investigated
-                            self.optimizer
-                                .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                            self.backrefs.remove_key(*p).unwrap();
-                            *lut_bit = DynamicValue::Const(val);
+                        match equiv.val {
+                            Value::ConstUnknown => {
+                                // we will be removing the input, mark it to be investigated
+                                self.optimizer
+                                    .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                                self.backrefs.remove_key(*p).unwrap();
+                                *lut_bit = DynamicValue::ConstUnknown;
+                            }
+                            Value::Const(val) => {
+                                // we will be removing the input, mark it to be investigated
+                                self.optimizer
+                                    .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                                self.backrefs.remove_key(*p).unwrap();
+                                *lut_bit = DynamicValue::Const(val);
+                            }
+                            Value::Unknown | Value::Dynam(_) => (),
                         }
                     }
                 }
@@ -215,22 +259,26 @@ impl Ensemble {
                 for i in (0..len).rev() {
                     let p_inp = inp[i];
                     let equiv = self.backrefs.get_val(p_inp).unwrap();
-                    if let Value::Const(val) = equiv.val {
-                        len -= 1;
-                        // we will be removing the input, mark it to be investigated
-                        self.optimizer
-                            .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                        self.backrefs.remove_key(p_inp).unwrap();
-                        inp.remove(i);
-
-                        let (tmp, removed) = LNode::reduce_dynamic_lut(lut, i, val);
-                        *lut = tmp;
-                        for remove in removed {
-                            let equiv = self.backrefs.get_val(remove).unwrap();
+                    match equiv.val {
+                        Value::ConstUnknown => (),
+                        Value::Const(val) => {
+                            len -= 1;
+                            // we will be removing the input, mark it to be investigated
                             self.optimizer
                                 .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                            self.backrefs.remove_key(remove).unwrap();
+                            self.backrefs.remove_key(p_inp).unwrap();
+                            inp.remove(i);
+
+                            let (tmp, removed) = LNode::reduce_dynamic_lut(lut, i, val);
+                            *lut = tmp;
+                            for remove in removed {
+                                let equiv = self.backrefs.get_val(remove).unwrap();
+                                self.optimizer
+                                    .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                                self.backrefs.remove_key(remove).unwrap();
+                            }
                         }
+                        Value::Unknown | Value::Dynam(_) => (),
                     }
                 }
 
@@ -309,15 +357,10 @@ impl Ensemble {
                 if w.get() == 1 {
                     let bit = lut[0];
                     match bit {
-                        DynamicValue::Unknown => {
-                            //let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
-                            //equiv.val = Value::Unknown;
-                            // not sure if `DynamicValue` is something that should map to a stronger
-                            // `Value::ConstUnknown` or `Value::unreachable`
-                            return Err(EvalError::OtherStr(
-                                "encountered a dynamic lookup table that has been reduced down to \
-                                 `DynamicValue::Unknown`",
-                            ));
+                        DynamicValue::ConstUnknown => {
+                            let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
+                            equiv.val = Value::ConstUnknown;
+                            return Ok(true)
                         }
                         DynamicValue::Const(b) => {
                             let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
@@ -333,19 +376,29 @@ impl Ensemble {
                     }
                 }
 
-                // check if all const
-                let mut all_const = true;
+                let mut all_const_unknown = true;
+                let mut all_const_known = true;
                 for lut_bit in lut.iter() {
                     match lut_bit {
-                        DynamicValue::Const(_) => (),
-                        DynamicValue::Unknown | DynamicValue::Dynam(_) => {
-                            all_const = false;
-                            break
+                        DynamicValue::ConstUnknown => {
+                            all_const_known = false;
+                        }
+                        DynamicValue::Const(_) => {
+                            all_const_unknown = false;
+                        }
+                        DynamicValue::Dynam(_) => {
+                            all_const_unknown = false;
+                            all_const_known = false;
                         }
                     }
                 }
 
-                if all_const {
+                if all_const_unknown {
+                    let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
+                    equiv.val = Value::ConstUnknown;
+                    return Ok(true)
+                }
+                if all_const_known {
                     let mut awi_lut = Awi::zero(w);
                     for (i, lut_bit) in lut.iter().enumerate() {
                         if let DynamicValue::Const(b) = lut_bit {
@@ -373,8 +426,8 @@ impl Ensemble {
         let p_self = tnode.p_self;
         let p_driver = tnode.p_driver;
         let equiv = self.backrefs.get_val(p_driver).unwrap();
-        if let Value::Const(val) = equiv.val {
-            self.backrefs.get_val_mut(p_self).unwrap().val = Value::Const(val);
+        if equiv.val.is_const() {
+            self.backrefs.get_val_mut(p_self).unwrap().val = equiv.val;
             true
         } else {
             false
@@ -388,19 +441,22 @@ impl Ensemble {
     pub fn preinvestigate_equiv(&mut self, p_equiv: PBack) -> Result<(), EvalError> {
         let mut non_self_rc = 0usize;
         let equiv = self.backrefs.get_val(p_equiv).unwrap();
-        let mut is_const = matches!(equiv.val, Value::Const(_));
+        let mut is_const = equiv.val.is_const();
+        let mut possible_drivers = false;
         let mut adv = self.backrefs.advancer_surject(p_equiv);
         while let Some(p_back) = adv.advance(&self.backrefs) {
             let referent = *self.backrefs.get_key(p_back).unwrap();
             match referent {
                 Referent::ThisEquiv => (),
                 Referent::ThisTNode(p_tnode) => {
+                    possible_drivers = true;
                     // avoid checking more if it was already determined to be constant
                     if !is_const && self.const_eval_tnode(p_tnode) {
                         is_const = true;
                     }
                 }
                 Referent::ThisLNode(p_lnode) => {
+                    possible_drivers = true;
                     // avoid checking more if it was already determined to be constant
                     if !is_const && self.const_eval_lnode(p_lnode)? {
                         is_const = true;
@@ -427,12 +483,21 @@ impl Ensemble {
                     // TODO check for const through loop, but there should be a
                     // parameter to enable
                 }
-                Referent::ThisRNode(_) => non_self_rc += 1,
+                Referent::ThisRNode(p_rnode) => {
+                    let rnode = self.notary.rnodes().get(p_rnode).unwrap().1;
+                    if !rnode.read_only {
+                        possible_drivers = true;
+                    }
+                    non_self_rc += 1;
+                }
             }
         }
+
         if non_self_rc == 0 {
             self.optimizer.insert(Optimization::RemoveEquiv(p_equiv));
-        } else if is_const {
+        } else if is_const || (!possible_drivers) {
+            // if an equivalence has no possible `TNode`, `LNode`, or `RNode` drivers, the
+            // value is converted to its const version
             self.optimizer.insert(Optimization::ConstifyEquiv(p_equiv));
         } else {
             self.optimizer

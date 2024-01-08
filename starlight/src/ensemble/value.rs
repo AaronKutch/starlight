@@ -87,6 +87,8 @@ impl<'a> CommonValue<'a> {
 /// The value of a multistate boolean
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
+    /// The value is permanently unknown
+    ConstUnknown,
     /// The value is simply unknown, or a circuit is undriven
     Unknown,
     /// The value is a known constant that is guaranteed to not change under any
@@ -97,35 +99,36 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn from_dag_lit(lit: Option<bool>) -> Self {
-        if let Some(lit) = lit {
-            Value::Const(lit)
-        } else {
-            Value::Unknown
-        }
-    }
-
     pub fn known_value(self) -> Option<bool> {
         match self {
+            Value::ConstUnknown => None,
             Value::Unknown => None,
             Value::Const(b) => Some(b),
             Value::Dynam(b) => Some(b),
         }
     }
 
-    pub fn is_const(self) -> bool {
-        matches!(self, Value::Const(_))
-    }
-
     pub fn is_known(self) -> bool {
         match self {
-            Value::Unknown => false,
+            Value::ConstUnknown | Value::Unknown => false,
             Value::Const(_) | Value::Dynam(_) => true,
         }
     }
 
-    pub fn is_unknown(self) -> bool {
-        !self.is_known()
+    pub fn is_const(self) -> bool {
+        match self {
+            Value::Unknown | Value::Dynam(_) => false,
+            Value::ConstUnknown | Value::Const(_) => true,
+        }
+    }
+
+    pub fn constified(self) -> Self {
+        match self {
+            Value::ConstUnknown => self,
+            Value::Unknown => Value::ConstUnknown,
+            Value::Const(_) => self,
+            Value::Dynam(b) => Value::Const(b),
+        }
     }
 }
 
@@ -133,20 +136,10 @@ impl Value {
 #[derive(Debug, Clone, Copy)]
 pub enum DynamicValue {
     /// Corresponds with `Value::Unknown`
-    Unknown,
+    ConstUnknown,
     /// Corresponds with `Value::Const`
     Const(bool),
     Dynam(PBack),
-}
-
-impl DynamicValue {
-    pub fn is_known(&self) -> bool {
-        match self {
-            DynamicValue::Unknown => false,
-            DynamicValue::Const(_) => true,
-            DynamicValue::Dynam(_) => true,
-        }
-    }
 }
 
 /*
@@ -276,14 +269,8 @@ impl Ensemble {
         match &lnode.kind {
             LNodeKind::Copy(p_inp) => {
                 let equiv = self.backrefs.get_val(*p_inp).unwrap();
-                if let Value::Const(val) = equiv.val {
-                    self.evaluator.insert(Eval::Change(Change {
-                        depth,
-                        p_equiv,
-                        value: Value::Const(val),
-                    }));
-                } else if equiv.change_visit == self.evaluator.change_visit_gen() {
-                    // fixed
+                if equiv.val.is_const() || (equiv.change_visit == self.evaluator.change_visit_gen())
+                {
                     self.evaluator.insert(Eval::Change(Change {
                         depth,
                         p_equiv,
@@ -310,15 +297,26 @@ impl Ensemble {
                 for i in 0..len {
                     let p_inp = inp[i];
                     let equiv = self.backrefs.get_val(p_inp).unwrap();
-                    if let Value::Const(val) = equiv.val {
-                        fixed.set(i, true).unwrap();
-                        inp_val.set(i, val).unwrap();
-                    } else if equiv.change_visit == self.evaluator.change_visit_gen() {
-                        fixed.set(i, true).unwrap();
-                        if let Some(val) = equiv.val.known_value() {
-                            inp_val.set(i, val).unwrap()
-                        } else {
+                    match equiv.val {
+                        Value::ConstUnknown => {
+                            fixed.set(i, true).unwrap();
                             unknown.set(i, true).unwrap();
+                        }
+                        Value::Const(val) => {
+                            fixed.set(i, true).unwrap();
+                            inp_val.set(i, val).unwrap();
+                        }
+                        Value::Unknown => {
+                            if equiv.change_visit == self.evaluator.change_visit_gen() {
+                                fixed.set(i, true).unwrap();
+                                unknown.set(i, true).unwrap();
+                            }
+                        }
+                        Value::Dynam(val) => {
+                            if equiv.change_visit == self.evaluator.change_visit_gen() {
+                                fixed.set(i, true).unwrap();
+                                inp_val.set(i, val).unwrap()
+                            }
                         }
                     }
                 }
@@ -395,15 +393,26 @@ impl Ensemble {
                 for i in 0..len {
                     let p_inp = inp[i];
                     let equiv = self.backrefs.get_val(p_inp).unwrap();
-                    if let Value::Const(val) = equiv.val {
-                        fixed.set(i, true).unwrap();
-                        inp_val.set(i, val).unwrap();
-                    } else if equiv.change_visit == self.evaluator.change_visit_gen() {
-                        fixed.set(i, true).unwrap();
-                        if let Some(val) = equiv.val.known_value() {
-                            inp_val.set(i, val).unwrap()
-                        } else {
+                    match equiv.val {
+                        Value::ConstUnknown => {
+                            fixed.set(i, true).unwrap();
                             unknown.set(i, true).unwrap();
+                        }
+                        Value::Const(val) => {
+                            fixed.set(i, true).unwrap();
+                            inp_val.set(i, val).unwrap();
+                        }
+                        Value::Unknown => {
+                            if equiv.change_visit == self.evaluator.change_visit_gen() {
+                                fixed.set(i, true).unwrap();
+                                unknown.set(i, true).unwrap();
+                            }
+                        }
+                        Value::Dynam(val) => {
+                            if equiv.change_visit == self.evaluator.change_visit_gen() {
+                                fixed.set(i, true).unwrap();
+                                inp_val.set(i, val).unwrap()
+                            }
                         }
                     }
                 }
@@ -414,7 +423,7 @@ impl Ensemble {
                 let mut lut_unknown = Awi::zero(lut_w);
                 for (i, value) in original_lut.iter().enumerate() {
                     match value {
-                        DynamicValue::Unknown => {
+                        DynamicValue::ConstUnknown => {
                             lut_fixed.set(i, true).unwrap();
                             lut_unknown.set(i, true).unwrap();
                         }
@@ -425,6 +434,10 @@ impl Ensemble {
                         DynamicValue::Dynam(p) => {
                             let equiv = self.backrefs.get_val(*p).unwrap();
                             match equiv.val {
+                                Value::ConstUnknown => {
+                                    lut_fixed.set(i, true).unwrap();
+                                    lut_unknown.set(i, true).unwrap();
+                                }
                                 Value::Unknown => {
                                     lut_unknown.set(i, true).unwrap();
                                     if equiv.change_visit == self.evaluator.change_visit_gen() {
@@ -480,9 +493,7 @@ impl Ensemble {
                     } else {
                         let lut_bit = reduced_lut[0];
                         match lut_bit {
-                            DynamicValue::Unknown | DynamicValue::Const(_) => {
-                                unreachable!()
-                            }
+                            DynamicValue::ConstUnknown | DynamicValue::Const(_) => (),
                             DynamicValue::Dynam(p) => {
                                 res.push(RequestLNode {
                                     depth: depth - 1,
@@ -559,15 +570,7 @@ impl Ensemble {
         let p_equiv = self.backrefs.get_val(tnode.p_self).unwrap().p_self_equiv;
         let p_driver = tnode.p_driver;
         let equiv = self.backrefs.get_val(p_driver).unwrap();
-        if let Value::Const(val) = equiv.val {
-            self.evaluator.insert(Eval::Change(Change {
-                depth,
-                p_equiv,
-                value: Value::Const(val),
-            }));
-            None
-        } else if equiv.change_visit == self.evaluator.change_visit_gen() {
-            // fixed
+        if equiv.val.is_const() || (equiv.change_visit == self.evaluator.change_visit_gen()) {
             self.evaluator.insert(Eval::Change(Change {
                 depth,
                 p_equiv,
@@ -813,9 +816,7 @@ impl Ensemble {
     fn eval_investigate0(&mut self, p_equiv: PBack, depth: i64) {
         let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
         equiv.request_visit = self.evaluator.request_visit_gen();
-        if matches!(equiv.val, Value::Const(_))
-            || (equiv.change_visit == self.evaluator.change_visit_gen())
-        {
+        if equiv.val.is_const() || (equiv.change_visit == self.evaluator.change_visit_gen()) {
             // no need to do anything
             return
         }

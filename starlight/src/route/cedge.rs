@@ -178,7 +178,7 @@ impl Channeler {
                     }
                     for lut_bit in lut.iter() {
                         match lut_bit {
-                            DynamicValue::Unknown => todo!(),
+                            DynamicValue::ConstUnknown => todo!(),
                             DynamicValue::Const(_) => todo!(),
                             DynamicValue::Dynam(_) => todo!(),
                         }

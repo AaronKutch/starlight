@@ -21,7 +21,10 @@ use awint::{
     bw, dag,
 };
 
-use crate::{ensemble::Ensemble, EvalAwi};
+use crate::{
+    ensemble::{Ensemble, Value},
+    EvalAwi,
+};
 
 /// A list of single bit `EvalAwi`s for assertions
 #[derive(Debug, Clone)]
@@ -336,6 +339,9 @@ impl EpochShared {
             } else if unknown.is_none() {
                 // get the earliest failure to evaluate, should be closest to the root cause.
                 // Wait for all bits to be checked for falsity
+                unknown = Some((p_external, p_state));
+            }
+            if (val == Value::ConstUnknown) && strict && unknown.is_none() {
                 unknown = Some((p_external, p_state));
             }
             if val.is_const() {

@@ -176,7 +176,7 @@ impl LazyAwi {
             .epoch_data
             .borrow_mut()
             .ensemble
-            .make_rnode_for_pstate(opaque.state(), false)
+            .make_rnode_for_pstate(opaque.state(), false, false)
             .unwrap();
         Self { opaque, p_external }
     }
@@ -347,7 +347,7 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
             .epoch_data
             .borrow_mut()
             .ensemble
-            .make_rnode_for_pstate(opaque.state(), false)
+            .make_rnode_for_pstate(opaque.state(), false, false)
             .unwrap();
         Self { opaque, p_external }
     }

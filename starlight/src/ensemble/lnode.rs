@@ -220,7 +220,7 @@ impl LNode {
         debug_assert!(lut.len().is_power_of_two());
         debug_assert!(i < (lut.len().trailing_zeros() as usize));
         let next_bw = lut.len() / 2;
-        let mut next_lut = vec![DynamicValue::Unknown; next_bw];
+        let mut next_lut = vec![DynamicValue::ConstUnknown; next_bw];
         let mut removed = Vec::with_capacity(next_bw);
         let w = 1 << i;
         let mut from = 0;
@@ -278,9 +278,9 @@ impl LNode {
                 let tmp0 = &lut[from + j];
                 let tmp1 = &lut[from + w + j];
                 match tmp0 {
-                    DynamicValue::Unknown => return None,
+                    DynamicValue::ConstUnknown => return None,
                     DynamicValue::Const(b0) => match tmp1 {
-                        DynamicValue::Unknown => return None,
+                        DynamicValue::ConstUnknown => return None,
                         DynamicValue::Const(b1) => {
                             if *b0 != *b1 {
                                 return None
@@ -289,7 +289,7 @@ impl LNode {
                         DynamicValue::Dynam(_) => return None,
                     },
                     DynamicValue::Dynam(p0) => match tmp1 {
-                        DynamicValue::Unknown => return None,
+                        DynamicValue::ConstUnknown => return None,
                         DynamicValue::Const(_) => return None,
                         DynamicValue::Dynam(p1) => {
                             if !backrefs.in_same_set(*p0, *p1).unwrap() {
