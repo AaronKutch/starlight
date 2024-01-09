@@ -761,6 +761,10 @@ impl Epoch {
         self.shared().ensemble(f)
     }
 
+    pub fn clone_ensemble(&self) -> Ensemble {
+        self.ensemble(|ensemble| ensemble.clone())
+    }
+
     pub fn verify_integrity(&self) -> Result<(), EvalError> {
         self.ensemble(|ensemble| ensemble.verify_integrity())
     }

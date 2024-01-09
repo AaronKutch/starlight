@@ -3,7 +3,7 @@ use std::{cmp::Ordering, marker::PhantomData};
 use awint::awint_dag::triple_arena::{Advancer, OrdArena, Ptr};
 
 // TODO may want to add to `triple_arena`, also add a `find_similar_with` to fix
-// the issue with needing to rewind
+// the issue with needing to rewind, also need `insert_with`
 
 pub struct RegionAdvancer<F: FnMut(P, &K, &V) -> Ordering, P: Ptr, K, V> {
     p: Option<P::Inx>,

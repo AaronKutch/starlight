@@ -9,7 +9,7 @@ use crate::{
     ensemble::{DynamicValue, Ensemble, LNodeKind},
     route::{channel::Referent, Channeler, PBack},
     triple_arena::ptr_struct,
-    Epoch,
+    Epoch, SuspendedEpoch,
 };
 
 ptr_struct!(PCEdge);
@@ -54,6 +54,9 @@ pub enum Behavior {
 /// detailed to allow for more close by programs to coexist
 #[derive(Debug, Clone, Default)]
 pub struct Instruction {
+    // The edge behavior is unconditionally added
+    //Unconditional,
+    //SetArbitrary(SmallVec<[ensemble::PBack; 4]>),
     pub set_bits: SmallVec<[(ensemble::PBack, bool); 4]>,
 }
 
@@ -113,6 +116,10 @@ impl Channeler {
                 programmability,
             }
         })
+    }
+
+    pub fn from_epoch(epoch: &SuspendedEpoch) -> Result<Self, EvalError> {
+        epoch.ensemble(|ensemble| Self::from_ensemble(ensemble))
     }
 
     /// Assumes that the ensemble has been optimized
