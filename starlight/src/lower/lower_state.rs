@@ -19,7 +19,9 @@ impl Ensemble {
         #[cfg(debug_assertions)]
         {
             if (self.stator.states[p_state].op.operands_len() + 1) != operands.len() {
-                return Err(EvalError::WrongNumberOfOperands)
+                return Err(EvalError::OtherStr(
+                    "wrong number of operands for the `graft` function",
+                ))
             }
             for (i, op) in self.stator.states[p_state].op.operands().iter().enumerate() {
                 let current_nzbw = self.stator.states[operands[i + 1]].nzbw;
@@ -32,7 +34,9 @@ impl Ensemble {
                     )))
                 }
                 if !current_is_opaque {
-                    return Err(EvalError::ExpectedOpaque)
+                    return Err(EvalError::OtherStr(
+                        "expected an `Opaque` for the `graft` function",
+                    ))
                 }
             }
             if self.stator.states[p_state].nzbw != self.stator.states[operands[0]].nzbw {
@@ -170,7 +174,6 @@ impl Ensemble {
         epoch_shared: &EpochShared,
         p_state: PState,
     ) -> Result<(), EvalError> {
-        let mut unimplemented = false;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         if let Some(state) = lock.ensemble.stator.states.get(p_state) {
             if state.lowered_to_elementary {
@@ -321,11 +324,6 @@ impl Ensemble {
                     temporary.set_as_current();
                     let lowering_done = match Ensemble::lower_op(&temporary, p_state) {
                         Ok(lowering_done) => lowering_done,
-                        Err(EvalError::Unimplemented) => {
-                            // finish lowering as much as possible
-                            unimplemented = true;
-                            true
-                        }
                         Err(e) => {
                             temporary.remove_as_current().unwrap();
                             let mut lock = epoch_shared.epoch_data.borrow_mut();
@@ -379,10 +377,6 @@ impl Ensemble {
             }
         }
 
-        if unimplemented {
-            Err(EvalError::Unimplemented)
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 }
