@@ -9,6 +9,7 @@
 - many fixes for `Epoch` behavior
 - `LNode`s now have a `LNodeKind`
 - `StarRng::index` was renamed to `index_slice`, and a `index_slice_mut` and new `index` function were added
+- Redid the error system
 
 ### Additions
 - Added `Epoch::suspend`

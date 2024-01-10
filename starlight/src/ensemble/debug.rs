@@ -11,7 +11,7 @@ use crate::{
     },
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
-    Epoch, EvalError,
+    Epoch, Error,
 };
 
 impl DebugNodeTrait<PState> for State {
@@ -286,16 +286,16 @@ impl Ensemble {
         arena
     }
 
-    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), EvalError> {
+    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), Error> {
         let dir = match out_file.canonicalize() {
             Ok(o) => {
                 if !o.is_dir() {
-                    return Err(EvalError::OtherStr("need a directory not a file"));
+                    return Err(Error::OtherStr("need a directory not a file"));
                 }
                 o
             }
             Err(e) => {
-                return Err(EvalError::OtherString(format!("{e:?}")));
+                return Err(Error::OtherString(format!("{e:?}")));
             }
         };
         let mut ensemble_file = dir.clone();
@@ -321,7 +321,7 @@ impl Epoch {
         });
     }
 
-    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), EvalError> {
+    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), Error> {
         let tmp = &out_file;
         self.ensemble(|ensemble| {
             let out_file = tmp.to_owned();

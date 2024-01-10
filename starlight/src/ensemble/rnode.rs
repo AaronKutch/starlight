@@ -10,7 +10,7 @@ use crate::{
     awi::*,
     ensemble::{CommonValue, Ensemble, PBack, Referent, Value},
     epoch::get_current_epoch,
-    EvalError,
+    Error,
 };
 
 ptr_struct!(PRNode);
@@ -139,7 +139,7 @@ impl Ensemble {
         &mut self,
         p_rnode: PRNode,
         allow_pruned: bool,
-    ) -> Result<(), EvalError> {
+    ) -> Result<(), Error> {
         let rnode = &self.notary.rnodes()[p_rnode];
         if rnode.bits.is_empty() {
             if let Some(p_state) = rnode.associated_state {
@@ -162,13 +162,13 @@ impl Ensemble {
                 }
             }
             if !allow_pruned {
-                return Err(EvalError::OtherStr("failed to initialize `RNode`"))
+                return Err(Error::OtherStr("failed to initialize `RNode`"))
             }
         }
         Ok(())
     }
 
-    pub fn remove_rnode(&mut self, p_external: PExternal) -> Result<(), EvalError> {
+    pub fn remove_rnode(&mut self, p_external: PExternal) -> Result<(), Error> {
         if let Some(p_rnode) = self.notary.rnodes.find_key(&p_external) {
             let rnode = self.notary.rnodes.remove(p_rnode).unwrap().1;
             for p_back in rnode.bits {
@@ -179,18 +179,18 @@ impl Ensemble {
             }
             Ok(())
         } else {
-            Err(EvalError::InvalidPtr)
+            Err(Error::InvalidPtr)
         }
     }
 
-    pub fn get_thread_local_rnode_nzbw(p_external: PExternal) -> Result<NonZeroUsize, EvalError> {
+    pub fn get_thread_local_rnode_nzbw(p_external: PExternal) -> Result<NonZeroUsize, Error> {
         let epoch_shared = get_current_epoch().unwrap();
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
         if let Some((_, rnode)) = ensemble.notary.get_rnode(p_external) {
             Ok(rnode.nzbw)
         } else {
-            Err(EvalError::OtherStr(
+            Err(Error::OtherStr(
                 "could not find thread local `RNode`, probably an `EvalAwi` or `LazyAwi` was used \
                  outside of the `Epoch` it was created in",
             ))
@@ -203,7 +203,7 @@ impl Ensemble {
         p_external: PExternal,
         common_value: CommonValue<'_>,
         make_const: bool,
-    ) -> Result<(), EvalError> {
+    ) -> Result<(), Error> {
         let epoch_shared = get_current_epoch().unwrap();
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
@@ -211,7 +211,7 @@ impl Ensemble {
             ensemble.initialize_rnode_if_needed(p_rnode, true)?;
             if !ensemble.notary.rnodes[p_rnode].bits.is_empty() {
                 if ensemble.notary.rnodes[p_rnode].bits.len() != common_value.bw() {
-                    return Err(EvalError::WrongBitwidth);
+                    return Err(Error::WrongBitwidth);
                 }
                 for bit_i in 0..common_value.bw() {
                     let p_back = ensemble.notary.rnodes[p_rnode].bits[bit_i];
@@ -234,7 +234,7 @@ impl Ensemble {
             }
             // else the state was pruned
         } else {
-            return Err(EvalError::OtherStr(
+            return Err(Error::OtherStr(
                 "could not find thread local `RNode`, probably a `LazyAwi` was used outside of \
                  the `Epoch` it was created in",
             ))
@@ -245,7 +245,7 @@ impl Ensemble {
     pub fn calculate_thread_local_rnode_value(
         p_external: PExternal,
         bit_i: usize,
-    ) -> Result<Value, EvalError> {
+    ) -> Result<Value, Error> {
         let epoch_shared = get_current_epoch().unwrap();
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
@@ -254,19 +254,17 @@ impl Ensemble {
         }
         let p_back = if let Some((_, rnode)) = ensemble.notary.get_rnode(p_external) {
             if bit_i >= rnode.bits.len() {
-                return Err(EvalError::OtherStr(
-                    "something went wrong with rnode bitwidth",
-                ));
+                return Err(Error::OtherStr("something went wrong with rnode bitwidth"));
             }
             if let Some(p_back) = rnode.bits[bit_i] {
                 p_back
             } else {
-                return Err(EvalError::OtherStr(
+                return Err(Error::OtherStr(
                     "something went wrong, found `RNode` for evaluator but a bit was pruned",
                 ))
             }
         } else {
-            return Err(EvalError::OtherStr(
+            return Err(Error::OtherStr(
                 "could not find thread local `RNode`, probably an `EvalAwi` was used outside of \
                  the `Epoch` it was created in",
             ))

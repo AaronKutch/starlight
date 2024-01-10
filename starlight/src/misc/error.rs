@@ -1,8 +1,14 @@
 use core::fmt;
 use std::fmt::Debug;
 
+// TODO in regular cases add errors that lazily produce a formatted output. Keep
+// things using `OtherStr` and `OtherString` if they are special cases like
+// improper `Epoch` management or internal failures or things like lowering that
+// will be changed in the future. Conversely, add special variants for things
+// users might match against
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, thiserror::Error)]
-pub enum EvalError {
+pub enum Error {
     // An operand points nowhere, so the DAG is broken
     #[error("InvalidPtr")]
     InvalidPtr,
@@ -26,7 +32,7 @@ impl<'a> Debug for DisplayStr<'a> {
     }
 }
 
-impl Debug for EvalError {
+impl Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidPtr => write!(f, "InvalidPtr"),

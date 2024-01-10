@@ -8,7 +8,7 @@ use crate::{
     ensemble::{DynamicValue, Ensemble, LNodeKind},
     route::{channel::Referent, Channeler, Configurator, PBack},
     triple_arena::ptr_struct,
-    EvalError, SuspendedEpoch,
+    Error, SuspendedEpoch,
 };
 
 ptr_struct!(PCEdge);
@@ -50,11 +50,11 @@ impl SelectorLut {
         }
     }
 
-    pub fn verify_integrity(&self, sources_len: usize, sinks_len: usize) -> Result<(), EvalError> {
+    pub fn verify_integrity(&self, sources_len: usize, sinks_len: usize) -> Result<(), Error> {
         // TODO
         let pow_len = 1usize << self.v.len();
         if (pow_len.checked_mul(2).unwrap() != self.awi.bw()) || (sinks_len != 1) {
-            return Err(EvalError::OtherStr("problem with `SelectorLut` validation"));
+            return Err(Error::OtherStr("problem with `SelectorLut` validation"));
         }
         let mut dynam_len = 0;
         for i in 0..pow_len {
@@ -63,7 +63,7 @@ impl SelectorLut {
             }
         }
         if dynam_len != sources_len {
-            return Err(EvalError::OtherStr("problem with `SelectorLut` validation"));
+            return Err(Error::OtherStr("problem with `SelectorLut` validation"));
         }
         Ok(())
     }
@@ -184,16 +184,16 @@ impl Channeler {
     pub fn from_target(
         target_epoch: &SuspendedEpoch,
         configurator: &Configurator,
-    ) -> Result<Self, EvalError> {
+    ) -> Result<Self, Error> {
         target_epoch.ensemble(|ensemble| Self::new(ensemble, configurator))
     }
 
-    pub fn from_program(target_epoch: &SuspendedEpoch) -> Result<Self, EvalError> {
+    pub fn from_program(target_epoch: &SuspendedEpoch) -> Result<Self, Error> {
         target_epoch.ensemble(|ensemble| Self::new(ensemble, &Configurator::new()))
     }
 
     /// Assumes that the ensemble has been optimized
-    pub fn new(ensemble: &Ensemble, configurator: &Configurator) -> Result<Self, EvalError> {
+    pub fn new(ensemble: &Ensemble, configurator: &Configurator) -> Result<Self, Error> {
         let mut channeler = Self::empty();
 
         // for each equivalence make a `CNode` with associated `EnsembleBackref`
@@ -237,9 +237,7 @@ impl Channeler {
         for lnode in ensemble.lnodes.vals() {
             let p_self = translate(ensemble, &channeler, lnode.p_self).1;
             match &lnode.kind {
-                LNodeKind::Copy(_) => {
-                    return Err(EvalError::OtherStr("the epoch was not optimized"))
-                }
+                LNodeKind::Copy(_) => return Err(Error::OtherStr("the epoch was not optimized")),
                 LNodeKind::Lut(inp, awi) => {
                     let mut v = SmallVec::<[PBack; 8]>::with_capacity(inp.len());
                     for input in inp {

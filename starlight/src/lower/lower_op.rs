@@ -17,7 +17,7 @@ use awint::{
 };
 
 use super::meta::*;
-use crate::{awi, EvalError};
+use crate::{awi, Error};
 
 pub trait LowerManagement<P: Ptr + DummyDefault> {
     fn graft(&mut self, output_and_operands: &[PState]);
@@ -33,14 +33,14 @@ pub fn lower_op<P: Ptr + DummyDefault>(
     start_op: Op<P>,
     out_w: NonZeroUsize,
     mut m: impl LowerManagement<P>,
-) -> Result<bool, EvalError> {
+) -> Result<bool, Error> {
     match start_op {
-        Invalid => return Err(EvalError::OtherStr("encountered `Invalid` in lowering")),
+        Invalid => return Err(Error::OtherStr("encountered `Invalid` in lowering")),
         Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..) | Concat(_)
         | ConcatFields(_) | Repeat(_) | StaticLut(..) => return Ok(true),
         Lut([lut, inx]) => {
             if m.is_literal(lut) {
-                return Err(EvalError::OtherStr(
+                return Err(Error::OtherStr(
                     "this needs to be handled before this function",
                 ));
             } else {
@@ -53,7 +53,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
         }
         Get([bits, inx]) => {
             if m.is_literal(inx) {
-                return Err(EvalError::OtherStr(
+                return Err(Error::OtherStr(
                     "this needs to be handled before this function",
                 ));
             } else {
@@ -65,7 +65,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
         }
         Set([bits, inx, bit]) => {
             if m.is_literal(inx) {
-                return Err(EvalError::OtherStr(
+                return Err(Error::OtherStr(
                     "this needs to be handled before this function",
                 ));
             } else {

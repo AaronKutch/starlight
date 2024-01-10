@@ -15,7 +15,7 @@ use crate::{
         PTNode, State, Stator, TNode, Value,
     },
     triple_arena::{ptr_struct, Arena, SurjectArena},
-    EvalError,
+    Error,
 };
 
 ptr_struct!(PBack);
@@ -103,7 +103,7 @@ impl Ensemble {
 
     /// Compresses and shrinks all internal `Ptr`s. Returns an error if the
     /// optimizer, evaluator, or stator are not empty.
-    pub fn recast_all_internal_ptrs(&mut self) -> Result<(), EvalError> {
+    pub fn recast_all_internal_ptrs(&mut self) -> Result<(), Error> {
         self.optimizer.check_clear()?;
         self.evaluator.check_clear()?;
         self.stator.check_clear()?;
@@ -116,14 +116,14 @@ impl Ensemble {
                 Referent::ThisEquiv => (),
                 Referent::ThisLNode(p_lnode) => {
                     if let Err(e) = p_lnode.recast(&p_lnode_recaster) {
-                        return Err(EvalError::OtherString(format!(
+                        return Err(Error::OtherString(format!(
                             "recast error with {e} in a `Referent::ThisLNode`"
                         )));
                     }
                 }
                 Referent::ThisTNode(p_tnode) => {
                     if let Err(e) = p_tnode.recast(&p_tnode_recaster) {
-                        return Err(EvalError::OtherString(format!(
+                        return Err(Error::OtherString(format!(
                             "recast error with {e} in a `Referent::ThisTNode`"
                         )));
                     }
@@ -131,21 +131,21 @@ impl Ensemble {
                 Referent::ThisStateBit(..) => unreachable!(),
                 Referent::Input(p_lnode) => {
                     if let Err(e) = p_lnode.recast(&p_lnode_recaster) {
-                        return Err(EvalError::OtherString(format!(
+                        return Err(Error::OtherString(format!(
                             "recast error with {e} in a `Referent::Input`"
                         )));
                     }
                 }
                 Referent::LoopDriver(p_tnode) => {
                     if let Err(e) = p_tnode.recast(&p_tnode_recaster) {
-                        return Err(EvalError::OtherString(format!(
+                        return Err(Error::OtherString(format!(
                             "recast error with {e} in a `Referent::LoopDriver`"
                         )));
                     }
                 }
                 Referent::ThisRNode(p_rnode) => {
                     if let Err(e) = p_rnode.recast(&p_rnode_recaster) {
-                        return Err(EvalError::OtherString(format!(
+                        return Err(Error::OtherString(format!(
                             "recast error with {e} in a `Referent::ThisRNode`"
                         )));
                     }
@@ -155,29 +155,29 @@ impl Ensemble {
 
         let p_back_recaster = self.backrefs.compress_and_shrink_recaster();
         if let Err(e) = self.backrefs.recast(&p_back_recaster) {
-            return Err(EvalError::OtherString(format!(
+            return Err(Error::OtherString(format!(
                 "recast error with {e} in the backrefs"
             )));
         }
         if let Err(e) = self.notary.recast(&p_back_recaster) {
-            return Err(EvalError::OtherString(format!(
+            return Err(Error::OtherString(format!(
                 "recast error with {e} in the notary"
             )));
         }
         if let Err(e) = self.lnodes.recast(&p_back_recaster) {
-            return Err(EvalError::OtherString(format!(
+            return Err(Error::OtherString(format!(
                 "recast error with {e} in the lnodes"
             )));
         }
         if let Err(e) = self.tnodes.recast(&p_back_recaster) {
-            return Err(EvalError::OtherString(format!(
+            return Err(Error::OtherString(format!(
                 "recast error with {e} in the tnodes"
             )));
         }
         Ok(())
     }
 
-    pub fn verify_integrity(&self) -> Result<(), EvalError> {
+    pub fn verify_integrity(&self) -> Result<(), Error> {
         // return errors in order of most likely to be root cause
 
         // first check that equivalences aren't broken by themselves
@@ -189,12 +189,12 @@ impl Ensemble {
                     .in_same_set(p_back, equiv.p_self_equiv)
                     .unwrap()
                 {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "{equiv:?}.p_self_equiv roundtrip fail"
                     )))
                 }
             } else {
-                return Err(EvalError::OtherString(format!(
+                return Err(Error::OtherString(format!(
                     "{equiv:?}.p_self_equiv is invalid"
                 )))
             }
@@ -202,7 +202,7 @@ impl Ensemble {
             // `ThisEquiv` for each equivalence surject
             if let Some(Referent::ThisEquiv) = self.backrefs.get_key(p_back) {
                 if p_back != equiv.p_self_equiv {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "{equiv:?}.p_self_equiv roundtrip fail"
                     )))
                 }
@@ -211,15 +211,13 @@ impl Ensemble {
         // check other kinds of self refs
         for (p_state, state) in &self.stator.states {
             if (!state.p_self_bits.is_empty()) && (state.nzbw.get() != state.p_self_bits.len()) {
-                return Err(EvalError::OtherString(format!(
+                return Err(Error::OtherString(format!(
                     "{state:?}.nzbw mismatch with p_self_bits.len"
                 )))
             }
             for operand in state.op.operands() {
                 if !self.stator.states.contains(*operand) {
-                    return Err(EvalError::OtherString(format!(
-                        "{state:?} operand is missing"
-                    )))
+                    return Err(Error::OtherString(format!("{state:?} operand is missing")))
                 }
             }
             for (inx, p_self_bit) in state.p_self_bits.iter().enumerate() {
@@ -228,12 +226,12 @@ impl Ensemble {
                         self.backrefs.get_key(*p_self_bit)
                     {
                         if (p_state != *p_self) || (inx != *inx_self) {
-                            return Err(EvalError::OtherString(format!(
+                            return Err(Error::OtherString(format!(
                                 "{state:?}.p_self_bits roundtrip fail"
                             )))
                         }
                     } else {
-                        return Err(EvalError::OtherString(format!(
+                        return Err(Error::OtherString(format!(
                             "{state:?}.p_self_bits is invalid"
                         )))
                     }
@@ -243,27 +241,23 @@ impl Ensemble {
         for (p_lnode, lnode) in &self.lnodes {
             if let Some(Referent::ThisLNode(p_self)) = self.backrefs.get_key(lnode.p_self) {
                 if p_lnode != *p_self {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "{lnode:?}.p_self roundtrip fail"
                     )))
                 }
             } else {
-                return Err(EvalError::OtherString(format!(
-                    "{lnode:?}.p_self is invalid"
-                )))
+                return Err(Error::OtherString(format!("{lnode:?}.p_self is invalid")))
             }
         }
         for (p_tnode, tnode) in &self.tnodes {
             if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get_key(tnode.p_self) {
                 if p_tnode != *p_self {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "{tnode:?}.p_self roundtrip fail"
                     )))
                 }
             } else {
-                return Err(EvalError::OtherString(format!(
-                    "{tnode:?}.p_self is invalid"
-                )))
+                return Err(Error::OtherString(format!("{tnode:?}.p_self is invalid")))
             }
         }
         // check other referent validities
@@ -279,7 +273,7 @@ impl Ensemble {
                 Referent::ThisRNode(p_rnode) => !self.notary.rnodes().contains(*p_rnode),
             };
             if invalid {
-                return Err(EvalError::OtherString(format!("{referent:?} is invalid")))
+                return Err(Error::OtherString(format!("{referent:?} is invalid")))
             }
         }
         // other kinds of validity
@@ -290,18 +284,18 @@ impl Ensemble {
                 if let Some(referent) = self.backrefs.get_key(p_input) {
                     if let Referent::Input(referent) = referent {
                         if !self.lnodes.contains(*referent) {
-                            res = Err(EvalError::OtherString(format!(
+                            res = Err(Error::OtherString(format!(
                                 "{p_lnode}: {lnode:?} input {p_input} referrent {referent} is \
                                  invalid"
                             )));
                         }
                     } else {
-                        res = Err(EvalError::OtherString(format!(
+                        res = Err(Error::OtherString(format!(
                             "{p_lnode}: {lnode:?} input {p_input} has incorrect referrent"
                         )));
                     }
                 } else {
-                    res = Err(EvalError::OtherString(format!(
+                    res = Err(Error::OtherString(format!(
                         "{p_lnode}: {lnode:?} input {p_input} is invalid"
                     )));
                 }
@@ -313,17 +307,17 @@ impl Ensemble {
             if let Some(referent) = self.backrefs.get_key(tnode.p_driver) {
                 if let Referent::LoopDriver(p_driver) = referent {
                     if !self.tnodes.contains(*p_driver) {
-                        return Err(EvalError::OtherString(format!(
+                        return Err(Error::OtherString(format!(
                             "{p_tnode}: {tnode:?} loop driver referrent {p_driver} is invalid"
                         )))
                     }
                 } else {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "{p_tnode}: {tnode:?} loop driver has incorrect referrent"
                     )))
                 }
             } else {
-                return Err(EvalError::OtherString(format!(
+                return Err(Error::OtherString(format!(
                     "{p_tnode}: {tnode:?} loop driver {} is invalid",
                     tnode.p_driver
                 )))
@@ -335,17 +329,17 @@ impl Ensemble {
                     if let Some(referent) = self.backrefs.get_key(*p_back) {
                         if let Referent::ThisRNode(p_rnode) = referent {
                             if !self.notary.rnodes().contains(*p_rnode) {
-                                return Err(EvalError::OtherString(format!(
+                                return Err(Error::OtherString(format!(
                                     "{rnode:?} backref {p_rnode} is invalid"
                                 )))
                             }
                         } else {
-                            return Err(EvalError::OtherString(format!(
+                            return Err(Error::OtherString(format!(
                                 "{rnode:?} backref {p_back} has incorrect referrent"
                             )))
                         }
                     } else {
-                        return Err(EvalError::OtherString(format!("rnode {p_back} is invalid")))
+                        return Err(Error::OtherString(format!("rnode {p_back} is invalid")))
                     }
                 }
             }
@@ -400,9 +394,7 @@ impl Ensemble {
                 }
             };
             if fail {
-                return Err(EvalError::OtherString(format!(
-                    "{referent:?} roundtrip fail"
-                )))
+                return Err(Error::OtherString(format!("{referent:?} roundtrip fail")))
             }
         }
         // non-pointer invariants
@@ -411,30 +403,30 @@ impl Ensemble {
                 LNodeKind::Copy(_) => (),
                 LNodeKind::Lut(inp, lut) => {
                     if inp.is_empty() {
-                        return Err(EvalError::OtherStr("no inputs for lookup table"))
+                        return Err(Error::OtherStr("no inputs for lookup table"))
                     }
                     if !lut.bw().is_power_of_two() {
-                        return Err(EvalError::OtherStr(
+                        return Err(Error::OtherStr(
                             "lookup table is not a power of two in bitwidth",
                         ))
                     }
                     if (lut.bw().trailing_zeros() as usize) != inp.len() {
-                        return Err(EvalError::OtherStr(
+                        return Err(Error::OtherStr(
                             "number of inputs does not correspond to lookup table size",
                         ))
                     }
                 }
                 LNodeKind::DynamicLut(inp, lut) => {
                     if inp.is_empty() {
-                        return Err(EvalError::OtherStr("no inputs for lookup table"))
+                        return Err(Error::OtherStr("no inputs for lookup table"))
                     }
                     if !lut.len().is_power_of_two() {
-                        return Err(EvalError::OtherStr(
+                        return Err(Error::OtherStr(
                             "lookup table is not a power of two in bitwidth",
                         ))
                     }
                     if (lut.len().trailing_zeros() as usize) != inp.len() {
-                        return Err(EvalError::OtherStr(
+                        return Err(Error::OtherStr(
                             "number of inputs does not correspond to lookup table size",
                         ))
                     }
@@ -451,7 +443,7 @@ impl Ensemble {
         }
         for (p_state, state) in &self.stator.states {
             if state.rc != counts[p_state] {
-                return Err(EvalError::OtherStr(
+                return Err(Error::OtherStr(
                     "{p_state} {state:?} reference count mismatch",
                 ))
             }
@@ -654,7 +646,7 @@ impl Ensemble {
         Some(p_tnode)
     }
 
-    pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), EvalError> {
+    pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), Error> {
         let (equiv0, equiv1) = self.backrefs.get2_val_mut(p_equiv0, p_equiv1).unwrap();
         if (equiv0.val.is_const() && equiv1.val.is_const()) && (equiv0.val != equiv1.val) {
             panic!("tried to merge two const equivalences with differing values");
@@ -681,7 +673,7 @@ impl Ensemble {
             } else if !equiv1.val.is_known() {
                 equiv1.val = equiv0.val;
             } else {
-                return Err(EvalError::OtherString(format!(
+                return Err(Error::OtherString(format!(
                     "inconsistent value merging:\n{equiv0:?}\n{equiv1:?}"
                 )));
             }
@@ -696,9 +688,9 @@ impl Ensemble {
 
     /// Triggers a cascade of state removals if `pruning_allowed()` and
     /// their reference counts are zero
-    pub fn remove_state(&mut self, p_state: PState) -> Result<(), EvalError> {
+    pub fn remove_state(&mut self, p_state: PState) -> Result<(), Error> {
         if !self.stator.states.contains(p_state) {
-            return Err(EvalError::InvalidPtr);
+            return Err(Error::InvalidPtr);
         }
         let mut pstate_stack = vec![p_state];
         while let Some(p) = pstate_stack.pop() {
@@ -712,7 +704,7 @@ impl Ensemble {
                 for i in 0..self.stator.states[p].op.operands_len() {
                     let op = self.stator.states[p].op.operands()[i];
                     if self.stator.states[op].dec_rc().is_none() {
-                        return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
+                        return Err(Error::OtherStr("tried to subtract a 0 reference count"))
                     };
                     pstate_stack.push(op);
                 }
@@ -727,7 +719,7 @@ impl Ensemble {
         Ok(())
     }
 
-    pub fn force_remove_all_states(&mut self) -> Result<(), EvalError> {
+    pub fn force_remove_all_states(&mut self) -> Result<(), Error> {
         for (_, mut state) in self.stator.states.drain() {
             for p_self_state in state.p_self_bits.drain(..) {
                 if let Some(p_self_state) = p_self_state {

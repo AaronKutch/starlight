@@ -4,7 +4,7 @@ use crate::{
     ensemble::{self, Ensemble, PExternal},
     route::{Channeler, HyperPath, PHyperPath},
     triple_arena::Arena,
-    EvalAwi, EvalError, LazyAwi, SuspendedEpoch,
+    Error, EvalAwi, LazyAwi, SuspendedEpoch,
 };
 
 ptr_struct!(PMapping);
@@ -49,13 +49,13 @@ impl Router {
 
     /// Tell the router what program input bits we want to map to what target
     /// input bits
-    pub fn map_rnodes(&mut self, program: PExternal, target: PExternal) -> Result<(), EvalError> {
+    pub fn map_rnodes(&mut self, program: PExternal, target: PExternal) -> Result<(), Error> {
         if let Some((_, program_rnode)) = self.program_ensemble.notary.get_rnode(program) {
             if let Some((_, target_rnode)) = self.target_ensemble.notary.get_rnode(target) {
                 let len0 = program_rnode.bits.len();
                 let len1 = target_rnode.bits.len();
                 if len0 != len1 {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "when mapping bits, found that the bitwidths of {program:?} ({len0}) and \
                          {target:?} ({len1}) differ"
                     )));
@@ -96,7 +96,7 @@ impl Router {
                         (None, None) => (),
                         _ => {
                             // maybe it should just be a no-op? haven't encountered a case yet
-                            return Err(EvalError::OtherString(format!(
+                            return Err(Error::OtherString(format!(
                                 "when mapping bits {program:?} and {target:?}, one or the other \
                                  bits were optimized away inconsistently"
                             )));
@@ -105,12 +105,12 @@ impl Router {
                 }
                 Ok(())
             } else {
-                Err(EvalError::OtherString(format!(
+                Err(Error::OtherString(format!(
                     "when mapping bits, could not find {target:?} in the target `Ensemble`"
                 )))
             }
         } else {
-            Err(EvalError::OtherString(format!(
+            Err(Error::OtherString(format!(
                 "when mapping bits, could not find {program:?} in the program `Ensemble`"
             )))
         }
@@ -118,17 +118,17 @@ impl Router {
 
     /// Tell the router what program input bits we want to map to what target
     /// input bits
-    pub fn map_lazy(&mut self, program: &LazyAwi, target: &LazyAwi) -> Result<(), EvalError> {
+    pub fn map_lazy(&mut self, program: &LazyAwi, target: &LazyAwi) -> Result<(), Error> {
         self.map_rnodes(program.p_external(), target.p_external())
     }
 
     /// Tell the router what program output bits we want to map to what target
     /// output bits
-    pub fn map_eval(&mut self, program: &EvalAwi, target: &EvalAwi) -> Result<(), EvalError> {
+    pub fn map_eval(&mut self, program: &EvalAwi, target: &EvalAwi) -> Result<(), Error> {
         self.map_rnodes(program.p_external(), target.p_external())
     }
 
-    pub fn verify_integrity(&self) -> Result<(), EvalError> {
+    pub fn verify_integrity(&self) -> Result<(), Error> {
         self.target_ensemble.verify_integrity()?;
         self.target_channeler.verify_integrity()?;
         self.program_ensemble.verify_integrity()?;

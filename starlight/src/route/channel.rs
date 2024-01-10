@@ -8,7 +8,7 @@ use crate::{
     ensemble,
     route::{CEdge, CNode, PCEdge, Programmability},
     triple_arena::ptr_struct,
-    EvalError,
+    Error,
 };
 
 ptr_struct!(P0; PBack);
@@ -82,7 +82,7 @@ impl Channeler {
         }
     }*/
 
-    pub fn verify_integrity(&self) -> Result<(), EvalError> {
+    pub fn verify_integrity(&self) -> Result<(), Error> {
         // return errors in order of most likely to be root cause
 
         // first check that surjects self refs aren't broken by themselves
@@ -90,12 +90,12 @@ impl Channeler {
             let cnode = self.cnodes.get_val(p_back).unwrap();
             if let Some(Referent::ThisCNode) = self.cnodes.get_key(cnode.p_this_cnode) {
                 if !self.cnodes.in_same_set(p_back, cnode.p_this_cnode).unwrap() {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "{cnode:?}.p_this_cnode roundtrip fail"
                     )))
                 }
             } else {
-                return Err(EvalError::OtherString(format!(
+                return Err(Error::OtherString(format!(
                     "{cnode:?}.p_this_cnode is invalid"
                 )))
             }
@@ -103,7 +103,7 @@ impl Channeler {
             // `ThisCNode` for each surject
             if let Some(Referent::ThisCNode) = self.cnodes.get_key(p_back) {
                 if p_back != cnode.p_this_cnode {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "{cnode:?}.p_this_cnode roundtrip fail"
                     )))
                 }
@@ -120,12 +120,12 @@ impl Channeler {
                     if let Some(cedges) = self.cedges.get(*p_cedge) {
                         if *is_sink {
                             if *i > cedges.sinks().len() {
-                                return Err(EvalError::OtherString(format!(
+                                return Err(Error::OtherString(format!(
                                     "{referent:?} roundtrip out of bounds"
                                 )))
                             }
                         } else if *i > cedges.sources().len() {
-                            return Err(EvalError::OtherString(format!(
+                            return Err(Error::OtherString(format!(
                                 "{referent:?} roundtrip out of bounds"
                             )))
                         }
@@ -137,21 +137,21 @@ impl Channeler {
                 Referent::EnsembleBackRef(_) => false,
             };
             if invalid {
-                return Err(EvalError::OtherString(format!("{referent:?} is invalid")))
+                return Err(Error::OtherString(format!("{referent:?} is invalid")))
             }
         }
         for p_cedge in self.cedges.ptrs() {
             let cedge = self.cedges.get(p_cedge).unwrap();
             for p_cnode in cedge.sources().iter() {
                 if !self.cnodes.contains(*p_cnode) {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "{cedge:?}.p_cnodes {p_cnode} is invalid",
                     )))
                 }
             }
             for p_cnode in cedge.sinks().iter() {
                 if !self.cnodes.contains(*p_cnode) {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "{cedge:?}.p_cnodes {p_cnode} is invalid",
                     )))
                 }
@@ -159,7 +159,7 @@ impl Channeler {
         }
         for p_cnode in &self.top_level_cnodes {
             if !self.cnodes.contains(*p_cnode) {
-                return Err(EvalError::OtherString(format!(
+                return Err(Error::OtherString(format!(
                     "top_level_cnodes {p_cnode} is invalid"
                 )))
             }
@@ -206,9 +206,7 @@ impl Channeler {
                 Referent::EnsembleBackRef(_) => todo!(),
             };
             if fail {
-                return Err(EvalError::OtherString(format!(
-                    "{referent:?} roundtrip fail"
-                )))
+                return Err(Error::OtherString(format!("{referent:?} roundtrip fail")))
             }
         }
         // non `Ptr` validities
@@ -238,7 +236,7 @@ impl Channeler {
                 Programmability::Bulk(_) => todo!(),
             };
             if !ok {
-                return Err(EvalError::OtherString(format!(
+                return Err(Error::OtherString(format!(
                     "{cedge:?} an invariant is broken"
                 )))
             }

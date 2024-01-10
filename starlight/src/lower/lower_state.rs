@@ -9,17 +9,17 @@ use crate::{
     ensemble::Ensemble,
     epoch::EpochShared,
     lower::{lower_op, LowerManagement},
-    EvalError,
+    Error,
 };
 
 impl Ensemble {
     /// Used for forbidden meta psuedo-DSL techniques in which a single state is
     /// replaced by more basic states.
-    pub fn graft(&mut self, p_state: PState, operands: &[PState]) -> Result<(), EvalError> {
+    pub fn graft(&mut self, p_state: PState, operands: &[PState]) -> Result<(), Error> {
         #[cfg(debug_assertions)]
         {
             if (self.stator.states[p_state].op.operands_len() + 1) != operands.len() {
-                return Err(EvalError::OtherStr(
+                return Err(Error::OtherStr(
                     "wrong number of operands for the `graft` function",
                 ))
             }
@@ -27,20 +27,20 @@ impl Ensemble {
                 let current_nzbw = self.stator.states[operands[i + 1]].nzbw;
                 let current_is_opaque = self.stator.states[operands[i + 1]].op.is_opaque();
                 if self.stator.states[op].nzbw != current_nzbw {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "operand {}: a bitwidth of {:?} is trying to be grafted to a bitwidth of \
                          {:?}",
                         i, current_nzbw, self.stator.states[op].nzbw
                     )))
                 }
                 if !current_is_opaque {
-                    return Err(EvalError::OtherStr(
+                    return Err(Error::OtherStr(
                         "expected an `Opaque` for the `graft` function",
                     ))
                 }
             }
             if self.stator.states[p_state].nzbw != self.stator.states[operands[0]].nzbw {
-                return Err(EvalError::WrongBitwidth)
+                return Err(Error::WrongBitwidth)
             }
         }
 
@@ -67,7 +67,7 @@ impl Ensemble {
         Ok(())
     }
 
-    pub fn lower_op(epoch_shared: &EpochShared, p_state: PState) -> Result<bool, EvalError> {
+    pub fn lower_op(epoch_shared: &EpochShared, p_state: PState) -> Result<bool, Error> {
         struct Tmp<'a> {
             ptr: PState,
             epoch_shared: &'a EpochShared,
@@ -173,14 +173,14 @@ impl Ensemble {
     pub fn dfs_lower_states_to_elementary(
         epoch_shared: &EpochShared,
         p_state: PState,
-    ) -> Result<(), EvalError> {
+    ) -> Result<(), Error> {
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         if let Some(state) = lock.ensemble.stator.states.get(p_state) {
             if state.lowered_to_elementary {
                 return Ok(())
             }
         } else {
-            return Err(EvalError::InvalidPtr)
+            return Err(Error::InvalidPtr)
         }
         lock.ensemble.stator.states[p_state].lowered_to_elementary = true;
 
@@ -211,7 +211,7 @@ impl Ensemble {
                         }
                     }
                     // Continue on to lowering
-                    Err(EvalError::Unevaluatable) => (),
+                    Err(Error::Unevaluatable) => (),
                     Err(e) => {
                         lock.ensemble.stator.states[p_state].err = Some(e.clone());
                         return Err(e)

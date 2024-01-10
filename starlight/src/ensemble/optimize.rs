@@ -12,7 +12,7 @@ use awint::{
 use crate::{
     ensemble::{DynamicValue, Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent, Value},
     triple_arena::{ptr_struct, OrdArena},
-    EvalError, SmallMap,
+    Error, SmallMap,
 };
 
 ptr_struct!(POpt);
@@ -75,9 +75,9 @@ impl Optimizer {
 
     /// Checks that there are no remaining optimizations, then shrinks
     /// allocations
-    pub fn check_clear(&mut self) -> Result<(), EvalError> {
+    pub fn check_clear(&mut self) -> Result<(), Error> {
         if !self.optimizations.is_empty() {
-            return Err(EvalError::OtherStr("optimizations need to be empty"));
+            return Err(Error::OtherStr("optimizations need to be empty"));
         }
         self.optimizations.clear_and_shrink();
         Ok(())
@@ -92,7 +92,7 @@ impl Ensemble {
     /// Removes all `Const` inputs and assigns `Const` result if possible.
     /// Returns if a `Const` result was assigned (`Optimization::ConstifyEquiv`
     /// needs to be run by the caller).
-    pub fn const_eval_lnode(&mut self, p_lnode: PLNode) -> Result<bool, EvalError> {
+    pub fn const_eval_lnode(&mut self, p_lnode: PLNode) -> Result<bool, Error> {
         let lnode = self.lnodes.get_mut(p_lnode).unwrap();
         Ok(match &mut lnode.kind {
             LNodeKind::Copy(inp) => {
@@ -438,7 +438,7 @@ impl Ensemble {
     /// always be applied before any further optimizations are applied, so that
     /// `RemoveUnused` and `ConstPropogate` can be handled before any other
     /// optimization
-    pub fn preinvestigate_equiv(&mut self, p_equiv: PBack) -> Result<(), EvalError> {
+    pub fn preinvestigate_equiv(&mut self, p_equiv: PBack) -> Result<(), Error> {
         let mut non_self_rc = 0usize;
         let equiv = self.backrefs.get_val(p_equiv).unwrap();
         let mut is_const = equiv.val.is_const();
@@ -550,7 +550,7 @@ impl Ensemble {
     }
 
     /// Removes all states, optimizes, and shrinks allocations
-    pub fn optimize_all(&mut self) -> Result<(), EvalError> {
+    pub fn optimize_all(&mut self) -> Result<(), Error> {
         self.force_remove_all_states().unwrap();
         // need to preinvestigate everything before starting a priority loop
         let mut adv = self.backrefs.advancer();
@@ -565,7 +565,7 @@ impl Ensemble {
         self.recast_all_internal_ptrs()
     }
 
-    pub fn optimize(&mut self, p_optimization: POpt) -> Result<(), EvalError> {
+    pub fn optimize(&mut self, p_optimization: POpt) -> Result<(), Error> {
         let optimization = self
             .optimizer
             .optimizations

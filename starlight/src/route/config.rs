@@ -2,7 +2,7 @@ use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
 
 use crate::{
     ensemble::{self, Ensemble, PExternal},
-    EvalError, LazyAwi,
+    Error, LazyAwi,
 };
 
 ptr_struct!(PConfig);
@@ -42,7 +42,7 @@ impl Configurator {
         &mut self,
         ensemble: &Ensemble,
         config: &LazyAwi,
-    ) -> Result<(), EvalError> {
+    ) -> Result<(), Error> {
         let p_external = config.p_external();
         if let Some((_, rnode)) = ensemble.notary.get_rnode(p_external) {
             for (bit_i, bit) in rnode.bits.iter().enumerate() {
@@ -56,7 +56,7 @@ impl Configurator {
                     // we may want to allow this, if we have a mechanism to make sure they are set
                     // to the same thing
                     if replaced.is_some() {
-                        return Err(EvalError::OtherString(format!(
+                        return Err(Error::OtherString(format!(
                             "`make_configurable(.., {config:?})`: found that the same bit as a \
                              previous one is configurable, this may be because \
                              `make_configurable` was called twice on the same or equivalent bit"
@@ -66,7 +66,7 @@ impl Configurator {
             }
             Ok(())
         } else {
-            Err(EvalError::OtherString(format!(
+            Err(Error::OtherString(format!(
                 "`make_configurable(.., {config:?})`: could not find the `config` in the \
                  `Ensemble` (probably, you are using something from the program ensemble instead \
                  of the target ensemble)"

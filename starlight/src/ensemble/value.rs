@@ -8,7 +8,7 @@ use awint::{
 use crate::{
     ensemble::{Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent},
     epoch::EpochShared,
-    EvalError,
+    Error,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -223,9 +223,9 @@ impl Evaluator {
     }
 
     /// Checks that there are no remaining evaluations, then shrinks allocations
-    pub fn check_clear(&mut self) -> Result<(), EvalError> {
+    pub fn check_clear(&mut self) -> Result<(), Error> {
         if !self.evaluations.is_empty() {
-            return Err(EvalError::OtherStr("evaluations need to be empty"));
+            return Err(Error::OtherStr("evaluations need to be empty"));
         }
         self.evaluations.clear_and_shrink();
         Ok(())
@@ -584,10 +584,10 @@ impl Ensemble {
         }
     }
 
-    pub fn change_value(&mut self, p_back: PBack, value: Value) -> Result<(), EvalError> {
+    pub fn change_value(&mut self, p_back: PBack, value: Value) -> Result<(), Error> {
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
             if equiv.val.is_const() && (equiv.val != value) {
-                return Err(EvalError::OtherStr(
+                return Err(Error::OtherStr(
                     "tried to change a constant (probably, `retro_const_` was used followed by a \
                      contradicting `retro_*`",
                 ))
@@ -601,14 +601,14 @@ impl Ensemble {
             equiv.change_visit = self.evaluator.change_visit_gen();
             Ok(())
         } else {
-            Err(EvalError::InvalidPtr)
+            Err(Error::InvalidPtr)
         }
     }
 
     pub fn calculate_value_with_lower_capability(
         epoch_shared: &EpochShared,
         p_back: PBack,
-    ) -> Result<Value, EvalError> {
+    ) -> Result<Value, Error> {
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
         if let Some(equiv) = ensemble.backrefs.get_val_mut(p_back) {
@@ -640,11 +640,11 @@ impl Ensemble {
                 .unwrap()
                 .val)
         } else {
-            Err(EvalError::InvalidPtr)
+            Err(Error::InvalidPtr)
         }
     }
 
-    pub fn calculate_value(&mut self, p_back: PBack) -> Result<Value, EvalError> {
+    pub fn calculate_value(&mut self, p_back: PBack) -> Result<Value, Error> {
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
             if equiv.val.is_const() {
                 return Ok(equiv.val)
@@ -663,13 +663,13 @@ impl Ensemble {
             }
             Ok(self.backrefs.get_val(p_back).unwrap().val)
         } else {
-            Err(EvalError::InvalidPtr)
+            Err(Error::InvalidPtr)
         }
     }
 
     pub(crate) fn handle_requests_with_lower_capability(
         epoch_shared: &EpochShared,
-    ) -> Result<(), EvalError> {
+    ) -> Result<(), Error> {
         // TODO currently, the only way of avoiding N^2 worst case scenarios where
         // different change cascades lead to large groups of nodes being evaluated
         // repeatedly, is to use the front strategy. Only a powers of two reduction tree
@@ -718,7 +718,7 @@ impl Ensemble {
         Ok(())
     }
 
-    pub(crate) fn handle_requests(&mut self) -> Result<(), EvalError> {
+    pub(crate) fn handle_requests(&mut self) -> Result<(), Error> {
         while let Some(p_eval) = self.evaluator.evaluations.min() {
             self.evaluate(p_eval);
         }

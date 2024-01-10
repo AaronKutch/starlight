@@ -9,7 +9,7 @@ use crate::{
     awi,
     ensemble::{Ensemble, PExternal},
     epoch::get_current_epoch,
-    EvalError,
+    Error,
 };
 
 // Note: `mem::forget` can be used on `EvalAwi`s, but in this crate it should
@@ -83,12 +83,12 @@ macro_rules! eval_primitives {
             /// The same as [EvalAwi::eval], except that it returns a primitive
             /// and returns an error if the bitwidth of the evaluation does not
             /// match the bitwidth of the primitive
-            pub fn $f(&self) -> Result<$x, EvalError> {
+            pub fn $f(&self) -> Result<$x, Error> {
                 let awi = self.eval()?;
                 if awi.bw() == $w {
                     Ok(awi.$to_x())
                 } else {
-                    Err(EvalError::WrongBitwidth)
+                    Err(Error::WrongBitwidth)
                 }
             }
         )*
@@ -132,7 +132,7 @@ impl EvalAwi {
         self.p_external
     }
 
-    fn try_get_nzbw(&self) -> Result<NonZeroUsize, EvalError> {
+    fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {
         Ensemble::get_thread_local_rnode_nzbw(self.p_external)
     }
 
@@ -190,7 +190,7 @@ impl EvalAwi {
     /// it may be possible to evaluate to a known value even if some inputs are
     /// `opaque`, but in general this will return an error that a bit could not
     /// be evaluated to a known value, if any upstream inputs are `opaque`.
-    pub fn eval(&self) -> Result<awi::Awi, EvalError> {
+    pub fn eval(&self) -> Result<awi::Awi, Error> {
         let nzbw = self.try_get_nzbw()?;
         let mut res = awi::Awi::zero(nzbw);
         for bit_i in 0..res.bw() {
@@ -198,7 +198,7 @@ impl EvalAwi {
             if let Some(val) = val.known_value() {
                 res.set(bit_i, val).unwrap();
             } else {
-                return Err(EvalError::OtherString(format!(
+                return Err(Error::OtherString(format!(
                     "could not eval bit {bit_i} to known value, the node is {}",
                     self.p_external()
                 )))

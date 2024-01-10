@@ -15,7 +15,7 @@ use crate::{
     awi,
     ensemble::{BasicValue, BasicValueKind, CommonValue, Ensemble, PExternal},
     epoch::get_current_epoch,
-    EvalError,
+    Error,
 };
 
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
@@ -68,7 +68,7 @@ macro_rules! retro_primitives {
     ($($f:ident $x:ident);*;) => {
         $(
             /// Retroactively-assigns by `rhs`
-            pub fn $f(&self, rhs: $x) -> Result<(), EvalError> {
+            pub fn $f(&self, rhs: $x) -> Result<(), Error> {
                 self.retro_(&awi::InlAwi::from(rhs))
             }
         )*
@@ -106,7 +106,7 @@ macro_rules! retro {
         $(
             /// Retroactively-assigns by `rhs`. Returns an error if this
             /// is being called after the corresponding Epoch is dropped.
-            pub fn $f(&self) -> Result<(), EvalError> {
+            pub fn $f(&self) -> Result<(), Error> {
                 Ensemble::change_thread_local_rnode_value(
                     self.p_external,
                     CommonValue::Basic(BasicValue {
@@ -184,13 +184,13 @@ impl LazyAwi {
 
     /// Retroactively-assigns by `rhs`. Returns an error if bitwidths mismatch
     /// or if this is being called after the corresponding Epoch is dropped.
-    pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
+    pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), Error> {
         Ensemble::change_thread_local_rnode_value(self.p_external, CommonValue::Bits(rhs), false)
     }
 
     /// Retroactively-unknown-assigns, the same as `retro_` except it sets the
     /// bits to a dynamically unknown value
-    pub fn retro_unknown_(&self) -> Result<(), EvalError> {
+    pub fn retro_unknown_(&self) -> Result<(), Error> {
         Ensemble::change_thread_local_rnode_value(
             self.p_external,
             CommonValue::Basic(BasicValue {
@@ -205,7 +205,7 @@ impl LazyAwi {
     /// adds the guarantee that the value will never be changed again (or else
     /// it will result in errors if you try another `retro_*` function on
     /// `self`)
-    pub fn retro_const_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
+    pub fn retro_const_(&self, rhs: &awi::Bits) -> Result<(), Error> {
         Ensemble::change_thread_local_rnode_value(self.p_external, CommonValue::Bits(rhs), true)
     }
 }
@@ -355,13 +355,13 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
 
     /// Retroactively-assigns by `rhs`. Returns an error if bitwidths mismatch
     /// or if this is being called after the corresponding Epoch is dropped.
-    pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
+    pub fn retro_(&self, rhs: &awi::Bits) -> Result<(), Error> {
         Ensemble::change_thread_local_rnode_value(self.p_external, CommonValue::Bits(rhs), false)
     }
 
     /// Retroactively-unknown-assigns, the same as `retro_` except it sets the
     /// bits to a dynamically unknown value
-    pub fn retro_unknown_(&self) -> Result<(), EvalError> {
+    pub fn retro_unknown_(&self) -> Result<(), Error> {
         Ensemble::change_thread_local_rnode_value(
             self.p_external,
             CommonValue::Basic(BasicValue {
@@ -374,7 +374,7 @@ impl<const BW: usize, const LEN: usize> LazyInlAwi<BW, LEN> {
 
     /// Retroactively-constant-assigns by `rhs`, the same as `retro_` except it
     /// adds the guarantee that the value will never be changed again
-    pub fn retro_const_(&self, rhs: &awi::Bits) -> Result<(), EvalError> {
+    pub fn retro_const_(&self, rhs: &awi::Bits) -> Result<(), Error> {
         Ensemble::change_thread_local_rnode_value(self.p_external, CommonValue::Bits(rhs), true)
     }
 }

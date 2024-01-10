@@ -15,7 +15,7 @@ use crate::{
         DynamicValue, Ensemble, PBack, Value,
     },
     epoch::EpochShared,
-    EvalError,
+    Error,
 };
 
 /// Represents a single state that `awint_dag::mimick::Bits` is in at one point
@@ -32,7 +32,7 @@ pub struct State {
     pub op: Op<PState>,
     /// Location where this state is derived from
     pub location: Option<Location>,
-    pub err: Option<EvalError>,
+    pub err: Option<Error>,
     /// The number of other `State`s, and only other `State`s, that reference
     /// this one through the `Op`s
     pub rc: usize,
@@ -86,9 +86,9 @@ impl Stator {
     }
 
     /// Checks that there are no remaining states, then shrinks allocations
-    pub fn check_clear(&mut self) -> Result<(), EvalError> {
+    pub fn check_clear(&mut self) -> Result<(), Error> {
         if !self.states.is_empty() {
-            return Err(EvalError::OtherStr("states need to be empty"));
+            return Err(Error::OtherStr("states need to be empty"));
         }
         self.states.clear_and_shrink();
         self.states_to_lower.clear();
@@ -105,24 +105,24 @@ impl Ensemble {
             .map(|state| format!("{p_state} {state:#?}"))
     }
 
-    pub fn dec_rc(&mut self, p_state: PState) -> Result<(), EvalError> {
+    pub fn dec_rc(&mut self, p_state: PState) -> Result<(), Error> {
         if let Some(state) = self.stator.states.get_mut(p_state) {
             state.rc = if let Some(x) = state.rc.checked_sub(1) {
                 x
             } else {
-                return Err(EvalError::OtherStr("tried to subtract a 0 reference count"))
+                return Err(Error::OtherStr("tried to subtract a 0 reference count"))
             };
             if state.pruning_allowed() {
                 self.remove_state(p_state)?;
             }
             Ok(())
         } else {
-            Err(EvalError::InvalidPtr)
+            Err(Error::InvalidPtr)
         }
     }
 
     /// Prunes all states with `pruning_allowed()`
-    pub fn prune_unused_states(&mut self) -> Result<(), EvalError> {
+    pub fn prune_unused_states(&mut self) -> Result<(), Error> {
         let mut adv = self.stator.states.advancer();
         while let Some(p_state) = adv.advance(&self.stator.states) {
             let state = &self.stator.states[p_state];
@@ -133,7 +133,7 @@ impl Ensemble {
         Ok(())
     }
 
-    pub fn eval_state(&mut self, p_state: PState) -> Result<(), EvalError> {
+    pub fn eval_state(&mut self, p_state: PState) -> Result<(), Error> {
         let state = &self.stator.states[p_state];
         let self_w = state.nzbw;
         let lit_op: Op<EAwi> = Op::translate(&state.op, |lhs: &mut [EAwi], rhs: &[PState]| {
@@ -179,14 +179,12 @@ impl Ensemble {
                 for op in operands {
                     writeln!(s, "{:#?},", self.stator.states[op]).unwrap();
                 }
-                Err(EvalError::OtherString(format!(
+                Err(Error::OtherString(format!(
                     "`EvalResult::Noop` evaluation failure on state {} {:#?}\narguments: (\n{})",
                     p_state, state, s
                 )))
             }
-            EvalResult::Unevaluatable | EvalResult::PassUnevaluatable => {
-                Err(EvalError::Unevaluatable)
-            }
+            EvalResult::Unevaluatable | EvalResult::PassUnevaluatable => Err(Error::Unevaluatable),
             EvalResult::AssertionSuccess => {
                 if let Assert([_]) = state.op {
                     // this can be done because `Assert` is a sink that should not be used by
@@ -199,7 +197,7 @@ impl Ensemble {
                     unreachable!()
                 }
             }
-            EvalResult::AssertionFailure => Err(EvalError::OtherString(format!(
+            EvalResult::AssertionFailure => Err(Error::OtherString(format!(
                 "`EvalResult::AssertionFailure` when evaluating state {} {:?}",
                 p_state, state
             ))),
@@ -209,7 +207,7 @@ impl Ensemble {
                 for op in operands {
                     writeln!(s, "{:?},", self.stator.states[op]).unwrap();
                 }
-                Err(EvalError::OtherString(format!(
+                Err(Error::OtherString(format!(
                     "`EvalResult::Error` evaluation failure (\n{:#?}\n) on state {} \
                      {:#?}\narguments: (\n{})",
                     e, p_state, state, s
@@ -220,13 +218,13 @@ impl Ensemble {
 
     /// Assuming that the rootward tree from `p_state` is lowered down to the
     /// elementary `Op`s, this will create the `LNode` network
-    pub fn dfs_lower_elementary_to_lnodes(&mut self, p_state: PState) -> Result<(), EvalError> {
+    pub fn dfs_lower_elementary_to_lnodes(&mut self, p_state: PState) -> Result<(), Error> {
         if let Some(state) = self.stator.states.get(p_state) {
             if state.lowered_to_lnodes {
                 return Ok(())
             }
         } else {
-            return Err(EvalError::InvalidPtr)
+            return Err(Error::InvalidPtr)
         }
         self.stator.states[p_state].lowered_to_lnodes = true;
         let mut path: Vec<(usize, PState)> = vec![(0, p_state)];
@@ -245,18 +243,18 @@ impl Ensemble {
                     Opaque(_, name) => {
                         if let Some(name) = name {
                             if name == "LoopSource" {
-                                return Err(EvalError::OtherStr(
+                                return Err(Error::OtherStr(
                                     "cannot lower LoopSource opaque with no driver, most likely \
                                      some `Loop` or `Net` has been left undriven",
                                 ))
                             }
-                            return Err(EvalError::OtherString(format!(
+                            return Err(Error::OtherString(format!(
                                 "cannot lower root opaque with name {name}"
                             )))
                         }
                         self.initialize_state_bits_if_needed(p_state).unwrap();
                     }
-                    ref op => return Err(EvalError::OtherString(format!("cannot lower {op:?}"))),
+                    ref op => return Err(Error::OtherString(format!("cannot lower {op:?}"))),
                 }
                 path.pop().unwrap();
                 if path.is_empty() {
@@ -289,7 +287,7 @@ impl Ensemble {
     }
 
     /// Lowers the rootward tree from `p_state` down to `LNode`s
-    pub fn dfs_lower(epoch_shared: &EpochShared, p_state: PState) -> Result<(), EvalError> {
+    pub fn dfs_lower(epoch_shared: &EpochShared, p_state: PState) -> Result<(), Error> {
         Ensemble::dfs_lower_states_to_elementary(epoch_shared, p_state)?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         // the state can get removed by the above step
@@ -301,7 +299,7 @@ impl Ensemble {
     }
 
     /// Lowers `RNode`s with the `lower_before_pruning` flag
-    pub fn lower_for_rnodes(epoch_shared: &EpochShared) -> Result<(), EvalError> {
+    pub fn lower_for_rnodes(epoch_shared: &EpochShared) -> Result<(), Error> {
         let lock = epoch_shared.epoch_data.borrow();
         let mut adv = lock.ensemble.notary.rnodes().advancer();
         drop(lock);
@@ -338,7 +336,7 @@ impl Ensemble {
 fn lower_elementary_to_lnodes_intermediate(
     this: &mut Ensemble,
     p_state: PState,
-) -> Result<(), EvalError> {
+) -> Result<(), Error> {
     this.initialize_state_bits_if_needed(p_state).unwrap();
     match this.stator.states[p_state].op {
         Assert([x]) => {
@@ -519,12 +517,12 @@ fn lower_elementary_to_lnodes_intermediate(
         Opaque(ref v, name) => {
             if name == Some("LoopSource") {
                 if v.len() != 1 {
-                    return Err(EvalError::OtherStr("cannot lower an undriven `Loop`"))
+                    return Err(Error::OtherStr("cannot lower an undriven `Loop`"))
                 }
                 let p_driver_state = v[0];
                 let w = this.stator.states[p_state].p_self_bits.len();
                 if w != this.stator.states[p_driver_state].p_self_bits.len() {
-                    return Err(EvalError::OtherStr(
+                    return Err(Error::OtherStr(
                         "`Loop` has a bitwidth mismatch of looper and driver",
                     ))
                 }
@@ -535,14 +533,14 @@ fn lower_elementary_to_lnodes_intermediate(
                         .unwrap();
                 }
             } else if let Some(name) = name {
-                return Err(EvalError::OtherString(format!(
+                return Err(Error::OtherString(format!(
                     "cannot lower opaque with name \"{name}\""
                 )))
             } else {
-                return Err(EvalError::OtherStr("cannot lower opaque with no name"))
+                return Err(Error::OtherStr("cannot lower opaque with no name"))
             }
         }
-        ref op => return Err(EvalError::OtherString(format!("cannot lower {op:?}"))),
+        ref op => return Err(Error::OtherString(format!("cannot lower {op:?}"))),
     }
     Ok(())
 }
