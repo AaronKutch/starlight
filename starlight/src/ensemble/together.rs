@@ -324,22 +324,24 @@ impl Ensemble {
             }
         }
         for rnode in self.notary.rnodes().vals() {
-            for p_back in &rnode.bits {
-                if let Some(p_back) = p_back {
-                    if let Some(referent) = self.backrefs.get_key(*p_back) {
-                        if let Referent::ThisRNode(p_rnode) = referent {
-                            if !self.notary.rnodes().contains(*p_rnode) {
+            if let Some(bits) = rnode.bits() {
+                for p_back in bits {
+                    if let Some(p_back) = p_back {
+                        if let Some(referent) = self.backrefs.get_key(*p_back) {
+                            if let Referent::ThisRNode(p_rnode) = referent {
+                                if !self.notary.rnodes().contains(*p_rnode) {
+                                    return Err(Error::OtherString(format!(
+                                        "{rnode:?} backref {p_rnode} is invalid"
+                                    )))
+                                }
+                            } else {
                                 return Err(Error::OtherString(format!(
-                                    "{rnode:?} backref {p_rnode} is invalid"
+                                    "{rnode:?} backref {p_back} has incorrect referrent"
                                 )))
                             }
                         } else {
-                            return Err(Error::OtherString(format!(
-                                "{rnode:?} backref {p_back} has incorrect referrent"
-                            )))
+                            return Err(Error::OtherString(format!("rnode {p_back} is invalid")))
                         }
-                    } else {
-                        return Err(Error::OtherString(format!("rnode {p_back} is invalid")))
                     }
                 }
             }
@@ -384,10 +386,12 @@ impl Ensemble {
                 Referent::ThisRNode(p_rnode) => {
                     let rnode = self.notary.rnodes().get_val(*p_rnode).unwrap();
                     let mut found = false;
-                    for bit in &rnode.bits {
-                        if *bit == Some(p_back) {
-                            found = true;
-                            break
+                    if let Some(bits) = rnode.bits() {
+                        for bit in bits {
+                            if *bit == Some(p_back) {
+                                found = true;
+                                break
+                            }
                         }
                     }
                     !found

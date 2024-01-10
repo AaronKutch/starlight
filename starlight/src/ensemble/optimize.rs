@@ -485,7 +485,7 @@ impl Ensemble {
                 }
                 Referent::ThisRNode(p_rnode) => {
                     let rnode = self.notary.rnodes().get(p_rnode).unwrap().1;
-                    if !rnode.read_only {
+                    if !rnode.read_only() {
                         possible_drivers = true;
                     }
                     non_self_rc += 1;
@@ -668,16 +668,18 @@ impl Ensemble {
                         Referent::ThisRNode(p_rnode) => {
                             let rnode = self.notary.get_rnode_by_p_rnode_mut(p_rnode).unwrap();
                             let mut found = false;
-                            for bit in &mut rnode.bits {
-                                if let Some(bit) = bit {
-                                    if *bit == p_back {
-                                        let p_back_new = self
-                                            .backrefs
-                                            .insert_key(p_source, Referent::ThisRNode(p_rnode))
-                                            .unwrap();
-                                        *bit = p_back_new;
-                                        found = true;
-                                        break
+                            if let Some(bits) = rnode.bits_mut() {
+                                for bit in bits {
+                                    if let Some(bit) = bit {
+                                        if *bit == p_back {
+                                            let p_back_new = self
+                                                .backrefs
+                                                .insert_key(p_source, Referent::ThisRNode(p_rnode))
+                                                .unwrap();
+                                            *bit = p_back_new;
+                                            found = true;
+                                            break
+                                        }
                                     }
                                 }
                             }

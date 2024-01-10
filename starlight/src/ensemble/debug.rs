@@ -261,9 +261,11 @@ impl Ensemble {
                     Referent::ThisRNode(p_rnode) => {
                         let rnode = self.notary.rnodes().get_val(*p_rnode).unwrap();
                         let mut inx = u64::MAX;
-                        for (i, bit) in rnode.bits.iter().enumerate() {
-                            if *bit == Some(p_self) {
-                                inx = u64::try_from(i).unwrap();
+                        if let Some(bits) = rnode.bits() {
+                            for (i, bit) in bits.iter().enumerate() {
+                                if *bit == Some(p_self) {
+                                    inx = u64::try_from(i).unwrap();
+                                }
                             }
                         }
                         let equiv = self.backrefs.get_val(p_self).unwrap();

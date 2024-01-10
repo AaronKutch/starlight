@@ -67,33 +67,36 @@ impl Router {
     /// input bits
     pub fn map_rnodes(&mut self, program: PExternal, target: PExternal) -> Result<(), Error> {
         if let Some((_, program_rnode)) = self.program_ensemble.notary.get_rnode(program) {
-            if program_rnode.bits.is_empty() {
+            let program_rnode_bits = if let Some(bits) = program_rnode.bits() {
+                bits
+            } else {
                 return Err(Error::OtherString(
                     "when mapping bits, found that the program epoch has not been lowered or \
                      preferably optimized"
                         .to_owned(),
                 ));
-            }
+            };
             if let Some((_, target_rnode)) = self.target_ensemble.notary.get_rnode(target) {
-                if target_rnode.bits.is_empty() {
+                let target_rnode_bits = if let Some(bits) = target_rnode.bits() {
+                    bits
+                } else {
                     return Err(Error::OtherString(
-                        "when mapping bits, found that the program epoch has not been lowered or \
+                        "when mapping bits, found that the target epoch has not been lowered or \
                          preferably optimized"
                             .to_owned(),
                     ));
-                }
-                let len0 = program_rnode.bits.len();
-                let len1 = target_rnode.bits.len();
+                };
+                let len0 = program_rnode_bits.len();
+                let len1 = target_rnode_bits.len();
                 if len0 != len1 {
                     return Err(Error::OtherString(format!(
                         "when mapping bits, found that the bitwidths of {program:?} ({len0}) and \
                          {target:?} ({len1}) differ"
                     )));
                 }
-                for (bit_i, the_two) in program_rnode
-                    .bits
+                for (bit_i, the_two) in program_rnode_bits
                     .iter()
-                    .zip(target_rnode.bits.iter())
+                    .zip(target_rnode_bits.iter())
                     .enumerate()
                 {
                     match the_two {

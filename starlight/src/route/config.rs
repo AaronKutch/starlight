@@ -45,30 +45,32 @@ impl Configurator {
     ) -> Result<(), Error> {
         let p_external = config.p_external();
         if let Some((_, rnode)) = ensemble.notary.get_rnode(p_external) {
-            if rnode.bits.is_empty() {
+            if let Some(bits) = rnode.bits() {
+                for (bit_i, bit) in bits.iter().enumerate() {
+                    if let Some(bit) = bit {
+                        let p_equiv = ensemble.backrefs.get_val(*bit).unwrap().p_self_equiv;
+                        let (_, replaced) = self.configurations.insert(p_equiv, Config {
+                            p_external,
+                            bit_i,
+                            value: None,
+                        });
+                        // we may want to allow this, if we have a mechanism to make sure they are
+                        // set to the same thing
+                        if replaced.is_some() {
+                            return Err(Error::OtherString(format!(
+                                "`make_configurable(.., {config:?})`: found that the same bit as \
+                                 a previous one is configurable, this may be because \
+                                 `make_configurable` was called twice on the same or equivalent \
+                                 bit"
+                            )));
+                        }
+                    }
+                }
+            } else {
                 return Err(Error::OtherStr(
                     "`make_configurable(.., {config:?})`: found that the epoch has not been \
                      lowered and preferably optimized",
                 ));
-            }
-            for (bit_i, bit) in rnode.bits.iter().enumerate() {
-                if let Some(bit) = bit {
-                    let p_equiv = ensemble.backrefs.get_val(*bit).unwrap().p_self_equiv;
-                    let (_, replaced) = self.configurations.insert(p_equiv, Config {
-                        p_external,
-                        bit_i,
-                        value: None,
-                    });
-                    // we may want to allow this, if we have a mechanism to make sure they are set
-                    // to the same thing
-                    if replaced.is_some() {
-                        return Err(Error::OtherString(format!(
-                            "`make_configurable(.., {config:?})`: found that the same bit as a \
-                             previous one is configurable, this may be because \
-                             `make_configurable` was called twice on the same or equivalent bit"
-                        )));
-                    }
-                }
             }
             Ok(())
         } else {

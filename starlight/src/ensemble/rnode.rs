@@ -24,9 +24,9 @@ ptr_struct!(
 /// after `State` pruning
 #[derive(Debug, Clone)]
 pub struct RNode {
-    pub nzbw: NonZeroUsize,
-    pub bits: SmallVec<[Option<PBack>; 1]>,
-    pub read_only: bool,
+    nzbw: NonZeroUsize,
+    bits: SmallVec<[Option<PBack>; 1]>,
+    read_only: bool,
     pub associated_state: Option<PState>,
     pub lower_before_pruning: bool,
 }
@@ -53,6 +53,31 @@ impl RNode {
             bits: smallvec![],
             associated_state,
             lower_before_pruning,
+        }
+    }
+
+    pub fn nzbw(&self) -> NonZeroUsize {
+        self.nzbw
+    }
+
+    pub fn read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Returns `None` if the `RNode` has not been initialized yet
+    pub fn bits(&self) -> Option<&[Option<PBack>]> {
+        if self.bits.is_empty() {
+            None
+        } else {
+            Some(&self.bits)
+        }
+    }
+
+    pub fn bits_mut(&mut self) -> Option<&mut [Option<PBack>]> {
+        if self.bits.is_empty() {
+            None
+        } else {
+            Some(&mut self.bits)
         }
     }
 }
