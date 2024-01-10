@@ -7,7 +7,7 @@ use awint::awint_dag::{
 use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble,
-    route::{Behavior, CEdge, CNode, PCEdge},
+    route::{CEdge, CNode, PCEdge, Programmability},
     triple_arena::ptr_struct,
 };
 
@@ -18,7 +18,8 @@ pub enum Referent {
     ThisCNode,
     SubNode(PBack),
     SuperNode(PBack),
-    CEdgeIncidence(PCEdge, usize),
+    /// The bool indicates if it is a sink
+    CEdgeIncidence(PCEdge, usize, bool),
     EnsembleBackRef(ensemble::PBack),
 }
 
@@ -35,7 +36,7 @@ pub struct Channeler {
 }
 
 impl Channeler {
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         Self {
             cnodes: SurjectArena::new(),
             cedges: Arena::new(),
@@ -115,9 +116,15 @@ impl Channeler {
                 Referent::ThisCNode => false,
                 Referent::SubNode(p_subnode) => !self.cnodes.contains(*p_subnode),
                 Referent::SuperNode(p_supernode) => !self.cnodes.contains(*p_supernode),
-                Referent::CEdgeIncidence(p_cedge, i) => {
+                Referent::CEdgeIncidence(p_cedge, i, is_sink) => {
                     if let Some(cedges) = self.cedges.get(*p_cedge) {
-                        if *i > cedges.incidences.len() {
+                        if *is_sink {
+                            if *i > cedges.sinks().len() {
+                                return Err(EvalError::OtherString(format!(
+                                    "{referent:?} roundtrip out of bounds"
+                                )))
+                            }
+                        } else if *i > cedges.sources().len() {
                             return Err(EvalError::OtherString(format!(
                                 "{referent:?} roundtrip out of bounds"
                             )))
@@ -135,7 +142,14 @@ impl Channeler {
         }
         for p_cedge in self.cedges.ptrs() {
             let cedge = self.cedges.get(p_cedge).unwrap();
-            for p_cnode in &cedge.incidences {
+            for p_cnode in cedge.sources().iter() {
+                if !self.cnodes.contains(*p_cnode) {
+                    return Err(EvalError::OtherString(format!(
+                        "{cedge:?}.p_cnodes {p_cnode} is invalid",
+                    )))
+                }
+            }
+            for p_cnode in cedge.sinks().iter() {
                 if !self.cnodes.contains(*p_cnode) {
                     return Err(EvalError::OtherString(format!(
                         "{cedge:?}.p_cnodes {p_cnode} is invalid",
@@ -172,16 +186,22 @@ impl Channeler {
                         true
                     }
                 }
-                Referent::CEdgeIncidence(p_cedge, i) => {
+                Referent::CEdgeIncidence(p_cedge, i, is_sink) => {
                     let cedge = self.cedges.get(*p_cedge).unwrap();
-                    let p_cnode = cedge.incidences[*i];
-                    if let Referent::CEdgeIncidence(p_cedge1, i1) =
-                        self.cnodes.get_key(p_cnode).unwrap()
-                    {
-                        (*p_cedge != *p_cedge1) || (*i != *i1)
-                    } else {
-                        true
-                    }
+                    let mut res = false;
+                    cedge.incidents(|incident| {
+                        let p_cnode = cedge.sinks()[*i];
+                        if let Referent::CEdgeIncidence(p_cedge1, i1, is_sink1) =
+                            self.cnodes.get_key(p_cnode).unwrap()
+                        {
+                            if (*p_cedge != *p_cedge1) || (*i != *i1) || (*is_sink != *is_sink1) {
+                                res = true;
+                            }
+                        } else {
+                            res = true;
+                        }
+                    });
+                    res
                 }
                 Referent::EnsembleBackRef(_) => todo!(),
             };
@@ -194,14 +214,28 @@ impl Channeler {
         // non `Ptr` validities
         for p_cedge in self.cedges.ptrs() {
             let cedge = self.cedges.get(p_cedge).unwrap();
-            let ok = match &cedge.programmability().behavior {
-                Behavior::Noop | Behavior::Bulk(_) => cedge.incidences.len() == 2,
-                Behavior::StaticLut(lut) => {
+            let incidents_len = cedge.incidents_len();
+            let sources_len = cedge.sources().len();
+            let sinks_len = cedge.sinks().len();
+            let ok = match cedge.programmability() {
+                Programmability::Noop => incidents_len == 0,
+                Programmability::StaticLut(lut) => {
+                    // TODO find every place I did the trailing zeros thing and have a function that
+                    // does the more efficient thing the core `lut_` function does
                     lut.bw().is_power_of_two()
-                        && ((lut.bw().trailing_zeros() as usize + 1) == cedge.incidences.len())
+                        && (lut.bw().trailing_zeros() as usize == sources_len)
+                        && (sinks_len == 1)
                 }
-                Behavior::SelectorLut(_) => todo!(),
-                Behavior::ArbitraryLut(input_len) => *input_len == cedge.incidences.len(),
+                Programmability::ArbitraryLut(lut) => {
+                    lut.len().is_power_of_two()
+                        && ((lut.len().trailing_zeros() as usize) == sources_len)
+                        && (sinks_len == 1)
+                }
+                Programmability::SelectorLut(selector_lut) => {
+                    selector_lut.verify_integrity(sources_len, sinks_len)?;
+                    true
+                }
+                Programmability::Bulk(_) => todo!(),
             };
             if !ok {
                 return Err(EvalError::OtherString(format!(
@@ -210,11 +244,5 @@ impl Channeler {
             }
         }
         Ok(())
-    }
-}
-
-impl Default for Channeler {
-    fn default() -> Self {
-        Self::new()
     }
 }

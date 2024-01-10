@@ -1,27 +1,16 @@
 use awint::awint_dag::{
-    triple_arena::{ptr_struct, ArenaTrait, OrdArena, Ptr},
+    triple_arena::{ptr_struct, OrdArena},
     EvalError,
 };
 
 use crate::{
-    ensemble::{self, Ensemble, PExternal, PRNode, Value},
+    ensemble::{self, Ensemble, PExternal},
     route::{Channeler, HyperPath, PHyperPath},
     triple_arena::Arena,
-    Epoch, EvalAwi, LazyAwi, SuspendedEpoch,
+    EvalAwi, LazyAwi, SuspendedEpoch,
 };
 
-ptr_struct!(PConfig; PMapping);
-
-#[derive(Debug, Clone)]
-pub struct Configuration {
-    /// stable `Ptr` for the target
-    p_external: PExternal,
-    /// The index in the `RNode`
-    bit_i: usize,
-    /// The bit value the configuration wants. `None` is for not yet determined
-    /// or for if the value can be set to `Value::Unknown`.
-    value: Option<bool>,
-}
+ptr_struct!(PMapping);
 
 #[derive(Debug, Clone)]
 pub struct Mapping {
@@ -38,8 +27,6 @@ pub struct Router {
     program_ensemble: Ensemble,
     program_channeler: Channeler,
     hyperpaths: Arena<PHyperPath, HyperPath>,
-    // `ThisEquiv` `PBack` to `PExternal` mapping for bits we are allowed to configure
-    configurations: OrdArena<PConfig, ensemble::PBack, Configuration>,
     // `ThisEquiv` `PBack` mapping from program to target
     mappings: OrdArena<PMapping, ensemble::PBack, Mapping>,
 }
@@ -59,51 +46,15 @@ impl Router {
             program_ensemble: program_epoch.ensemble(|ensemble| ensemble.clone()),
             program_channeler,
             hyperpaths: Arena::new(),
-            configurations: OrdArena::new(),
             mappings: OrdArena::new(),
-        }
-    }
-
-    /// Tell the router what bits it can use for programming the target
-    pub fn map_config(&mut self, config: &LazyAwi) -> Result<(), EvalError> {
-        let p_external = config.p_external();
-        if let Some((p_rnode, rnode)) = self.target_ensemble.notary.get_rnode(p_external) {
-            for (bit_i, bit) in rnode.bits.iter().enumerate() {
-                if let Some(bit) = bit {
-                    let (_, replaced) = self.configurations.insert(*bit, Configuration {
-                        p_external,
-                        bit_i,
-                        value: None,
-                    });
-                    // we may want to allow this, have some mechanism to be able to configure
-                    // multiple to the same thing
-                    if replaced.is_some() {
-                        return Err(EvalError::OtherString(format!(
-                            "when mapping {config:?} as configurable, found that the same bit as \
-                             a previous one is mapped, this may be because it was mapped twice or \
-                             the bit is equivalent to another somehow"
-                        )));
-                    }
-                }
-            }
-            Ok(())
-        } else {
-            Err(EvalError::OtherString(format!(
-                "when mapping configurable bits, could not find {config:?} in the target \
-                 `Ensemble`"
-            )))
         }
     }
 
     /// Tell the router what program input bits we want to map to what target
     /// input bits
     pub fn map_rnodes(&mut self, program: PExternal, target: PExternal) -> Result<(), EvalError> {
-        if let Some((program_p_rnode, program_rnode)) =
-            self.program_ensemble.notary.get_rnode(program)
-        {
-            if let Some((target_p_rnode, target_rnode)) =
-                self.target_ensemble.notary.get_rnode(target)
-            {
+        if let Some((_, program_rnode)) = self.program_ensemble.notary.get_rnode(program) {
+            if let Some((_, target_rnode)) = self.target_ensemble.notary.get_rnode(target) {
                 let len0 = program_rnode.bits.len();
                 let len1 = target_rnode.bits.len();
                 if len0 != len1 {
@@ -120,26 +71,39 @@ impl Router {
                 {
                     match the_two {
                         (Some(program_bit), Some(target_bit)) => {
-                            let (_, replaced) = self.mappings.insert(*program_bit, Mapping {
+                            let program_p_equiv = self
+                                .program_ensemble
+                                .backrefs
+                                .get_val(*program_bit)
+                                .unwrap()
+                                .p_self_equiv;
+                            let target_p_equiv = self
+                                .target_ensemble
+                                .backrefs
+                                .get_val(*target_bit)
+                                .unwrap()
+                                .p_self_equiv;
+                            let (_, replaced) = self.mappings.insert(program_p_equiv, Mapping {
                                 program_p_external: program,
                                 target_p_external: target,
-                                target_p_equiv: *target_bit,
+                                target_p_equiv,
                                 bit_i,
                             });
                             // we may want to allow this, have some mechanism to be able to
-                            // configure multiple to the same thing
+                            // configure multiple to the same thing as long as constraints are
+                            // satisfied
                             if replaced.is_some() {
                                 todo!()
                             }
                         }
+                        (None, None) => (),
                         _ => {
                             // maybe it should just be a no-op? haven't encountered a case yet
                             return Err(EvalError::OtherString(format!(
-                                "when mapping bits, one or the other bits were optimized away \
-                                 inconsistently"
+                                "when mapping bits {program:?} and {target:?}, one or the other \
+                                 bits were optimized away inconsistently"
                             )));
                         }
-                        (None, None) => (),
                     }
                 }
                 Ok(())
@@ -165,5 +129,13 @@ impl Router {
     /// output bits
     pub fn map_eval(&mut self, program: &EvalAwi, target: &EvalAwi) -> Result<(), EvalError> {
         self.map_rnodes(program.p_external(), target.p_external())
+    }
+
+    pub fn verify_integrity(&self) -> Result<(), EvalError> {
+        self.target_ensemble.verify_integrity()?;
+        self.target_channeler.verify_integrity()?;
+        self.program_ensemble.verify_integrity()?;
+        self.program_channeler.verify_integrity()?;
+        Ok(())
     }
 }
