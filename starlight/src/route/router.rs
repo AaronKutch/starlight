@@ -47,11 +47,41 @@ impl Router {
         }
     }
 
+    pub fn target_ensemble(&self) -> &Ensemble {
+        &self.target_ensemble
+    }
+
+    pub fn program_ensemble(&self) -> &Ensemble {
+        &self.program_ensemble
+    }
+
+    pub fn target_channeler(&self) -> &Channeler {
+        &self.target_channeler
+    }
+
+    pub fn program_channeler(&self) -> &Channeler {
+        &self.program_channeler
+    }
+
     /// Tell the router what program input bits we want to map to what target
     /// input bits
     pub fn map_rnodes(&mut self, program: PExternal, target: PExternal) -> Result<(), Error> {
         if let Some((_, program_rnode)) = self.program_ensemble.notary.get_rnode(program) {
+            if program_rnode.bits.is_empty() {
+                return Err(Error::OtherString(
+                    "when mapping bits, found that the program epoch has not been lowered or \
+                     preferably optimized"
+                        .to_owned(),
+                ));
+            }
             if let Some((_, target_rnode)) = self.target_ensemble.notary.get_rnode(target) {
+                if target_rnode.bits.is_empty() {
+                    return Err(Error::OtherString(
+                        "when mapping bits, found that the program epoch has not been lowered or \
+                         preferably optimized"
+                            .to_owned(),
+                    ));
+                }
                 let len0 = program_rnode.bits.len();
                 let len1 = target_rnode.bits.len();
                 if len0 != len1 {

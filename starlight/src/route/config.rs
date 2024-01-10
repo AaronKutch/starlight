@@ -45,6 +45,12 @@ impl Configurator {
     ) -> Result<(), Error> {
         let p_external = config.p_external();
         if let Some((_, rnode)) = ensemble.notary.get_rnode(p_external) {
+            if rnode.bits.is_empty() {
+                return Err(Error::OtherStr(
+                    "`make_configurable(.., {config:?})`: found that the epoch has not been \
+                     lowered and preferably optimized",
+                ));
+            }
             for (bit_i, bit) in rnode.bits.iter().enumerate() {
                 if let Some(bit) = bit {
                     let p_equiv = ensemble.backrefs.get_val(*bit).unwrap().p_self_equiv;

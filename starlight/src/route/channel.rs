@@ -188,22 +188,31 @@ impl Channeler {
                 }
                 Referent::CEdgeIncidence(p_cedge, i, is_sink) => {
                     let cedge = self.cedges.get(*p_cedge).unwrap();
-                    let mut res = false;
-                    cedge.incidents(|incident| {
-                        let p_cnode = cedge.sinks()[*i];
-                        if let Referent::CEdgeIncidence(p_cedge1, i1, is_sink1) =
-                            self.cnodes.get_key(p_cnode).unwrap()
-                        {
-                            if (*p_cedge != *p_cedge1) || (*i != *i1) || (*is_sink != *is_sink1) {
-                                res = true;
+                    if *is_sink {
+                        if let Some(sink) = cedge.sinks().get(*i) {
+                            if let Referent::CEdgeIncidence(p_cedge1, i1, is_sink1) =
+                                self.cnodes.get_key(*sink).unwrap()
+                            {
+                                (*p_cedge != *p_cedge1) || (*i != *i1) || (*is_sink != *is_sink1)
+                            } else {
+                                true
                             }
                         } else {
-                            res = true;
+                            true
                         }
-                    });
-                    res
+                    } else if let Some(source) = cedge.sources().get(*i) {
+                        if let Referent::CEdgeIncidence(p_cedge1, i1, is_sink1) =
+                            self.cnodes.get_key(*source).unwrap()
+                        {
+                            (*p_cedge != *p_cedge1) || (*i != *i1) || (*is_sink != *is_sink1)
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
                 }
-                Referent::EnsembleBackRef(_) => todo!(),
+                Referent::EnsembleBackRef(_) => false,
             };
             if fail {
                 return Err(Error::OtherString(format!("{referent:?} roundtrip fail")))

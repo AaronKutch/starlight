@@ -95,11 +95,11 @@ pub struct RNodeTmp {
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
+    Equiv(Equiv, Vec<PBack>),
     StateBit(StateBit),
+    RNode(RNodeTmp),
     LNode(LNode),
     TNode(TNodeTmp),
-    Equiv(Equiv, Vec<PBack>),
-    RNode(RNodeTmp),
     Remove,
 }
 

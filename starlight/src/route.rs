@@ -4,6 +4,8 @@ mod cedge;
 mod channel;
 mod cnode;
 mod config;
+#[cfg(feature = "debug")]
+mod debug;
 mod path;
 mod region_adv;
 mod router;
