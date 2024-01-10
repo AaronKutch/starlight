@@ -130,6 +130,14 @@ impl CEdge {
         &self.sinks
     }
 
+    pub fn sources_mut(&mut self) -> &mut [PBack] {
+        &mut self.sources
+    }
+
+    pub fn sinks_mut(&mut self) -> &mut [PBack] {
+        &mut self.sinks
+    }
+
     pub fn incidents<F: FnMut(PBack)>(&self, mut f: F) {
         for source in self.sources() {
             f(*source)
