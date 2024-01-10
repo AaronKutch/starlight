@@ -16,14 +16,14 @@ use awint::{
     awint_dag::{
         epoch::{EpochCallback, EpochKey},
         triple_arena::{ptr_struct, Advancer, Arena},
-        EvalError, Lineage, Location, Op, PState,
+        Lineage, Location, Op, PState,
     },
     bw, dag,
 };
 
 use crate::{
     ensemble::{Ensemble, Value},
-    EvalAwi,
+    EvalAwi, EvalError,
 };
 
 /// A list of single bit `EvalAwi`s for assertions

@@ -3,13 +3,14 @@ use std::num::{NonZeroU128, NonZeroUsize};
 use awint::awint_dag::{
     smallvec::{smallvec, SmallVec},
     triple_arena::{ptr_struct, Arena, OrdArena, Ptr, Recast, Recaster},
-    EvalError, PState,
+    PState,
 };
 
 use crate::{
     awi::*,
     ensemble::{CommonValue, Ensemble, PBack, Referent, Value},
     epoch::get_current_epoch,
+    EvalError,
 };
 
 ptr_struct!(PRNode);

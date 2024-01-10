@@ -4,7 +4,7 @@ use awint::{
     awint_dag::{
         smallvec::SmallVec,
         triple_arena::{Advancer, Ptr},
-        EvalError, PState,
+        PState,
     },
     Awi, InlAwi,
 };
@@ -12,7 +12,7 @@ use awint::{
 use crate::{
     ensemble::{DynamicValue, Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent, Value},
     triple_arena::{ptr_struct, OrdArena},
-    SmallMap,
+    EvalError, SmallMap,
 };
 
 ptr_struct!(POpt);

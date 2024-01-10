@@ -1,13 +1,10 @@
-use awint::awint_dag::{
-    triple_arena::{ptr_struct, OrdArena},
-    EvalError,
-};
+use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
 
 use crate::{
     ensemble::{self, Ensemble, PExternal},
     route::{Channeler, HyperPath, PHyperPath},
     triple_arena::Arena,
-    EvalAwi, LazyAwi, SuspendedEpoch,
+    EvalAwi, EvalError, LazyAwi, SuspendedEpoch,
 };
 
 ptr_struct!(PMapping);

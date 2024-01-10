@@ -2,15 +2,13 @@ use std::num::{NonZeroU64, NonZeroUsize};
 
 use awint::{
     awi::*,
-    awint_dag::{
-        triple_arena::{ptr_struct, Advancer, OrdArena},
-        EvalError,
-    },
+    awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena},
 };
 
 use crate::{
     ensemble::{Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent},
     epoch::EpochShared,
+    EvalError,
 };
 
 #[derive(Debug, Clone, Copy)]

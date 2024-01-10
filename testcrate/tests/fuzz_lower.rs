@@ -7,7 +7,6 @@ use std::{
 
 use starlight::{
     awi,
-    awint_dag::EvalError,
     dag::{self},
     triple_arena::{ptr_struct, Arena},
     Epoch, EvalAwi, LazyAwi, StarRng,
@@ -154,7 +153,7 @@ impl Mem {
         epoch.lower_and_prune().unwrap();
     }
 
-    pub fn eval_and_verify_equal(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
+    pub fn eval_and_verify_equal(&mut self, epoch: &Epoch) {
         // set half of the roots randomly
         let len = self.roots.len();
         for _ in 0..(len / 2) {
@@ -176,7 +175,6 @@ impl Mem {
         for pair in self.a.vals() {
             assert_eq!(pair.eval.as_ref().unwrap().eval().unwrap(), pair.awi);
         }
-        Ok(())
     }
 }
 
@@ -765,7 +763,7 @@ fn fuzz_lower() {
             num_dag_duo(&mut rng, &mut m)
         }
         m.finish(&epoch);
-        m.eval_and_verify_equal(&epoch).unwrap();
+        m.eval_and_verify_equal(&epoch);
         m.clear();
         drop(epoch);
     }

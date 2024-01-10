@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use awint::{awint_dag::EvalError, Awi};
+use awint::Awi;
 
 use crate::{
     awint_dag::smallvec::SmallVec,
@@ -8,7 +8,7 @@ use crate::{
     ensemble::{DynamicValue, Ensemble, LNodeKind},
     route::{channel::Referent, Channeler, Configurator, PBack},
     triple_arena::ptr_struct,
-    SuspendedEpoch,
+    EvalError, SuspendedEpoch,
 };
 
 ptr_struct!(PCEdge);

@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 
 use awint::{
-    awint_dag::{smallvec::smallvec, ConcatFieldsType, ConcatType, EvalError, Op::*, PState},
+    awint_dag::{smallvec::smallvec, ConcatFieldsType, ConcatType, Op::*, PState},
     bw,
 };
 
@@ -9,6 +9,7 @@ use crate::{
     ensemble::Ensemble,
     epoch::EpochShared,
     lower::{lower_op, LowerManagement},
+    EvalError,
 };
 
 impl Ensemble {

@@ -7,7 +7,7 @@ use std::{
 };
 
 use awint::{
-    awint_dag::{dag, EvalError, Lineage, PState},
+    awint_dag::{dag, Lineage, PState},
     awint_internals::forward_debug_fmt,
 };
 
@@ -15,6 +15,7 @@ use crate::{
     awi,
     ensemble::{BasicValue, BasicValueKind, CommonValue, Ensemble, PExternal},
     epoch::get_current_epoch,
+    EvalError,
 };
 
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`

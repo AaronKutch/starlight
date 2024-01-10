@@ -3,7 +3,7 @@ use std::{fmt::Write, num::NonZeroUsize};
 use awint::awint_dag::{
     smallvec::{smallvec, SmallVec},
     triple_arena::{Advancer, Arena},
-    EAwi, EvalError, EvalResult, Location,
+    EAwi, EvalResult, Location,
     Op::{self, *},
     PState,
 };
@@ -15,6 +15,7 @@ use crate::{
         DynamicValue, Ensemble, PBack, Value,
     },
     epoch::EpochShared,
+    EvalError,
 };
 
 /// Represents a single state that `awint_dag::mimick::Bits` is in at one point

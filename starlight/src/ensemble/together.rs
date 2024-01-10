@@ -4,7 +4,7 @@ use awint::{
     awint_dag::{
         smallvec::{smallvec, SmallVec},
         triple_arena::{Recast, Recaster},
-        EvalError, Location, Op, PState,
+        Location, Op, PState,
     },
     Awi, Bits,
 };
@@ -15,6 +15,7 @@ use crate::{
         PTNode, State, Stator, TNode, Value,
     },
     triple_arena::{ptr_struct, Arena, SurjectArena},
+    EvalError,
 };
 
 ptr_struct!(PBack);

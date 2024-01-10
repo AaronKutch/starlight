@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use awint::{
-    awint_dag::{EvalError, Op, PState},
+    awint_dag::{Op, PState},
     awint_macro_internals::triple_arena::Arena,
 };
 
@@ -11,7 +11,7 @@ use crate::{
     },
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
-    Epoch,
+    Epoch, EvalError,
 };
 
 impl DebugNodeTrait<PState> for State {

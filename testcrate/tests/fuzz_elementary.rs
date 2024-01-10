@@ -1,7 +1,7 @@
 use std::{cmp::min, num::NonZeroUsize};
 
 use starlight::{
-    awint::{awi, awint_dag::EvalError, dag},
+    awint::{awi, dag},
     triple_arena::{ptr_struct, Arena},
     Epoch, EvalAwi, LazyAwi, StarRng,
 };
@@ -131,7 +131,7 @@ impl Mem {
         epoch.lower_and_prune().unwrap();
     }
 
-    pub fn verify_equivalence(&mut self, epoch: &Epoch) -> Result<(), EvalError> {
+    pub fn verify_equivalence(&mut self, epoch: &Epoch) {
         // set all lazy roots
         for (lazy, lit) in &mut self.roots {
             lazy.retro_(lit).unwrap();
@@ -142,7 +142,6 @@ impl Mem {
         for pair in self.a.vals() {
             assert_eq!(pair.eval.as_ref().unwrap().eval().unwrap(), pair.awi);
         }
-        Ok(())
     }
 }
 
@@ -232,11 +231,9 @@ fn fuzz_elementary() {
         }
         m.finish(&epoch);
         epoch.verify_integrity().unwrap();
-        let res = m.verify_equivalence(&epoch);
-        res.unwrap();
+        m.verify_equivalence(&epoch);
         epoch.optimize().unwrap();
-        let res = m.verify_equivalence(&epoch);
-        res.unwrap();
+        m.verify_equivalence(&epoch);
         // TODO verify stable optimization
         drop(epoch);
         m.clear();

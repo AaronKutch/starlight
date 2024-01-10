@@ -1,7 +1,6 @@
 use awint::awint_dag::{
     smallvec::smallvec,
     triple_arena::{Arena, OrdArena, SurjectArena},
-    EvalError,
 };
 
 use crate::{
@@ -9,6 +8,7 @@ use crate::{
     ensemble,
     route::{CEdge, CNode, PCEdge, Programmability},
     triple_arena::ptr_struct,
+    EvalError,
 };
 
 ptr_struct!(P0; PBack);

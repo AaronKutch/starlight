@@ -8,7 +8,7 @@ use std::{cmp::min, num::NonZeroUsize};
 use awint::{
     awint_dag::{
         triple_arena::Ptr,
-        DummyDefault, EvalError, Lineage,
+        DummyDefault, Lineage,
         Op::{self, *},
         PState,
     },
@@ -17,7 +17,7 @@ use awint::{
 };
 
 use super::meta::*;
-use crate::awi;
+use crate::{awi, EvalError};
 
 pub trait LowerManagement<P: Ptr + DummyDefault> {
     fn graft(&mut self, output_and_operands: &[PState]);

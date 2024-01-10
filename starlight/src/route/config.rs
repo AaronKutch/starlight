@@ -1,11 +1,8 @@
-use awint::awint_dag::{
-    triple_arena::{ptr_struct, OrdArena},
-    EvalError,
-};
+use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
 
 use crate::{
     ensemble::{self, Ensemble, PExternal},
-    LazyAwi,
+    EvalError, LazyAwi,
 };
 
 ptr_struct!(PConfig);

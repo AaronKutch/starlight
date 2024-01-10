@@ -1,7 +1,7 @@
 use std::{fmt, num::NonZeroUsize, thread::panicking};
 
 use awint::{
-    awint_dag::{dag, EvalError, Lineage, PState},
+    awint_dag::{dag, Lineage, PState},
     awint_internals::{forward_debug_fmt, BITS},
 };
 
@@ -9,6 +9,7 @@ use crate::{
     awi,
     ensemble::{Ensemble, PExternal},
     epoch::get_current_epoch,
+    EvalError,
 };
 
 // Note: `mem::forget` can be used on `EvalAwi`s, but in this crate it should
