@@ -1,6 +1,6 @@
 use awint::awint_dag::{
     smallvec::smallvec,
-    triple_arena::{Arena, OrdArena, SurjectArena},
+    triple_arena::{Advancer, Arena, OrdArena, SurjectArena},
 };
 
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
     Error,
 };
 
-ptr_struct!(P0; PBack);
+ptr_struct!(P0; PTopLevel; PBack);
 
 #[derive(Debug, Clone, Copy)]
 pub enum Referent {
@@ -30,7 +30,7 @@ pub struct Channeler {
     /// The plan is that this always ends up with a single top level node, with
     /// all unconnected graphs being connected with `Behavior::Noop` so that the
     /// normal algorithm can allocate over them
-    pub top_level_cnodes: SmallVec<[PBack; 1]>,
+    pub top_level_cnodes: OrdArena<PTopLevel, PBack, ()>,
     // needed for the unit edges to find incidences
     pub ensemble_backref_to_channeler_backref: OrdArena<P0, ensemble::PBack, PBack>,
 }
@@ -40,7 +40,7 @@ impl Channeler {
         Self {
             cnodes: SurjectArena::new(),
             cedges: Arena::new(),
-            top_level_cnodes: smallvec![],
+            top_level_cnodes: OrdArena::new(),
             ensemble_backref_to_channeler_backref: OrdArena::new(),
         }
     }
@@ -157,7 +157,7 @@ impl Channeler {
                 }
             }
         }
-        for p_cnode in &self.top_level_cnodes {
+        for p_cnode in self.top_level_cnodes.keys() {
             if !self.cnodes.contains(*p_cnode) {
                 return Err(Error::OtherString(format!(
                     "top_level_cnodes {p_cnode} is invalid"
@@ -248,6 +248,33 @@ impl Channeler {
                 return Err(Error::OtherString(format!(
                     "{cedge:?} an invariant is broken"
                 )))
+            }
+        }
+        for cnode in self.cnodes.vals() {
+            let contained = self
+                .top_level_cnodes
+                .find_key(&cnode.p_this_cnode)
+                .is_some();
+            let mut adv = self.cnodes.advancer_surject(cnode.p_this_cnode);
+            let mut found_super_node = false;
+            while let Some(p) = adv.advance(&self.cnodes) {
+                match self.cnodes.get_key(p).unwrap() {
+                    Referent::SuperNode(_) => {
+                        found_super_node = true;
+                        break
+                    }
+                    _ => (),
+                }
+            }
+            if contained && found_super_node {
+                return Err(Error::OtherString(format!(
+                    "{cnode:?} has a super node when it is also a top level node"
+                )));
+            }
+            if !(contained || found_super_node) {
+                return Err(Error::OtherString(format!(
+                    "{cnode:?} is not top level node but does not have a super node"
+                )));
             }
         }
         Ok(())

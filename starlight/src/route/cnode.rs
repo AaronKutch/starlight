@@ -16,6 +16,9 @@ impl Channeler {
             .cnodes
             .insert_with(|p_this_cnode| (Referent::ThisCNode, CNode { p_this_cnode }));
         for subnode in subnodes {
+            if let Some(p) = self.top_level_cnodes.find_key(&subnode) {
+                self.top_level_cnodes.remove(p).unwrap();
+            }
             let p_subnode = self
                 .cnodes
                 .insert_key(subnode, Referent::SuperNode(Ptr::invalid()))
@@ -28,7 +31,7 @@ impl Channeler {
             // `p_this_cnode`
             *self.cnodes.get_key_mut(p_subnode).unwrap() = Referent::SuperNode(p_supernode);
         }
-        self.top_level_cnodes.push(p_cnode);
+        self.top_level_cnodes.insert(p_cnode, ());
         p_cnode
     }
 }
@@ -120,5 +123,12 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
     // layers, need to methodically determine what we really want
     ptr_struct!(P0);
 
-    todo!()
+    // FIXME this is a dummy hierarchy
+    if channeler.top_level_cnodes.len() > 1 {
+        let mut set = vec![];
+        for p_cnode in channeler.top_level_cnodes.keys() {
+            set.push(*p_cnode);
+        }
+        channeler.make_top_level_cnode(set);
+    }
 }

@@ -18,8 +18,8 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum NodeKind {
     CNode(CNode),
-    SubNode(PBack),
-    SuperNode(PBack),
+    SubNode(PBack, PBack),
+    SuperNode(PBack, PBack),
     CEdgeIncidence(PBack, PCEdge, usize, bool, CEdge, CEdge),
     EnsembleBackRef(PBack, ensemble::PBack),
     Remove,
@@ -33,8 +33,16 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 center: { vec!["cnode".to_owned(), format!("{}", cnode.p_this_cnode)] },
                 sinks: vec![],
             },
-            NodeKind::SubNode(_) => todo!(),
-            NodeKind::SuperNode(_) => todo!(),
+            NodeKind::SubNode(p_back, p_back_forwarded) => DebugNode {
+                sources: vec![],
+                center: { vec!["sub".to_owned()] },
+                sinks: vec![(*p_back_forwarded, format!("{p_back}"))],
+            },
+            NodeKind::SuperNode(p_back, p_back_forwarded) => DebugNode {
+                sources: vec![(*p_back_forwarded, format!("{p_back}"))],
+                center: { vec!["super".to_owned()] },
+                sinks: vec![],
+            },
             NodeKind::CEdgeIncidence(p_back, p_cedge, i, is_sink, cedge, cedge_forwarded) => {
                 DebugNode {
                     sources: {
@@ -141,8 +149,8 @@ impl Channeler {
                     Referent::ThisCNode => {
                         NodeKind::CNode(self.cnodes.get_val(p_self).unwrap().clone())
                     }
-                    Referent::SubNode(_) => todo!(),
-                    Referent::SuperNode(_) => todo!(),
+                    Referent::SubNode(p_back) => NodeKind::SubNode(*p_back, p_cnode),
+                    Referent::SuperNode(p_back) => NodeKind::SuperNode(*p_back, p_cnode),
                     Referent::CEdgeIncidence(p_cedge, i, is_sink) => {
                         let mut cedge = self.cedges.get(*p_cedge).unwrap().clone();
                         let mut cedge_forwarded = cedge.clone();

@@ -6,7 +6,7 @@ use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble,
     ensemble::{DynamicValue, Ensemble, LNodeKind},
-    route::{channel::Referent, Channeler, Configurator, PBack},
+    route::{channel::Referent, cnode::generate_hierarchy, Channeler, Configurator, PBack},
     triple_arena::ptr_struct,
     Error, SuspendedEpoch,
 };
@@ -335,6 +335,8 @@ impl Channeler {
                 }
             }
         }
+
+        generate_hierarchy(&mut channeler);
 
         Ok(channeler)
     }
