@@ -182,7 +182,7 @@ impl Mem {
 // some kind of way to test coverage.
 
 fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
-    let next_op = rng.next_u32() % 29;
+    let next_op = rng.next_u32() % 31;
     match next_op {
         // Lut, StaticLut
         0 => {
@@ -381,8 +381,45 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             let b_s = m.get_dag(s);
             m.get_mut_dag(lhs).funnel_(&b, &b_s).unwrap();
         }
-        // FieldWidth
+        // RangeOr, RangeAnd, RangeXor
         13 => {
+            let (w, x) = m.next9();
+            let start = m.next_usize(w + 1);
+            let end = m.next_usize(w + 1);
+            let start_a = m.get_awi(start);
+            let end_a = m.get_awi(end);
+            let start_b = m.get_dag(start);
+            let end_b = m.get_dag(end);
+            match rng.index(3).unwrap() {
+                0 => {
+                    m.get_mut_awi(x)
+                        .range_or_(start_a.to_usize()..end_a.to_usize())
+                        .unwrap();
+                    m.get_mut_dag(x)
+                        .range_or_(start_b.to_usize()..end_b.to_usize())
+                        .unwrap();
+                }
+                1 => {
+                    m.get_mut_awi(x)
+                        .range_and_(start_a.to_usize()..end_a.to_usize())
+                        .unwrap();
+                    m.get_mut_dag(x)
+                        .range_and_(start_b.to_usize()..end_b.to_usize())
+                        .unwrap();
+                }
+                2 => {
+                    m.get_mut_awi(x)
+                        .range_xor_(start_a.to_usize()..end_a.to_usize())
+                        .unwrap();
+                    m.get_mut_dag(x)
+                        .range_xor_(start_b.to_usize()..end_b.to_usize())
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+        }
+        // FieldWidth
+        14 => {
             let (w0, lhs) = m.next9();
             let (w1, rhs) = m.next9();
             let min_w = min(w0, w1);
@@ -399,7 +436,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
                 .unwrap();
         }
         // FieldFrom
-        14 => {
+        15 => {
             let (w0, lhs) = m.next9();
             let (w1, rhs) = m.next9();
             let min_w = min(w0, w1);
@@ -419,7 +456,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
                 .unwrap();
         }
         // Shl, Lshr, Ashr, Rotl, Rotr
-        15 => {
+        16 => {
             let (w, x) = m.next9();
             let s = m.next_usize(w);
             let s_a = m.get_awi(s);
@@ -449,7 +486,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             }
         }
         // FieldTo
-        16 => {
+        17 => {
             let (w0, lhs) = m.next9();
             let (w1, rhs) = m.next9();
             let min_w = min(w0, w1);
@@ -469,7 +506,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
                 .unwrap();
         }
         // Add, Sub, Rsb
-        17 => {
+        18 => {
             let (w, lhs) = m.next9();
             let rhs = m.next(w);
             let rhs_a = m.get_awi(rhs);
@@ -491,7 +528,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             }
         }
         // Field
-        18 => {
+        19 => {
             let (w0, lhs) = m.next9();
             let (w1, rhs) = m.next9();
             let min_w = min(w0, w1);
@@ -525,13 +562,13 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
                 .unwrap();
         }
         // Rev
-        19 => {
+        20 => {
             let x = m.next9().1;
             m.get_mut_awi(x).rev_();
             m.get_mut_dag(x).rev_();
         }
         // Eq, Ne, Ult, Ule, Ilt, Ile
-        20 => {
+        21 => {
             let (w, lhs) = m.next9();
             let rhs = m.next(w);
             let lhs_a = m.get_awi(lhs);
@@ -568,7 +605,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             }
         }
         // IsZero, IsUmax, IsImax, IsImin, IsUone
-        21 => {
+        22 => {
             let x = m.next9().1;
             let x_a = m.get_awi(x);
             let x_b = m.get_dag(x);
@@ -598,7 +635,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             }
         }
         // CountOnes, Lz, Tz, Sig
-        22 => {
+        23 => {
             let x = m.next9().1;
             let x_a = m.get_awi(x);
             let x_b = m.get_dag(x);
@@ -624,7 +661,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             }
         }
         // LutSet
-        23 => {
+        24 => {
             let (entry_w, entry) = m.next4();
             let (inx_w, inx) = m.next4();
             let table_w = entry_w * (1 << inx_w);
@@ -637,7 +674,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             m.get_mut_dag(table).lut_set(&entry_b, &inx_b).unwrap();
         }
         // Resize
-        24 => {
+        25 => {
             let lhs = m.next9().1;
             let rhs = m.next9().1;
             let b = m.next(1);
@@ -649,7 +686,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             m.get_mut_dag(lhs).resize_(&rhs_b, b_b.to_bool());
         }
         // ZeroResizeOverflow, SignResizeOverflow
-        25 => {
+        26 => {
             let lhs = m.next9().1;
             let rhs = m.next9().1;
             let out = m.next(1);
@@ -666,7 +703,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             }
         }
         // ArbMulAdd
-        26 => {
+        27 => {
             let (w, lhs) = m.next9();
             match rng.index(3).unwrap() {
                 0 => {
@@ -703,7 +740,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             }
         }
         // Mux
-        27 => {
+        28 => {
             let (w, lhs) = m.next9();
             let rhs = m.next(w);
             let b = m.next(1);
@@ -715,7 +752,7 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             m.get_mut_dag(lhs).mux_(&rhs_b, b_b.to_bool()).unwrap();
         }
         // UQuo, URem, IQuo, IRem
-        28 => {
+        29 => {
             let (w, duo) = m.next9();
             let div = m.next(w);
             let quo = m.next(w);
@@ -747,6 +784,15 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             m.get_mut_awi(out1).copy_(&rem_a).unwrap();
             m.get_mut_dag(out0).copy_(&quo_b).unwrap();
             m.get_mut_dag(out1).copy_(&rem_b).unwrap();
+        }
+        // Repeat
+        30 => {
+            let lhs = m.next9().1;
+            let rhs = m.next9().1;
+            let rhs_a = m.get_awi(rhs);
+            m.get_mut_awi(lhs).repeat_(&rhs_a);
+            let rhs_b = m.get_dag(rhs);
+            m.get_mut_dag(lhs).repeat_(&rhs_b);
         }
         _ => unreachable!(),
     }

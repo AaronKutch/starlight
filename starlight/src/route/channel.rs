@@ -258,12 +258,9 @@ impl Channeler {
             let mut adv = self.cnodes.advancer_surject(cnode.p_this_cnode);
             let mut found_super_node = false;
             while let Some(p) = adv.advance(&self.cnodes) {
-                match self.cnodes.get_key(p).unwrap() {
-                    Referent::SuperNode(_) => {
-                        found_super_node = true;
-                        break
-                    }
-                    _ => (),
+                if let Referent::SuperNode(_) = self.cnodes.get_key(p).unwrap() {
+                    found_super_node = true;
+                    break
                 }
             }
             if contained && found_super_node {

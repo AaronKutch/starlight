@@ -159,6 +159,61 @@ pub fn lower_op<P: Ptr + DummyDefault>(
             let out = funnel(&x, &s);
             m.graft(&[out.state(), x.state(), s.state()]);
         }
+        RangeOr([x, start, end]) => {
+            let x = Awi::opaque(m.get_nzbw(x));
+            let start = Awi::opaque(m.get_nzbw(start));
+            let end = Awi::opaque(m.get_nzbw(end));
+
+            let success = Bits::efficient_ule(start.to_usize(), x.bw()).is_some()
+                & Bits::efficient_ule(end.to_usize(), x.bw()).is_some();
+            let max_w = Bits::nontrivial_bits(x.bw()).unwrap();
+            let start_small =
+                Bits::static_field(&Awi::zero(max_w), 0, &start, 0, max_w.get()).unwrap();
+            let end_small = Bits::static_field(&Awi::zero(max_w), 0, &end, 0, max_w.get()).unwrap();
+            // to achieve a no-op we just need to set the end to 0
+            let mut tmp_end = Awi::zero(max_w);
+            tmp_end.mux_(&end_small, success).unwrap();
+            let out = range_or(&x, &start_small, &tmp_end);
+            m.graft(&[out.state(), x.state(), start.state(), end.state()]);
+        }
+        RangeAnd([x, start, end]) => {
+            let x = Awi::opaque(m.get_nzbw(x));
+            let start = Awi::opaque(m.get_nzbw(start));
+            let end = Awi::opaque(m.get_nzbw(end));
+
+            let success = Bits::efficient_ule(start.to_usize(), x.bw()).is_some()
+                & Bits::efficient_ule(end.to_usize(), x.bw()).is_some();
+            let max_w = Bits::nontrivial_bits(x.bw()).unwrap();
+            let start_small =
+                Bits::static_field(&Awi::zero(max_w), 0, &start, 0, max_w.get()).unwrap();
+            let end_small = Bits::static_field(&Awi::zero(max_w), 0, &end, 0, max_w.get()).unwrap();
+            // to achieve a no-op we need to set a full range with `start` being zero and
+            // `end` being `x.bw()`
+            let mut tmp_start = Awi::zero(max_w);
+            tmp_start.mux_(&start_small, success).unwrap();
+            let mut tmp_end = Awi::zero(max_w);
+            tmp_end.usize_(x.bw());
+            tmp_end.mux_(&end_small, success).unwrap();
+            let out = range_and(&x, &tmp_start, &tmp_end);
+            m.graft(&[out.state(), x.state(), start.state(), end.state()]);
+        }
+        RangeXor([x, start, end]) => {
+            let x = Awi::opaque(m.get_nzbw(x));
+            let start = Awi::opaque(m.get_nzbw(start));
+            let end = Awi::opaque(m.get_nzbw(end));
+
+            let success = Bits::efficient_ule(start.to_usize(), x.bw()).is_some()
+                & Bits::efficient_ule(end.to_usize(), x.bw()).is_some();
+            let max_w = Bits::nontrivial_bits(x.bw()).unwrap();
+            let start_small =
+                Bits::static_field(&Awi::zero(max_w), 0, &start, 0, max_w.get()).unwrap();
+            let end_small = Bits::static_field(&Awi::zero(max_w), 0, &end, 0, max_w.get()).unwrap();
+            // to achieve a no-op we just need to set the end to 0
+            let mut tmp_end = Awi::zero(max_w);
+            tmp_end.mux_(&end_small, success).unwrap();
+            let out = range_xor(&x, &start_small, &tmp_end);
+            m.graft(&[out.state(), x.state(), start.state(), end.state()]);
+        }
         FieldFrom([lhs, rhs, from, width]) => {
             let lhs_w = m.get_nzbw(lhs);
             let rhs_w = m.get_nzbw(rhs);

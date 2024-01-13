@@ -414,7 +414,6 @@ fn lower_elementary_to_lnodes_intermediate(
         Repeat([x]) => {
             let len = this.stator.states[p_state].p_self_bits.len();
             let x_w = this.stator.states[x].p_self_bits.len();
-            debug_assert!((len % x_w) == 0);
             let mut from = 0;
             for to in 0..len {
                 if from >= x_w {

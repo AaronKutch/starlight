@@ -492,6 +492,62 @@ pub fn funnel(x: &Bits, s: &Bits) -> Awi {
     concat(out_w, output)
 }
 
+/// Assumes that `start` and `end` are their small versions. Setting `end` to 0
+/// guarantees a no-op.
+pub fn range_or(x: &Bits, start: &Bits, end: &Bits) -> Awi {
+    // trailing mask that trails `start`, exclusive
+    let tmask0 = tsmear_inx(start, x.bw());
+    // trailing mask that trails `end`, exclusive
+    let tmask1 = tsmear_inx(end, x.bw());
+
+    // or with `x` based on the masks, note that any case where `tmask1` is zero
+    // needs to result in no-op
+    let mut out = SmallVec::with_capacity(x.bw());
+    for i in 0..x.bw() {
+        let mut signal = inlawi!(0);
+        static_lut!(signal; 1111_0100; tmask0[i], tmask1[i], x.get(i).unwrap());
+        out.push(signal.state());
+    }
+    concat(x.nzbw(), out)
+}
+
+/// Assumes that `start` and `end` are their small versions. Must be set to a
+/// full range for a no-op
+pub fn range_and(x: &Bits, start: &Bits, end: &Bits) -> Awi {
+    // trailing mask that trails `start`, exclusive
+    let tmask0 = tsmear_inx(start, x.bw());
+    // trailing mask that trails `end`, exclusive
+    let tmask1 = tsmear_inx(end, x.bw());
+
+    // and with `x` based on the masks, the fourth case can be any bit we choose
+    let mut out = SmallVec::with_capacity(x.bw());
+    for i in 0..x.bw() {
+        let mut signal = inlawi!(0);
+        static_lut!(signal; 0100_0000; tmask0[i], tmask1[i], x.get(i).unwrap());
+        out.push(signal.state());
+    }
+    concat(x.nzbw(), out)
+}
+
+/// Assumes that `start` and `end` are their small versions. Setting `end` to 0
+/// guarantees a no-op.
+pub fn range_xor(x: &Bits, start: &Bits, end: &Bits) -> Awi {
+    // trailing mask that trails `start`, exclusive
+    let tmask0 = tsmear_inx(start, x.bw());
+    // trailing mask that trails `end`, exclusive
+    let tmask1 = tsmear_inx(end, x.bw());
+
+    // xor with `x` based on the masks, note that any case where `tmask1` is zero
+    // needs to result in no-op
+    let mut out = SmallVec::with_capacity(x.bw());
+    for i in 0..x.bw() {
+        let mut signal = inlawi!(0);
+        static_lut!(signal; 1011_0100; tmask0[i], tmask1[i], x.get(i).unwrap());
+        out.push(signal.state());
+    }
+    concat(x.nzbw(), out)
+}
+
 /// Assumes that `from` and `width` is in range, however setting `width` to 0
 /// guarantees that nothing happens to `lhs` even with `from` being out of range
 pub fn field_from(lhs: &Bits, rhs: &Bits, from: &Bits, width: &Bits) -> Awi {
@@ -807,7 +863,10 @@ pub fn field_to(lhs: &Bits, to: &Bits, rhs: &Bits, width: &Bits) -> Awi {
         let mut out = SmallVec::with_capacity(lhs.bw());
         for i in 0..lhs.bw() {
             let mut signal = inlawi!(0);
-            static_lut!(signal; 1111_1011_0100_0000; lmask[i], tmask[i], funnel_res.get(i).unwrap(), lhs.get(i).unwrap());
+            static_lut!(
+                signal; 1111_1011_0100_0000;
+                lmask[i], tmask[i], funnel_res.get(i).unwrap(), lhs.get(i).unwrap()
+            );
             out.push(signal.state());
         }
 
