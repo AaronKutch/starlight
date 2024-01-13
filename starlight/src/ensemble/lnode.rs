@@ -1,6 +1,7 @@
-use std::{mem, num::NonZeroUsize};
+use std::{cmp::max, mem, num::NonZeroUsize};
 
 use awint::{
+    awi,
     awint_dag::{
         smallvec,
         triple_arena::{Recast, Recaster, SurjectArena},
@@ -104,6 +105,58 @@ fn general_reduce_independent_lut(lut: &mut Awi, i: usize) -> bool {
     }
 }
 
+/// Returns an equivalent LUT given that inputs `i` and `j` have been
+/// swapped with each other
+fn general_rotate_lut(lut: &mut Awi, i: usize, j: usize) {
+    debug_assert!(lut.bw().is_power_of_two());
+    debug_assert!(max(i, j) < (lut.bw().trailing_zeros() as usize));
+    // rotates the zeroeth input with the `i`th input, `i > 0`
+    fn general_basis_rotate(lut: &mut Awi, i: usize) {
+        use awi::*;
+        // it turns out that the rotation can be broken down into a stationary part, a
+        // part that shifts left, and a part that shifts right. This generates the
+        // masks.
+        let one = inlawi!(01);
+        let two = inlawi!(10);
+        let mut tmp0 = Awi::zero(NonZeroUsize::new(1 << i).unwrap());
+        let mut tmp1 = Awi::zero(NonZeroUsize::new(2 << i).unwrap());
+        let mut mask0 = Awi::zero(lut.nzbw());
+        tmp0.repeat_(&two);
+        tmp1.resize_(&tmp0, false);
+        mask0.repeat_(&tmp1);
+        let mut mask1 = Awi::zero(lut.nzbw());
+        tmp0.repeat_(&one);
+        tmp1.field_to(tmp0.bw(), &tmp0, tmp0.bw()).unwrap();
+        mask1.repeat_(&tmp1);
+        let mut mask2 = Awi::zero(lut.nzbw());
+        tmp0.repeat_(&one);
+        tmp1.resize_(&tmp0, false);
+        tmp0.repeat_(&two);
+        tmp1.field_to(tmp0.bw(), &tmp0, tmp0.bw()).unwrap();
+        mask2.repeat_(&tmp1);
+
+        // apply the masks, shift, then OR them together to get the result
+        let s = (1 << i) - 1;
+        mask0.and_(&lut).unwrap();
+        mask0.shl_(s).unwrap();
+        mask1.and_(&lut).unwrap();
+        mask1.lshr_(s).unwrap();
+        lut.and_(&mask2).unwrap();
+        lut.or_(&mask0).unwrap();
+        lut.or_(&mask1).unwrap();
+    }
+    match (i == 0, j == 0) {
+        (true, true) => (),
+        (true, false) => general_basis_rotate(lut, j),
+        (false, true) => general_basis_rotate(lut, i),
+        (false, false) => {
+            general_basis_rotate(lut, i);
+            general_basis_rotate(lut, j);
+            general_basis_rotate(lut, i);
+        }
+    }
+}
+
 const M: [u64; 6] = [
     0x5555_5555_5555_5555,
     0x3333_3333_3333_3333,
@@ -139,6 +192,44 @@ fn reduce_independent64(mut lut: u64, i: usize) -> Option<u64> {
         Some(lut)
     } else {
         None
+    }
+}
+const R0: [u64; 5] = [
+    0x2222_2222_2222_2222,
+    0x0a0a_0a0a_0a0a_0a0a,
+    0x00aa_00aa_00aa_00aa,
+    0x0000_aaaa_0000_aaaa,
+    0x0000_0000_aaaa_aaaa,
+];
+const R1: [u64; 5] = [
+    0x4444_4444_4444_4444,
+    0x5050_5050_5050_5050,
+    0x5500_5500_5500_5500,
+    0x5555_0000_5555_0000,
+    0x5555_5555_0000_0000,
+];
+const R2: [u64; 5] = [
+    0x9999_9999_9999_9999,
+    0xa5a5_a5a5_a5a5_a5a5,
+    0xaa55_aa55_aa55_aa55,
+    0xaaaa_5555_aaaa_5555,
+    0xaaaa_aaaa_5555_5555,
+];
+// Rotates the `i`th column with the 0th column, assumes `i > 0`
+fn basis_rotate64(lut: u64, i: usize) -> u64 {
+    debug_assert!((i > 0) && (i < 6));
+    let s = (1 << i) - 1;
+    // it can be broken into a part that shifts left, a part that shifts right, and
+    // a stationary part
+    ((lut & R0[i - 1]) << s) | ((lut & R1[i - 1]) >> s) | (lut & R2[i - 1])
+}
+// Rotates the `i`th column with the `j`th column
+fn rotate64(lut: u64, i: usize, j: usize) -> u64 {
+    match (i == 0, j == 0) {
+        (true, true) => lut,
+        (true, false) => basis_rotate64(lut, j),
+        (false, true) => basis_rotate64(lut, i),
+        (false, false) => basis_rotate64(basis_rotate64(basis_rotate64(lut, i), j), i),
     }
 }
 
@@ -320,5 +411,18 @@ impl LNode {
             to += w;
         }
         Some((res, removed))
+    }
+
+    /// Returns an equivalent LUT given that inputs `i` and `j` have been
+    /// swapped with each other
+    pub fn rotate_lut(lut: &mut Awi, i: usize, j: usize) {
+        debug_assert!(lut.bw().is_power_of_two());
+        debug_assert!(max(i, j) < (lut.bw().trailing_zeros() as usize));
+        if lut.bw() > 64 {
+            general_rotate_lut(lut, i, j);
+        } else {
+            let rotated = rotate64(lut.to_u64(), i, j);
+            lut.u64_(rotated);
+        }
     }
 }

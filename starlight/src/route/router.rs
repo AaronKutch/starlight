@@ -168,4 +168,8 @@ impl Router {
         self.program_channeler.verify_integrity()?;
         Ok(())
     }
+
+    pub fn route(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
 }

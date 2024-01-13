@@ -179,8 +179,29 @@ impl Ensemble {
                         self.backrefs.remove_key(p_inp).unwrap();
                     }
                 }
+
+                // TODO the sorting should be done on equiv ptr comparison, or the LUT could be
+                // canonicalized, or the equivalences could be found on existence of common
+                // inputs without any sorting
+                /*
                 // sort inputs so that `LNode`s can be compared later
-                // TODO?
+                let mut changed = false;
+                // TODO want a more efficient sort that is tailored for basis rotations
+                loop {
+                    for i in 1..inp.len() {
+                        if inp[i - 1] > inp[i] {
+                            changed = true;
+                            inp.swap(i - 1, i);
+                            LNode::rotate_lut(&mut lut, i - 1, i);
+                        }
+                    }
+                    if changed {
+                        changed = false;
+                    } else {
+                        break
+                    }
+                }
+                */
 
                 // input independence automatically reduces all zeros and all ones LUTs, so just
                 // need to check if the LUT is one bit for constant generation
