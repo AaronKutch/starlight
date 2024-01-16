@@ -170,6 +170,11 @@ impl Router {
     }
 
     pub fn route(&mut self) -> Result<(), Error> {
+        // see cnode.rs for the overall idea
+
+        // initialization
+        assert_eq!(self.target_channeler().top_level_cnodes.len(), 1);
+        assert_eq!(self.program_channeler().top_level_cnodes.len(), 1);
         Ok(())
     }
 }

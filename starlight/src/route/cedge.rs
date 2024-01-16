@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{cmp::min, num::NonZeroUsize};
 
 use awint::Awi;
 
@@ -152,6 +152,31 @@ impl CEdge {
             .len()
             .checked_add(self.sinks().len())
             .unwrap()
+    }
+
+    pub fn channel_entry_width(&self) -> usize {
+        match self.programmability() {
+            Programmability::Noop => 0,
+            Programmability::StaticLut(awi) => awi.bw().trailing_zeros() as usize,
+            Programmability::ArbitraryLut(table) => table.len().trailing_zeros() as usize,
+            Programmability::SelectorLut(selector_lut) => selector_lut.v.len(),
+            Programmability::Bulk(bulk) => bulk.channel_entry_width,
+        }
+    }
+
+    pub fn channel_exit_width(&self) -> usize {
+        match self.programmability() {
+            Programmability::Noop => 0,
+            Programmability::StaticLut(awi) => 1,
+            Programmability::ArbitraryLut(table) => 1,
+            Programmability::SelectorLut(selector_lut) => 1,
+            Programmability::Bulk(bulk) => bulk.channel_exit_width,
+        }
+    }
+
+    /// Takes the minimum of the channel entry width and channel exit width
+    pub fn channel_width(&self) -> usize {
+        min(self.channel_entry_width(), self.channel_exit_width())
     }
 }
 

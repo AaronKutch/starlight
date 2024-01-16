@@ -5,6 +5,15 @@ use crate::{
 
 ptr_struct!(PHyperPath);
 
+pub enum Edge {
+    /// Points to a `CEdge`
+    Transverse(PCEdge),
+    /// Points to a `Referent::SuperNode`
+    Concentrate(PBack),
+    /// Points to a `Referent::SubNode`
+    Dilute(PBack),
+}
+
 /// A single path from a source to sink across multiple `CEdge`s
 #[derive(Debug, Clone)]
 pub struct Path {

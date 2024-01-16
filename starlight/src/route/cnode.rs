@@ -36,94 +36,82 @@ impl Channeler {
     }
 }
 
-// - A `CNode` cannot have exactly one subnode and must have either zero or at
-//   least two subnodes
-// - the immediate subnodes of a `CNode` must be in a clique with `CEdge`s
-
 /*
-consider a loop of `CNode`s like this
-0 --- 1
-|     |
-|     |
-2 --- 3
+here are the current ideas on the channeling hierarchy
 
-If higher `CNode`s and edges formed like
+We know we want a hierarchy for the target and a hierarchy for the program.
+The routing starts by having an embedding of the single top level program cnode
+into the single top level target cnode (modulo handling how we see fit for if
+the target and/or program has disconnections). There are different kinds of steps:
 
-   01
-  /   \
-02    13
-  \   /
-   23
+(1.) Program dilution
+In one kind of step, a program's embeddings
+are "diluted" (as opposed to concentrating when looking from the bottom to the top
+of the hierarchy) with a embedding of one program cnode into a target cnode being
+broken into an embedding of that program cnode's subnodes into the same target cnode.
 
-It could cause an infinite loop, we need to guarantee logarithmic overhead
-with `CEdges` being made such that e.x. 02 should connect with 13 because
-02 subnodes connect with 1 and 3 which are subnodes of 13.
+(2.) Target dilution
+A program embedding is diluted with respect to the target channeler side, such that an
+embedding of a program cnode into a target cnode is broken into an embedding of a program
+cnode into a subnode of one of the target cnodes.
+There is one step of embedding movement implicit in this, where we choose which
+subnode to embed.
 
-   01
-  / | \
-02 -- 13
-  \ | /
-   23
+(3.) Embedding movement
+As dilution proceeds and we get a higher resolution picture of the final embedding, we
+will have to transverse move the embeddings to neighboring target cnodes
 
-the next level is
+(4.) Concentration
+Equivalent to the "rip-up and reroute" process where we find inaccuracies in the
+bulk predictions and need to concentrate before retrying dilution.
 
-0123
+The routing process progresses from the initial single top level embedding by first
+diluting the program, and then diluting both while maintaining a more dilution
+for the program than the target. There are usually multiple program cnodes embedded
+into a single target cnode, until the lowest level.
 
-for larger loops it will be like
+The questions are: Do we have distinct mandatory levels? Do we have special CEdges
+between the levels? Do we have intersections in the subnode sets of cnodes?
 
-0--1--2--3--4--5--6--7--0 (wraps around to 0)
-       ___   ___   ___   ___
-      /   \ /   \ /   \ /   \
- 01-12-23-34-45-56-67-70-01-12
-   \  /  \  /  \  /  \  /
-    --    --    --    --
+Currently, it seems that we do not want intersections in the subnode cnode and/or cedge sets,
+because the concentrated cedges will have redundancies and probably confuse the channel
+routing capacities. We treat the supernode and subnode backrefs as zero cost edges
+that the hyperpaths can use during intermediate routing. We keep the levels
+distinct and do not let there be super/sub node backrefs within the same level, and
+we keep an integer for the level with the `CNode`. We try to store all other
+information in the `CEdge`s, and alternate exclusive paths are encoded into the
+topology instead.
 
-// we do not want this to continue, or else we end up with n^2 space
-   0123  2345  4567  6701
-      1234  3456  5670  7012
+This allows the Lagrangian routing algorithm to start with completed paths between program-target
+mappings, so that we do not constantly have to use maps to look up where we need to be moving loose
+endpoints. The Lagrangians can do advanced things by themselves like promoting concentration or
+dilution of paths to different cedges when necessary.
 
-we notice that 12 and 23 share 0.5 of their nodes in common, what we
-do is merge a "extended clique" of cliques sharing the edge between
-the two nodes, specifically the 01-12-23 clique and the 12-23-34 clique
-
-         ...
- 01234-45-56-67-70-01234
-
-the 01-12-23 subedges are still in the hierarchy, if the 23-34 edge is selected
-for the commonality merge, 01234 is found as a supernode of 34, and the proposed
-merge resulting in 12345 shares 12 and 23 with 01234 (if more than or equal to
-half of the subnodes are shared with respect to one or the other (2 out of
-01,12,23,34 for one or 2 out of 12,23,34,45 for the other), it should not be
-made). 34-45 would also be too close.
-45-56 however is successful resulting in 34567 which has the desired overlap.
-70 is left without a supernode on this level, but it joins a three clique to
-result in the final top level node
-
-       ...
-01234-34567-70-01234
-
-0123457
-
-8 -> 8 -> 3 -> 1 seems right, the first reduction is stalling for wider useful
-cliques for the descension algorithm, and this is quickly reduced down in
-the logarithmic tree we want
+For one more detail, what do we do about disconnected graphs?
 
 */
 
 /// Starting from unit `CNode`s and `CEdge`s describing all known low level
 /// progam methods, this generates a logarithmic tree of higher level
-/// `CNode`s and `CEdge`s that results in top level `CNode`s that have no
-/// `CEdges` to any other (and unless the graph was disconnected there will
-/// be only one top level `CNode`).
+/// `CNode`s and `CEdge`s that results in a single top level `CNode` from which
+/// routing can start
 ///
 /// We are currently assuming that `generate_hierarchy` is being run once on
 /// a graph of unit channel nodes and edges
 pub fn generate_hierarchy(channeler: &mut Channeler) {
-    // TODO currently we are doing a simpler strategy of merging pairs on distinct
-    // layers, need to methodically determine what we really want
     ptr_struct!(P0);
 
-    // FIXME this is a dummy hierarchy
+    // For each cnode on a given level, we will attempt to concentrate it and all
+    // its neighbors.
+    //
+
+    // when making a new top level cnode, for each subnode of the new node check
+    // for other supernodes. For each transverse node Tally the number of times
+    // each transverse node is seen. If it is seen more than once, cancel making
+    // the new cnode.
+
+    // if there are multiple cnodes are left in an anticlique, concentrate them into
+    // a single top level node
     if channeler.top_level_cnodes.len() > 1 {
         let mut set = vec![];
         for p_cnode in channeler.top_level_cnodes.keys() {

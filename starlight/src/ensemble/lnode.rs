@@ -137,9 +137,9 @@ fn general_rotate_lut(lut: &mut Awi, i: usize, j: usize) {
 
         // apply the masks, shift, then OR them together to get the result
         let s = (1 << i) - 1;
-        mask0.and_(&lut).unwrap();
+        mask0.and_(lut).unwrap();
         mask0.shl_(s).unwrap();
-        mask1.and_(&lut).unwrap();
+        mask1.and_(lut).unwrap();
         mask1.lshr_(s).unwrap();
         lut.and_(&mask2).unwrap();
         lut.or_(&mask0).unwrap();
