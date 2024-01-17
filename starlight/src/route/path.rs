@@ -5,6 +5,7 @@ use crate::{
 
 ptr_struct!(PHyperPath);
 
+#[derive(Debug, Clone)]
 pub enum Edge {
     /// Points to a `CEdge`
     Transverse(PCEdge),
@@ -18,7 +19,7 @@ pub enum Edge {
 #[derive(Debug, Clone)]
 pub struct Path {
     sink: PBack,
-    edges: Vec<PCEdge>,
+    edges: Vec<Edge>,
     //critical_multiplier: u64,
 }
 

@@ -18,8 +18,10 @@ pub enum Referent {
     ThisCNode,
     SubNode(PBack),
     SuperNode(PBack),
-    /// The bool indicates if it is a sink
-    CEdgeIncidence(PCEdge, usize, bool),
+    /// The index is `None` if it is a sink, TODO use a NonZeroInxVec if we
+    /// stick with this
+    CEdgeIncidence(PCEdge, Option<usize>),
+    // TODO do we actually need this?
     EnsembleBackRef(ensemble::PBack),
 }
 
@@ -45,42 +47,14 @@ impl Channeler {
         }
     }
 
-    /*
-    /// Starting from `p_cnode` assumed to contain `p_back`, this returns valid
-    /// subnodes that still contain `ensemble::PBack`
-    pub fn valid_cnode_descensions(&self, p_cnode: PCNode, p_back: ensemble::PBack)
-    -> SmallVec<[PCNode; 4]> {
-        let cnode = self.cnodes.get(p_cnode).unwrap();
-        if let Some(mut adv) = RegionAdvancer::new(&self.backref_to_cnode, |_, (p_back1, _), ()| {
-            p_back1.cmp(&p_back)
-        }) {
-            // uses the fact that `subnodes` is ordered to linearly iterate over a region
-            let mut res = smallvec![];
-            let mut i = 0;
-            'outer: while let Some(p) = adv.advance(&self.backref_to_cnode) {
-                let (_, p_cnode1) = self.backref_to_cnode.get_key(p).unwrap();
-                loop {
-                    if i >= cnode.subnodes.len() {
-                        break 'outer;
-                    }
-                    match cnode.subnodes[i].cmp(&p_cnode1) {
-                        Ordering::Less => {
-                            i += 1;
-                        }
-                        Ordering::Equal => {
-                            res.push(*p_cnode1);
-                            i += 1;
-                            break
-                        }
-                        Ordering::Greater => break,
-                    }
-                }
-            }
-            res
-        } else {
-            unreachable!()
-        }
-    }*/
+    pub fn find_channeler_backref(&self, ensemble_backref: ensemble::PBack) -> Option<PBack> {
+        let p = self
+            .ensemble_backref_to_channeler_backref
+            .find_key(&ensemble_backref)?;
+        self.ensemble_backref_to_channeler_backref
+            .get(p)
+            .map(|(_, q)| *q)
+    }
 
     pub fn verify_integrity(&self) -> Result<(), Error> {
         // return errors in order of most likely to be root cause
@@ -116,18 +90,14 @@ impl Channeler {
                 Referent::ThisCNode => false,
                 Referent::SubNode(p_subnode) => !self.cnodes.contains(*p_subnode),
                 Referent::SuperNode(p_supernode) => !self.cnodes.contains(*p_supernode),
-                Referent::CEdgeIncidence(p_cedge, i, is_sink) => {
+                Referent::CEdgeIncidence(p_cedge, i) => {
                     if let Some(cedges) = self.cedges.get(*p_cedge) {
-                        if *is_sink {
-                            if *i > cedges.sinks().len() {
+                        if let Some(source_i) = i {
+                            if *source_i > cedges.sources().len() {
                                 return Err(Error::OtherString(format!(
                                     "{referent:?} roundtrip out of bounds"
                                 )))
                             }
-                        } else if *i > cedges.sources().len() {
-                            return Err(Error::OtherString(format!(
-                                "{referent:?} roundtrip out of bounds"
-                            )))
                         }
                         false
                     } else {
@@ -145,16 +115,15 @@ impl Channeler {
             for p_cnode in cedge.sources().iter() {
                 if !self.cnodes.contains(*p_cnode) {
                     return Err(Error::OtherString(format!(
-                        "{cedge:?}.p_cnodes {p_cnode} is invalid",
+                        "{cedge:?} source {p_cnode} is invalid",
                     )))
                 }
             }
-            for p_cnode in cedge.sinks().iter() {
-                if !self.cnodes.contains(*p_cnode) {
-                    return Err(Error::OtherString(format!(
-                        "{cedge:?}.p_cnodes {p_cnode} is invalid",
-                    )))
-                }
+            if !self.cnodes.contains(cedge.sink()) {
+                return Err(Error::OtherString(format!(
+                    "{cedge:?} sink {} is invalid",
+                    cedge.sink()
+                )))
             }
         }
         for p_cnode in self.top_level_cnodes.keys() {
@@ -186,28 +155,24 @@ impl Channeler {
                         true
                     }
                 }
-                Referent::CEdgeIncidence(p_cedge, i, is_sink) => {
+                Referent::CEdgeIncidence(p_cedge, i) => {
                     let cedge = self.cedges.get(*p_cedge).unwrap();
-                    if *is_sink {
-                        if let Some(sink) = cedge.sinks().get(*i) {
-                            if let Referent::CEdgeIncidence(p_cedge1, i1, is_sink1) =
-                                self.cnodes.get_key(*sink).unwrap()
+                    if let Some(source_i) = *i {
+                        if let Some(source) = cedge.sources().get(source_i) {
+                            if let Referent::CEdgeIncidence(p_cedge1, i1) =
+                                self.cnodes.get_key(*source).unwrap()
                             {
-                                (*p_cedge != *p_cedge1) || (*i != *i1) || (*is_sink != *is_sink1)
+                                (*p_cedge != *p_cedge1) || (*i != *i1)
                             } else {
                                 true
                             }
                         } else {
                             true
                         }
-                    } else if let Some(source) = cedge.sources().get(*i) {
-                        if let Referent::CEdgeIncidence(p_cedge1, i1, is_sink1) =
-                            self.cnodes.get_key(*source).unwrap()
-                        {
-                            (*p_cedge != *p_cedge1) || (*i != *i1) || (*is_sink != *is_sink1)
-                        } else {
-                            true
-                        }
+                    } else if let Referent::CEdgeIncidence(p_cedge1, i1) =
+                        self.cnodes.get_key(cedge.sink()).unwrap()
+                    {
+                        (*p_cedge != *p_cedge1) || i1.is_some()
                     } else {
                         true
                     }
@@ -223,23 +188,19 @@ impl Channeler {
             let cedge = self.cedges.get(p_cedge).unwrap();
             let incidents_len = cedge.incidents_len();
             let sources_len = cedge.sources().len();
-            let sinks_len = cedge.sinks().len();
             let ok = match cedge.programmability() {
-                Programmability::Noop => incidents_len == 0,
                 Programmability::StaticLut(lut) => {
                     // TODO find every place I did the trailing zeros thing and have a function that
                     // does the more efficient thing the core `lut_` function does
                     lut.bw().is_power_of_two()
                         && (lut.bw().trailing_zeros() as usize == sources_len)
-                        && (sinks_len == 1)
                 }
                 Programmability::ArbitraryLut(lut) => {
                     lut.len().is_power_of_two()
                         && ((lut.len().trailing_zeros() as usize) == sources_len)
-                        && (sinks_len == 1)
                 }
                 Programmability::SelectorLut(selector_lut) => {
-                    selector_lut.verify_integrity(sources_len, sinks_len)?;
+                    selector_lut.verify_integrity(sources_len)?;
                     true
                 }
                 Programmability::Bulk(_) => todo!(),
@@ -250,11 +211,18 @@ impl Channeler {
                 )))
             }
         }
+        // TODO check uniqueness of super/sub relations, check that there is at most one
+        // supernode per node
         for cnode in self.cnodes.vals() {
             let contained = self
                 .top_level_cnodes
                 .find_key(&cnode.p_this_cnode)
                 .is_some();
+            if cnode.has_supernode == contained {
+                return Err(Error::OtherString(format!(
+                    "{cnode:?}.has_supernode is wrong"
+                )));
+            }
             let mut adv = self.cnodes.advancer_surject(cnode.p_this_cnode);
             let mut found_super_node = false;
             while let Some(p) = adv.advance(&self.cnodes) {

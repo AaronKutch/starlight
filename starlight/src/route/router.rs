@@ -170,11 +170,30 @@ impl Router {
     }
 
     pub fn route(&mut self) -> Result<(), Error> {
-        // see cnode.rs for the overall idea
-
-        // initialization
-        assert_eq!(self.target_channeler().top_level_cnodes.len(), 1);
-        assert_eq!(self.program_channeler().top_level_cnodes.len(), 1);
-        Ok(())
+        route(self)
     }
+}
+
+fn route(router: &mut Router) -> Result<(), Error> {
+    // see cnode.rs for the overall idea
+
+    // initialization of hyperpaths
+    assert_eq!(router.target_channeler().top_level_cnodes.len(), 1);
+    assert_eq!(router.program_channeler().top_level_cnodes.len(), 1);
+    for (_, program_p_equiv, mapping) in &router.mappings {
+        let program_p_equiv = *program_p_equiv;
+        let target_p_equiv = mapping.target_p_equiv;
+        let program_base_cnode = router
+            .program_channeler()
+            .find_channeler_backref(program_p_equiv)
+            .unwrap();
+        let target_base_cnode = router
+            .target_channeler()
+            .find_channeler_backref(target_p_equiv)
+            .unwrap();
+
+        //let mut hyperpath =
+    }
+
+    Ok(())
 }

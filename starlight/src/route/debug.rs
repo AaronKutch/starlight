@@ -20,7 +20,7 @@ pub enum NodeKind {
     CNode(CNode),
     SubNode(PBack, PBack),
     SuperNode(PBack, PBack),
-    CEdgeIncidence(PBack, PCEdge, usize, bool, CEdge, CEdge),
+    CEdgeIncidence(PBack, PCEdge, Option<usize>, CEdge, CEdge),
     EnsembleBackRef(PBack, ensemble::PBack),
     Remove,
 }
@@ -43,35 +43,37 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 center: { vec!["super".to_owned()] },
                 sinks: vec![],
             },
-            NodeKind::CEdgeIncidence(p_back, p_cedge, i, is_sink, cedge, cedge_forwarded) => {
-                DebugNode {
-                    sources: {
-                        let mut v = vec![(*p_back, String::new())];
-                        for (i, (source, source_forwarded)) in cedge
-                            .sources()
-                            .iter()
-                            .zip(cedge_forwarded.sources().iter())
-                            .enumerate()
-                        {
-                            v.push((*source_forwarded, format!("{source}")));
-                        }
-                        v
-                    },
-                    center: { vec![format!("{p_cedge}"), format!("{i} {is_sink}")] },
-                    sinks: {
-                        let mut v = vec![];
-                        for (i, (sink, sink_forwarded)) in cedge
-                            .sinks()
-                            .iter()
-                            .zip(cedge_forwarded.sinks().iter())
-                            .enumerate()
-                        {
-                            v.push((*sink_forwarded, format!("{sink}")));
-                        }
-                        v
-                    },
-                }
-            }
+            NodeKind::CEdgeIncidence(p_back, p_cedge, i, cedge, cedge_forwarded) => DebugNode {
+                sources: {
+                    let mut v = vec![(*p_back, String::new())];
+                    for (i, (source, source_forwarded)) in cedge
+                        .sources()
+                        .iter()
+                        .zip(cedge_forwarded.sources().iter())
+                        .enumerate()
+                    {
+                        v.push((*source_forwarded, format!("{source}")));
+                    }
+                    v
+                },
+                center: {
+                    vec![
+                        format!("{p_cedge}"),
+                        if let Some(source_i) = i {
+                            format!("{source_i}")
+                        } else {
+                            "".to_owned()
+                        },
+                    ]
+                },
+                sinks: {
+                    let mut v = vec![];
+                    if i.is_none() {
+                        v.push((cedge_forwarded.sink(), "".to_owned()));
+                    }
+                    v
+                },
+            },
             NodeKind::EnsembleBackRef(p_back, ensemble_p_back) => DebugNode {
                 sources: vec![(*p_back, String::new())],
                 center: { vec!["backref".to_owned(), format!("{ensemble_p_back}")] },
@@ -113,7 +115,6 @@ impl DebugNodeTrait<PBack> for HyperNodeKind {
                 center: {
                     let mut v = vec![];
                     v.push(match cedge_forwarded.programmability() {
-                        Programmability::Noop => "Noop".to_owned(),
                         Programmability::StaticLut(_) => "StaticLut".to_owned(),
                         Programmability::ArbitraryLut(_) => "ArbitraryLut".to_owned(),
                         Programmability::SelectorLut(_) => "SelectorLut".to_owned(),
@@ -121,18 +122,7 @@ impl DebugNodeTrait<PBack> for HyperNodeKind {
                     });
                     v
                 },
-                sinks: {
-                    let mut v = vec![];
-                    for (i, (sink, sink_forwarded)) in cedge
-                        .sinks()
-                        .iter()
-                        .zip(cedge_forwarded.sinks().iter())
-                        .enumerate()
-                    {
-                        v.push((*sink_forwarded, format!("{sink}")));
-                    }
-                    v
-                },
+                sinks: { vec![(cedge_forwarded.sink(), "".to_owned())] },
             },
             HyperNodeKind::Remove => panic!("should have been removed"),
         }
@@ -151,23 +141,17 @@ impl Channeler {
                     }
                     Referent::SubNode(p_back) => NodeKind::SubNode(*p_back, p_cnode),
                     Referent::SuperNode(p_back) => NodeKind::SuperNode(*p_back, p_cnode),
-                    Referent::CEdgeIncidence(p_cedge, i, is_sink) => {
+                    Referent::CEdgeIncidence(p_cedge, i) => {
                         let mut cedge = self.cedges.get(*p_cedge).unwrap().clone();
                         let mut cedge_forwarded = cedge.clone();
                         for source in cedge_forwarded.sources_mut() {
                             *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;
                         }
-                        for sink in cedge_forwarded.sinks_mut() {
-                            *sink = self.cnodes.get_val(*sink).unwrap().p_this_cnode;
+                        if i.is_none() {
+                            *cedge_forwarded.sink_mut() =
+                                self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
                         }
-                        NodeKind::CEdgeIncidence(
-                            p_cnode,
-                            *p_cedge,
-                            *i,
-                            *is_sink,
-                            cedge,
-                            cedge_forwarded,
-                        )
+                        NodeKind::CEdgeIncidence(p_cnode, *p_cedge, *i, cedge, cedge_forwarded)
                     }
                     Referent::EnsembleBackRef(ensemble_p_backref) => {
                         NodeKind::EnsembleBackRef(p_cnode, *ensemble_p_backref)
@@ -194,16 +178,17 @@ impl Channeler {
                     }
                     Referent::SubNode(_) => HyperNodeKind::Remove,
                     Referent::SuperNode(_) => HyperNodeKind::Remove,
-                    Referent::CEdgeIncidence(p_cedge, i, is_sink) => {
+                    Referent::CEdgeIncidence(p_cedge, i) => {
                         // insures that there is only one `CEdge` per set of incidents
-                        if (*i == 0) && *is_sink {
+                        if i.is_none() {
                             let mut cedge = self.cedges.get(*p_cedge).unwrap().clone();
                             let mut cedge_forwarded = cedge.clone();
                             for source in cedge_forwarded.sources_mut() {
                                 *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;
                             }
-                            for sink in cedge_forwarded.sinks_mut() {
-                                *sink = self.cnodes.get_val(*sink).unwrap().p_this_cnode;
+                            if i.is_none() {
+                                *cedge_forwarded.sink_mut() =
+                                    self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
                             }
                             HyperNodeKind::CEdge(cedge, cedge_forwarded)
                         } else {

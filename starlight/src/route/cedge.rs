@@ -1,7 +1,13 @@
 use std::{cmp::min, num::NonZeroUsize};
 
-use awint::Awi;
+use awint::{
+    awint_dag::triple_arena::{
+        surject_iterators::SurjectPtrAdvancer, Advancer, ArenaTrait, OrdArena,
+    },
+    Awi,
+};
 
+use super::CNode;
 use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble,
@@ -50,10 +56,10 @@ impl SelectorLut {
         }
     }
 
-    pub fn verify_integrity(&self, sources_len: usize, sinks_len: usize) -> Result<(), Error> {
+    pub fn verify_integrity(&self, sources_len: usize) -> Result<(), Error> {
         // TODO
         let pow_len = 1usize << self.v.len();
-        if (pow_len.checked_mul(2).unwrap() != self.awi.bw()) || (sinks_len != 1) {
+        if pow_len.checked_mul(2).unwrap() != self.awi.bw() {
             return Err(Error::OtherStr("problem with `SelectorLut` validation"));
         }
         let mut dynam_len = 0;
@@ -72,20 +78,26 @@ impl SelectorLut {
 /// Used by higher order edges to tell what it is capable of overall
 #[derive(Debug, Clone)]
 pub struct BulkBehavior {
-    /// The number of bits that can enter this channel
-    pub channel_entry_width: usize,
+    /// The number of bits that can enter this channel's sources
+    pub channel_entry_widths: Vec<usize>,
     /// The number of bits that can exit this channel
     pub channel_exit_width: usize,
     /// For now, we just add up the number of LUT bits in the channel
     pub lut_bits: usize,
 }
 
+impl BulkBehavior {
+    pub fn empty() -> Self {
+        Self {
+            channel_entry_widths: vec![],
+            channel_exit_width: 0,
+            lut_bits: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Programmability {
-    /// Nothing can happen between nodes, used for connecting top level nodes
-    /// that have no connection to each other
-    Noop,
-
     StaticLut(Awi),
 
     // `DynamicLut`s can go in one of two ways: the table bits directly connect with configurable
@@ -107,9 +119,10 @@ pub enum Programmability {
 /// An edge between channels
 #[derive(Debug, Clone)]
 pub struct CEdge {
-    // sources and sinks incident to nodes
+    // sources incident to nodes
     sources: Vec<PBack>,
-    sinks: Vec<PBack>,
+    // the sink incident to nodes
+    sink: PBack,
 
     programmability: Programmability,
     // Ideally when `CNode`s are merged, they keep approximately the same weight distribution for
@@ -126,47 +139,40 @@ impl CEdge {
         &self.sources
     }
 
-    pub fn sinks(&self) -> &[PBack] {
-        &self.sinks
+    pub fn sink(&self) -> PBack {
+        self.sink
     }
 
     pub fn sources_mut(&mut self) -> &mut [PBack] {
         &mut self.sources
     }
 
-    pub fn sinks_mut(&mut self) -> &mut [PBack] {
-        &mut self.sinks
+    pub fn sink_mut(&mut self) -> &mut PBack {
+        &mut self.sink
     }
 
     pub fn incidents<F: FnMut(PBack)>(&self, mut f: F) {
         for source in self.sources() {
             f(*source)
         }
-        for sink in self.sinks() {
-            f(*sink)
-        }
+        f(self.sink)
     }
 
     pub fn incidents_len(&self) -> usize {
-        self.sources()
-            .len()
-            .checked_add(self.sinks().len())
-            .unwrap()
+        self.sources().len().checked_add(1).unwrap()
     }
 
-    pub fn channel_entry_width(&self) -> usize {
+    /*pub fn channel_entry_width(&self) -> usize {
         match self.programmability() {
-            Programmability::Noop => 0,
             Programmability::StaticLut(awi) => awi.bw().trailing_zeros() as usize,
             Programmability::ArbitraryLut(table) => table.len().trailing_zeros() as usize,
             Programmability::SelectorLut(selector_lut) => selector_lut.v.len(),
-            Programmability::Bulk(bulk) => bulk.channel_entry_width,
+            Programmability::Bulk(bulk) => bulk.channel_entry_widths.sum(),
         }
     }
 
     pub fn channel_exit_width(&self) -> usize {
         match self.programmability() {
-            Programmability::Noop => 0,
             Programmability::StaticLut(awi) => 1,
             Programmability::ArbitraryLut(table) => 1,
             Programmability::SelectorLut(selector_lut) => 1,
@@ -177,7 +183,7 @@ impl CEdge {
     /// Takes the minimum of the channel entry width and channel exit width
     pub fn channel_width(&self) -> usize {
         min(self.channel_entry_width(), self.channel_exit_width())
-    }
+    }*/
 }
 
 impl Channeler {
@@ -186,29 +192,25 @@ impl Channeler {
     fn make_cedge(
         &mut self,
         sources: &[PBack],
-        sink: &[PBack],
+        sink: PBack,
         programmability: Programmability,
     ) -> PCEdge {
         self.cedges.insert_with(|p_self| {
             let mut fixed_sources = vec![];
-            let mut fixed_sinks = vec![];
             for (i, source) in sources.iter().enumerate() {
                 fixed_sources.push(
                     self.cnodes
-                        .insert_key(*source, Referent::CEdgeIncidence(p_self, i, false))
+                        .insert_key(*source, Referent::CEdgeIncidence(p_self, Some(i)))
                         .unwrap(),
                 );
             }
-            for (i, sink) in sink.iter().enumerate() {
-                fixed_sinks.push(
-                    self.cnodes
-                        .insert_key(*sink, Referent::CEdgeIncidence(p_self, i, true))
-                        .unwrap(),
-                );
-            }
+            let fixed_sink = self
+                .cnodes
+                .insert_key(sink, Referent::CEdgeIncidence(p_self, None))
+                .unwrap();
             CEdge {
                 sources: fixed_sources,
-                sinks: fixed_sinks,
+                sink: fixed_sink,
                 programmability,
             }
         })
@@ -231,7 +233,7 @@ impl Channeler {
 
         // for each equivalence make a `CNode` with associated `EnsembleBackref`
         for equiv in ensemble.backrefs.vals() {
-            let p_cnode = channeler.make_top_level_cnode(vec![]);
+            let p_cnode = channeler.make_top_level_cnode(vec![], 0);
             let channeler_backref = channeler
                 .cnodes
                 .insert_key(p_cnode, Referent::EnsembleBackRef(equiv.p_self_equiv))
@@ -276,7 +278,7 @@ impl Channeler {
                     for input in inp {
                         v.push(translate(ensemble, &channeler, *input).1);
                     }
-                    channeler.make_cedge(&v, &[p_self], Programmability::StaticLut(awi.clone()));
+                    channeler.make_cedge(&v, p_self, Programmability::StaticLut(awi.clone()));
                 }
                 LNodeKind::DynamicLut(inp, lut) => {
                     //let p_self = translate(ensemble, &channeler, lnode.p_self).1;
@@ -330,7 +332,7 @@ impl Channeler {
                             }
                             channeler.make_cedge(
                                 &v,
-                                &[p_self],
+                                p_self,
                                 Programmability::SelectorLut(SelectorLut { awi, v: config }),
                             );
                         }
@@ -348,11 +350,7 @@ impl Channeler {
                                     unreachable!()
                                 }
                             }
-                            channeler.make_cedge(
-                                &v,
-                                &[p_self],
-                                Programmability::ArbitraryLut(config),
-                            );
+                            channeler.make_cedge(&v, p_self, Programmability::ArbitraryLut(config));
                         }
                         // we will need interaction with the `Ensemble` to do `LNode` side lowering
                         _ => todo!(),
@@ -364,5 +362,99 @@ impl Channeler {
         generate_hierarchy(&mut channeler);
 
         Ok(channeler)
+    }
+
+    /// Advances over all neighbors of a node exactly once (do not mutate the
+    /// surject of `p`). Note that `CNodeNeighborAdvancer` has a function for
+    /// getting the unique nodes.
+    pub fn advancer_neighbors_of_node(&self, p: PBack) -> CNodeNeighborAdvancer {
+        CNodeNeighborAdvancer {
+            adv: self.cnodes.advancer_surject(p),
+            unique: OrdArena::new(),
+        }
+    }
+
+    /// Advances over all subnodes of a node
+    pub fn advancer_subnodes_of_node(&self, p: PBack) -> CNodeSubnodeAdvancer {
+        CNodeSubnodeAdvancer {
+            adv: self.cnodes.advancer_surject(p),
+        }
+    }
+
+    pub fn get_supernode(&self, p: PBack) -> Option<PBack> {
+        let mut adv = self.cnodes.advancer_surject(p);
+        while let Some(p) = adv.advance(&self.cnodes) {
+            if let Referent::SuperNode(p_supernode) = self.cnodes.get_key(p).unwrap() {
+                return Some(self.cnodes.get_val(*p_supernode).unwrap().p_this_cnode)
+            }
+        }
+        None
+    }
+}
+
+ptr_struct!(PUniqueCNode);
+
+pub struct CNodeNeighborAdvancer {
+    adv: SurjectPtrAdvancer<PBack, Referent, CNode>,
+    // we have multiedges, so we need to track unique CNodes
+    unique: OrdArena<PUniqueCNode, PBack, ()>,
+}
+
+impl CNodeNeighborAdvancer {
+    /// If this is called after advancing is done, this has all the unique
+    /// `CNode`s
+    pub fn into_unique(self) -> OrdArena<PUniqueCNode, PBack, ()> {
+        self.unique
+    }
+}
+
+impl Advancer for CNodeNeighborAdvancer {
+    type Collection = Channeler;
+    type Item = PBack;
+
+    fn advance(&mut self, collection: &Self::Collection) -> Option<Self::Item> {
+        while let Some(p_referent) = self.adv.advance(&collection.cnodes) {
+            if let Referent::CEdgeIncidence(p_cedge, i) =
+                collection.cnodes.get_key(p_referent).unwrap()
+            {
+                let cedge = collection.cedges.get(*p_cedge).unwrap();
+                let p_neighbor = if let Some(source_i) = *i {
+                    cedge.sources()[source_i]
+                } else {
+                    cedge.sink()
+                };
+                let p_neighbor = collection.cnodes.get_val(p_neighbor).unwrap().p_this_cnode;
+                let replace = self.unique.insert(p_neighbor, ()).1;
+                if replace.is_none() {
+                    return Some(p_neighbor)
+                }
+            }
+            // need to be in a loop to skip over non-incidence referents
+        }
+        None
+    }
+}
+
+pub struct CNodeSubnodeAdvancer {
+    adv: SurjectPtrAdvancer<PBack, Referent, CNode>,
+}
+
+impl Advancer for CNodeSubnodeAdvancer {
+    type Collection = Channeler;
+    type Item = PBack;
+
+    fn advance(&mut self, collection: &Self::Collection) -> Option<Self::Item> {
+        while let Some(p_referent) = self.adv.advance(&collection.cnodes) {
+            if let Referent::SubNode(p_subnode_ref) = collection.cnodes.get_key(p_referent).unwrap()
+            {
+                let p_cnode = collection
+                    .cnodes
+                    .get_val(*p_subnode_ref)
+                    .unwrap()
+                    .p_this_cnode;
+                return Some(p_cnode);
+            }
+        }
+        None
     }
 }
