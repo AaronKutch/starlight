@@ -14,6 +14,7 @@ use crate::{
     Error,
 };
 
+/// For viewing everything at once
 #[derive(Debug, Clone)]
 pub enum NodeKind {
     CNode(CNode),
@@ -80,22 +81,23 @@ impl DebugNodeTrait<PBack> for NodeKind {
     }
 }
 
+/// For viewing only the base level
 #[derive(Debug, Clone)]
-pub enum HyperNodeKind {
+pub enum BaseNodeKind {
     CNode(CNode),
     CEdge(CEdge, CEdge),
     Remove,
 }
 
-impl DebugNodeTrait<PBack> for HyperNodeKind {
+impl DebugNodeTrait<PBack> for BaseNodeKind {
     fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
         match this {
-            HyperNodeKind::CNode(cnode) => DebugNode {
+            BaseNodeKind::CNode(cnode) => DebugNode {
                 sources: vec![],
                 center: { vec!["cnode".to_owned(), format!("{}", cnode.p_this_cnode)] },
                 sinks: vec![],
             },
-            HyperNodeKind::CEdge(cedge, cedge_forwarded) => DebugNode {
+            BaseNodeKind::CEdge(cedge, cedge_forwarded) => DebugNode {
                 sources: {
                     let mut v = vec![];
                     for (source, source_forwarded) in
@@ -117,7 +119,55 @@ impl DebugNodeTrait<PBack> for HyperNodeKind {
                 },
                 sinks: { vec![(cedge_forwarded.sink(), "".to_owned())] },
             },
-            HyperNodeKind::Remove => panic!("should have been removed"),
+            BaseNodeKind::Remove => panic!("should have been removed"),
+        }
+    }
+}
+
+/// For viewing the hierarchy structure
+#[derive(Debug, Clone)]
+pub enum HierarchyNodeKind {
+    // supernode edge is stored on the end
+    CNode(CNode, Option<PBack>),
+    CEdge(CEdge, CEdge),
+    Remove,
+}
+
+impl DebugNodeTrait<PBack> for HierarchyNodeKind {
+    fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
+        match this {
+            HierarchyNodeKind::CNode(cnode, p_super) => DebugNode {
+                sources: if let Some(p_super) = p_super {
+                    vec![(*p_super, String::new())]
+                } else {
+                    vec![]
+                },
+                center: { vec!["cnode".to_owned(), format!("{}", cnode.p_this_cnode)] },
+                sinks: vec![],
+            },
+            HierarchyNodeKind::CEdge(cedge, cedge_forwarded) => DebugNode {
+                sources: {
+                    let mut v = vec![];
+                    for (source, source_forwarded) in
+                        cedge.sources().iter().zip(cedge_forwarded.sources().iter())
+                    {
+                        v.push((*source_forwarded, format!("{source}")));
+                    }
+                    v
+                },
+                center: {
+                    let mut v = vec![];
+                    v.push(match cedge_forwarded.programmability() {
+                        Programmability::StaticLut(_) => "StaticLut".to_owned(),
+                        Programmability::ArbitraryLut(_) => "ArbitraryLut".to_owned(),
+                        Programmability::SelectorLut(_) => "SelectorLut".to_owned(),
+                        Programmability::Bulk(_) => "Bulk".to_owned(),
+                    });
+                    v
+                },
+                sinks: { vec![(cedge_forwarded.sink(), "".to_owned())] },
+            },
+            HierarchyNodeKind::Remove => panic!("should have been removed"),
         }
     }
 }
@@ -160,16 +210,75 @@ impl Channeler {
         arena
     }
 
-    pub fn to_cnode_graph_debug(&self) -> Arena<PBack, HyperNodeKind> {
-        let mut arena = Arena::<PBack, HyperNodeKind>::new();
+    pub fn to_cnode_base_level_debug(&self) -> Arena<PBack, BaseNodeKind> {
+        let mut arena = Arena::<PBack, BaseNodeKind>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 match referent {
                     Referent::ThisCNode => {
-                        HyperNodeKind::CNode(self.cnodes.get_val(p_self).unwrap().clone())
+                        let cnode = self.cnodes.get_val(p_self).unwrap();
+                        if cnode.lvl == 0 {
+                            BaseNodeKind::CNode(cnode.clone())
+                        } else {
+                            BaseNodeKind::Remove
+                        }
                     }
-                    Referent::SubNode(_) => HyperNodeKind::Remove,
-                    Referent::SuperNode(_) => HyperNodeKind::Remove,
+                    Referent::SubNode(_) => BaseNodeKind::Remove,
+                    Referent::SuperNode(_) => BaseNodeKind::Remove,
+                    Referent::CEdgeIncidence(p_cedge, i) => {
+                        // insures that there is only one `CEdge` per set of incidents
+                        if i.is_none() {
+                            let cedge = self.cedges.get(*p_cedge).unwrap().clone();
+                            let is_base = match cedge.programmability() {
+                                Programmability::StaticLut(_) => true,
+                                Programmability::ArbitraryLut(_) => true,
+                                Programmability::SelectorLut(_) => true,
+                                Programmability::Bulk(_) => false,
+                            };
+                            if is_base {
+                                let mut cedge_forwarded = cedge.clone();
+                                for source in cedge_forwarded.sources_mut() {
+                                    *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;
+                                }
+                                if i.is_none() {
+                                    *cedge_forwarded.sink_mut() =
+                                        self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
+                                }
+                                BaseNodeKind::CEdge(cedge, cedge_forwarded)
+                            } else {
+                                BaseNodeKind::Remove
+                            }
+                        } else {
+                            BaseNodeKind::Remove
+                        }
+                    }
+                    Referent::EnsembleBackRef(_) => BaseNodeKind::Remove,
+                }
+            });
+        let mut adv = arena.advancer();
+        while let Some(p) = adv.advance(&arena) {
+            if let BaseNodeKind::Remove = arena.get(p).unwrap() {
+                arena.remove(p).unwrap();
+            }
+        }
+        arena
+    }
+
+    pub fn to_cnode_hierarchy_debug(&self) -> Arena<PBack, HierarchyNodeKind> {
+        let mut arena = Arena::<PBack, HierarchyNodeKind>::new();
+        self.cnodes
+            .clone_keys_to_arena(&mut arena, |p_self, referent| {
+                match referent {
+                    Referent::ThisCNode => {
+                        let cnode = self.cnodes.get_val(p_self).unwrap();
+                        if let Some(p) = self.get_supernode(cnode.p_this_cnode) {
+                            HierarchyNodeKind::CNode(cnode.clone(), Some(p))
+                        } else {
+                            HierarchyNodeKind::CNode(cnode.clone(), None)
+                        }
+                    }
+                    Referent::SubNode(_) => HierarchyNodeKind::Remove,
+                    Referent::SuperNode(_) => HierarchyNodeKind::Remove,
                     Referent::CEdgeIncidence(p_cedge, i) => {
                         // insures that there is only one `CEdge` per set of incidents
                         if i.is_none() {
@@ -182,17 +291,17 @@ impl Channeler {
                                 *cedge_forwarded.sink_mut() =
                                     self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
                             }
-                            HyperNodeKind::CEdge(cedge, cedge_forwarded)
+                            HierarchyNodeKind::CEdge(cedge, cedge_forwarded)
                         } else {
-                            HyperNodeKind::Remove
+                            HierarchyNodeKind::Remove
                         }
                     }
-                    Referent::EnsembleBackRef(_) => HyperNodeKind::Remove,
+                    Referent::EnsembleBackRef(_) => HierarchyNodeKind::Remove,
                 }
             });
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
-            if let HyperNodeKind::Remove = arena.get(p).unwrap() {
+            if let HierarchyNodeKind::Remove = arena.get(p).unwrap() {
                 arena.remove(p).unwrap();
             }
         }
@@ -213,11 +322,19 @@ impl Channeler {
         };
         let mut cnode_backrefs_file = dir.clone();
         cnode_backrefs_file.push("cnode_backrefs.svg");
-        let mut cnode_graph_file = dir;
-        cnode_graph_file.push("cnode_graph.svg");
+        let mut cnode_base_file = dir.clone();
+        cnode_base_file.push("cnode_base.svg");
+        let mut cnode_hierarchy_file = dir;
+        cnode_hierarchy_file.push("cnode_hierarchy.svg");
         let res = self.verify_integrity();
         render_to_svg_file(&self.to_cnode_backrefs_debug(), false, cnode_backrefs_file).unwrap();
-        render_to_svg_file(&self.to_cnode_graph_debug(), false, cnode_graph_file).unwrap();
+        render_to_svg_file(&self.to_cnode_base_level_debug(), false, cnode_base_file).unwrap();
+        render_to_svg_file(
+            &self.to_cnode_hierarchy_debug(),
+            false,
+            cnode_hierarchy_file,
+        )
+        .unwrap();
         res
     }
 
