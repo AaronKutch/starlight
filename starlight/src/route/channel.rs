@@ -1,10 +1,6 @@
-use awint::awint_dag::{
-    smallvec::smallvec,
-    triple_arena::{Advancer, Arena, OrdArena, SurjectArena},
-};
+use awint::awint_dag::triple_arena::{Advancer, Arena, OrdArena, SurjectArena};
 
 use crate::{
-    awint_dag::smallvec::SmallVec,
     ensemble,
     route::{CEdge, CNode, PCEdge, Programmability},
     triple_arena::ptr_struct,
@@ -186,7 +182,6 @@ impl Channeler {
         // non `Ptr` validities
         for p_cedge in self.cedges.ptrs() {
             let cedge = self.cedges.get(p_cedge).unwrap();
-            let incidents_len = cedge.incidents_len();
             let sources_len = cedge.sources().len();
             let ok = match cedge.programmability() {
                 Programmability::StaticLut(lut) => {

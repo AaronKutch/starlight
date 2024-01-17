@@ -4,14 +4,13 @@
 use std::path::PathBuf;
 
 use awint::awint_dag::{
-    triple_arena::{Advancer, Arena, ArenaTrait, ChainArena},
+    triple_arena::{Advancer, Arena, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
 };
 
-use super::{cedge, Programmability};
 use crate::{
     ensemble,
-    route::{channel::Referent, CEdge, CNode, Channeler, PBack, PCEdge},
+    route::{channel::Referent, CEdge, CNode, Channeler, PBack, PCEdge, Programmability},
     Error,
 };
 
@@ -26,7 +25,7 @@ pub enum NodeKind {
 }
 
 impl DebugNodeTrait<PBack> for NodeKind {
-    fn debug_node(p_this: PBack, this: &Self) -> DebugNode<PBack> {
+    fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
         match this {
             NodeKind::CNode(cnode) => DebugNode {
                 sources: vec![],
@@ -46,11 +45,8 @@ impl DebugNodeTrait<PBack> for NodeKind {
             NodeKind::CEdgeIncidence(p_back, p_cedge, i, cedge, cedge_forwarded) => DebugNode {
                 sources: {
                     let mut v = vec![(*p_back, String::new())];
-                    for (i, (source, source_forwarded)) in cedge
-                        .sources()
-                        .iter()
-                        .zip(cedge_forwarded.sources().iter())
-                        .enumerate()
+                    for (source, source_forwarded) in
+                        cedge.sources().iter().zip(cedge_forwarded.sources().iter())
                     {
                         v.push((*source_forwarded, format!("{source}")));
                     }
@@ -92,7 +88,7 @@ pub enum HyperNodeKind {
 }
 
 impl DebugNodeTrait<PBack> for HyperNodeKind {
-    fn debug_node(p_this: PBack, this: &Self) -> DebugNode<PBack> {
+    fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
         match this {
             HyperNodeKind::CNode(cnode) => DebugNode {
                 sources: vec![],
@@ -102,11 +98,8 @@ impl DebugNodeTrait<PBack> for HyperNodeKind {
             HyperNodeKind::CEdge(cedge, cedge_forwarded) => DebugNode {
                 sources: {
                     let mut v = vec![];
-                    for (i, (source, source_forwarded)) in cedge
-                        .sources()
-                        .iter()
-                        .zip(cedge_forwarded.sources().iter())
-                        .enumerate()
+                    for (source, source_forwarded) in
+                        cedge.sources().iter().zip(cedge_forwarded.sources().iter())
                     {
                         v.push((*source_forwarded, format!("{source}")));
                     }
@@ -142,7 +135,7 @@ impl Channeler {
                     Referent::SubNode(p_back) => NodeKind::SubNode(*p_back, p_cnode),
                     Referent::SuperNode(p_back) => NodeKind::SuperNode(*p_back, p_cnode),
                     Referent::CEdgeIncidence(p_cedge, i) => {
-                        let mut cedge = self.cedges.get(*p_cedge).unwrap().clone();
+                        let cedge = self.cedges.get(*p_cedge).unwrap().clone();
                         let mut cedge_forwarded = cedge.clone();
                         for source in cedge_forwarded.sources_mut() {
                             *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;
@@ -171,7 +164,6 @@ impl Channeler {
         let mut arena = Arena::<PBack, HyperNodeKind>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
-                let p_cnode = self.cnodes.get_val(p_self).unwrap().clone().p_this_cnode;
                 match referent {
                     Referent::ThisCNode => {
                         HyperNodeKind::CNode(self.cnodes.get_val(p_self).unwrap().clone())
@@ -181,7 +173,7 @@ impl Channeler {
                     Referent::CEdgeIncidence(p_cedge, i) => {
                         // insures that there is only one `CEdge` per set of incidents
                         if i.is_none() {
-                            let mut cedge = self.cedges.get(*p_cedge).unwrap().clone();
+                            let cedge = self.cedges.get(*p_cedge).unwrap().clone();
                             let mut cedge_forwarded = cedge.clone();
                             for source in cedge_forwarded.sources_mut() {
                                 *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;
@@ -195,7 +187,7 @@ impl Channeler {
                             HyperNodeKind::Remove
                         }
                     }
-                    Referent::EnsembleBackRef(ensemble_p_backref) => HyperNodeKind::Remove,
+                    Referent::EnsembleBackRef(_) => HyperNodeKind::Remove,
                 }
             });
         let mut adv = arena.advancer();

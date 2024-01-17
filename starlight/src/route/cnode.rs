@@ -1,22 +1,27 @@
 use std::cmp::max;
 
-use awint::awint_dag::{
-    smallvec::SmallVec,
-    triple_arena::{ptr_struct, Advancer, ArenaTrait, OrdArena, Ptr},
-};
+use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, Ptr};
 
-use super::{
-    cedge::{self, PUniqueCNode},
-    BulkBehavior, Programmability,
-};
-use crate::route::{channel::Referent, Channeler, PBack};
+use crate::route::{channel::Referent, BulkBehavior, Channeler, PBack, Programmability};
+
+#[derive(Debug, Clone)]
+pub struct InternalBehavior {
+    lut_bits: usize,
+}
+
+impl InternalBehavior {
+    pub fn empty() -> Self {
+        Self { lut_bits: 0 }
+    }
+}
 
 /// A channel node
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CNode {
     pub p_this_cnode: PBack,
     pub lvl: u16,
     pub has_supernode: bool,
+    pub internal_behavior: InternalBehavior,
 }
 
 impl Channeler {
@@ -31,6 +36,7 @@ impl Channeler {
                 p_this_cnode,
                 lvl,
                 has_supernode: false,
+                internal_behavior: InternalBehavior::empty(),
             })
         });
         for subnode in subnodes {
@@ -51,7 +57,7 @@ impl Channeler {
             *referent = Referent::SuperNode(p_supernode);
             cnode.has_supernode = true;
         }
-        self.top_level_cnodes.insert(p_cnode, ());
+        let _ = self.top_level_cnodes.insert(p_cnode, ());
         p_cnode
     }
 }
@@ -137,14 +143,14 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 }
                 // check if the node's neighbors have supernodes
                 let mut neighbor_adv = channeler.advancer_neighbors_of_node(p_consider);
-                while let Some(p) = neighbor_adv.advance(&channeler) {
+                while let Some(p) = neighbor_adv.advance(channeler) {
                     if channeler.cnodes.get_val(p).unwrap().has_supernode {
                         continue 'over_cnodes;
                     }
                 }
                 // concentrate
                 let neighbors = neighbor_adv.into_unique();
-                channeler.make_top_level_cnode(neighbors.keys().map(|p| *p), next_lvl);
+                channeler.make_top_level_cnode(neighbors.keys().copied(), next_lvl);
 
                 concentrated = true;
             }
@@ -156,7 +162,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
         // for nodes that couldn't be concentrated, create single subnode supernodes for
         // them
         let mut adv = channeler.cnodes.advancer();
-        'over_cnodes: while let Some(p_consider) = adv.advance(&channeler.cnodes) {
+        while let Some(p_consider) = adv.advance(&channeler.cnodes) {
             if let Referent::ThisCNode = channeler.cnodes.get_key(p_consider).unwrap() {
                 let cnode = channeler.cnodes.get_val(p_consider).unwrap();
                 if (cnode.lvl != current_lvl) || cnode.has_supernode {
@@ -169,7 +175,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
         // we have all the next level nodes, but we need to create the bulk `CEdge`s
         // between them
         let mut adv = channeler.cnodes.advancer();
-        'over_cnodes: while let Some(p_consider) = adv.advance(&channeler.cnodes) {
+        while let Some(p_consider) = adv.advance(&channeler.cnodes) {
             if let Referent::ThisCNode = channeler.cnodes.get_key(p_consider).unwrap() {
                 let cnode = channeler.cnodes.get_val(p_consider).unwrap();
                 if cnode.lvl != next_lvl {
@@ -181,18 +187,18 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 // first get the set of subnodes
                 let mut subnode_set = OrdArena::<P0, PBack, ()>::new();
                 let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
-                while let Some(p_subnode) = subnode_adv.advance(&channeler) {
+                while let Some(p_subnode) = subnode_adv.advance(channeler) {
                     let _ = subnode_set.insert(p_subnode, ());
                 }
                 // iterate through the subnodes again, but now get a set of the neighbors that
                 // aren't in the subnodes set
                 let mut related_subnodes_set = OrdArena::<P1, PBack, ()>::new();
                 let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
-                while let Some(p_subnode) = subnode_adv.advance(&channeler) {
+                while let Some(p_subnode) = subnode_adv.advance(channeler) {
                     let mut second_neighbors = channeler.advancer_neighbors_of_node(p_subnode);
-                    while let Some(p_neighbor) = second_neighbors.advance(&channeler) {
+                    while let Some(p_neighbor) = second_neighbors.advance(channeler) {
                         if subnode_set.find_key(&p_neighbor).is_none() {
-                            related_subnodes_set.insert(p_neighbor, ());
+                            let _ = related_subnodes_set.insert(p_neighbor, ());
                         }
                     }
                 }
@@ -205,7 +211,8 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 let mut related_supernodes_set = OrdArena::<P1, PBack, BulkBehavior>::new();
                 for p_related_subnode in related_subnodes_set.keys() {
                     let p_related_supernode = channeler.get_supernode(*p_related_subnode).unwrap();
-                    related_supernodes_set.insert(p_related_supernode, BulkBehavior::empty());
+                    let _ =
+                        related_supernodes_set.insert(p_related_supernode, BulkBehavior::empty());
                 }
                 // we want to find hyperedges with incidents that are both in the subnodes and
                 // related subnodes, which will be concentrated as a bulk edge between the
@@ -225,42 +232,107 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 // Source incidents from the same edge can be in multiple other related sets, in
                 // which case the bulk behavior edge can be a hyperedge.
 
-                // iterate through the subnodes one more time, finding bipartite edges between
-                // the subnodes and related subnodes
+                // Multiple source incidents can be in the same related set
+
+                // TODO we allow combinations of edges and various hyperedges to coexist, are
+                // there any exponential blowup cases that can happen despite the
+                // internalization?
+
                 let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
-                while let Some(p_subnode) = subnode_adv.advance(&channeler) {
+                while let Some(p_subnode) = subnode_adv.advance(channeler) {
                     let mut adv_edges = channeler.cnodes.advancer_surject(p_subnode);
                     while let Some(p_referent) = adv_edges.advance(&channeler.cnodes) {
                         if let Referent::CEdgeIncidence(p_cedge, i) =
                             channeler.cnodes.get_key(p_referent).unwrap()
                         {
-                            let cedge = channeler.cedges.get(*p_cedge).unwrap();
-                            let p_cnode =
-                                channeler.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
-                            if subnode_set.find_key(&p_cnode).is_some() {
-                                // the sink is in our sphere, if any source is from the related
-                                // subnodes then we need
-                                for p_source in cedge.sources() {
-                                    let p_cnode = channeler
-                                        .cnodes
-                                        .get_val(cedge.sink())
-                                        .unwrap()
-                                        .p_this_cnode;
+                            // avoid duplication, if this is a sink incidence we automatically have
+                            // a one time iter of the edge we need to handle
+                            if i.is_none() {
+                                let cedge = channeler.cedges.get(*p_cedge).unwrap();
+                                // this is an `OrdArena` to handle the multiple incidents from the
+                                // same set redundancy
+                                let mut bulk_info = OrdArena::<P2, PBack, usize>::new();
+                                for (i, p_source) in cedge.sources().iter().enumerate() {
+                                    let cnode = channeler.cnodes.get_val(*p_source).unwrap();
+                                    // TODO if we commit to having a single supernode, have the info
+                                    // in the `CNode` value and not in a referent.
+
+                                    // if cnode.supernode.unwrap() == ...
+
+                                    if subnode_set.find_key(&cnode.p_this_cnode).is_none() {
+                                        // we have a source incident in the related set
+                                        let p = related_subnodes_set
+                                            .find_key(&cnode.p_this_cnode)
+                                            .unwrap();
+                                        let p_related_subnode =
+                                            *related_subnodes_set.get_key(p).unwrap();
+                                        let w = match cedge.programmability() {
+                                            Programmability::StaticLut(_)
+                                            | Programmability::ArbitraryLut(_)
+                                            | Programmability::SelectorLut(_) => 1,
+                                            Programmability::Bulk(bulk) => {
+                                                bulk.channel_entry_widths[i]
+                                            }
+                                        };
+                                        // TODO `OrdArena` needs a function for the common update or
+                                        // insert new pattern, use find_similar internally instead
+                                        // of a potentially expensive replace
+                                        let (p, replaced) = bulk_info.insert(p_related_subnode, w);
+                                        if let Some((_, w_replaced)) = replaced {
+                                            *bulk_info.get_val_mut(p).unwrap() =
+                                                w.checked_add(w_replaced).unwrap();
+                                        }
+                                    }
                                 }
-                            }
-                            match cedge.programmability() {
-                                Programmability::StaticLut(_) => todo!(),
-                                Programmability::ArbitraryLut(_) => todo!(),
-                                Programmability::SelectorLut(_) => todo!(),
-                                Programmability::Bulk(_) => todo!(),
+                                if bulk_info.is_empty() {
+                                    // the edge is internal, need to add to the internal LUT bit
+                                    // count
+                                    let internal_behavior = &mut channeler
+                                        .cnodes
+                                        .get_val_mut(p_consider)
+                                        .unwrap()
+                                        .internal_behavior;
+                                    let lut_bits = match cedge.programmability() {
+                                        Programmability::StaticLut(lut) => lut.bw(),
+                                        Programmability::ArbitraryLut(lut) => lut.len(),
+                                        Programmability::SelectorLut(_) => 0,
+                                        Programmability::Bulk(bulk_behavior) => {
+                                            bulk_behavior.lut_bits
+                                        }
+                                    };
+                                    internal_behavior.lut_bits =
+                                        internal_behavior.lut_bits.checked_add(lut_bits).unwrap();
+                                } else {
+                                    let mut sources = vec![];
+                                    let mut channel_entry_widths = vec![];
+                                    for (_, source, width) in bulk_info {
+                                        sources.push(source);
+                                        channel_entry_widths.push(width);
+                                    }
+                                    let (channel_exit_width, lut_bits) =
+                                        match cedge.programmability() {
+                                            Programmability::StaticLut(lut) => (1, lut.bw()),
+                                            Programmability::ArbitraryLut(lut) => (1, lut.len()),
+                                            Programmability::SelectorLut(_) => (1, 0),
+                                            Programmability::Bulk(bulk_behavior) => (
+                                                bulk_behavior.channel_exit_width,
+                                                bulk_behavior.lut_bits,
+                                            ),
+                                        };
+                                    channeler.make_cedge(
+                                        &sources,
+                                        p_consider,
+                                        Programmability::Bulk(BulkBehavior {
+                                            channel_entry_widths,
+                                            channel_exit_width,
+                                            lut_bits,
+                                        }),
+                                    );
+                                }
                             }
                         }
                     }
                 }
-
-                //channeler.make_cedge(&[], &[],
-                // Programmability::Bulk(BulkBehavior { channel_entry_width:
-                // todo!(), channel_exit_width: todo!(), lut_bits: todo!() }));
             }
         }
 

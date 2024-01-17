@@ -1,18 +1,15 @@
-use std::{cmp::min, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use awint::{
-    awint_dag::triple_arena::{
-        surject_iterators::SurjectPtrAdvancer, Advancer, ArenaTrait, OrdArena,
-    },
+    awint_dag::triple_arena::{surject_iterators::SurjectPtrAdvancer, Advancer, OrdArena},
     Awi,
 };
 
-use super::CNode;
 use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble,
     ensemble::{DynamicValue, Ensemble, LNodeKind},
-    route::{channel::Referent, cnode::generate_hierarchy, Channeler, Configurator, PBack},
+    route::{channel::Referent, cnode::generate_hierarchy, CNode, Channeler, Configurator, PBack},
     triple_arena::ptr_struct,
     Error, SuspendedEpoch,
 };
@@ -189,7 +186,7 @@ impl CEdge {
 impl Channeler {
     /// Given the source and sink incidences (which should point to unique
     /// `ThisCNode`s), this will manage the backrefs
-    fn make_cedge(
+    pub fn make_cedge(
         &mut self,
         sources: &[PBack],
         sink: PBack,
