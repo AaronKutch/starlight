@@ -141,15 +141,14 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 if (cnode.lvl != current_lvl) || cnode.has_supernode {
                     continue
                 }
+                let neighbors = channeler.neighbors_of_node(p_consider);
                 // check if the node's neighbors have supernodes
-                let mut neighbor_adv = channeler.advancer_neighbors_of_node(p_consider);
-                while let Some(p) = neighbor_adv.advance(channeler) {
-                    if channeler.cnodes.get_val(p).unwrap().has_supernode {
+                for p_neighbor in neighbors.keys() {
+                    if channeler.cnodes.get_val(*p_neighbor).unwrap().has_supernode {
                         continue 'over_cnodes;
                     }
                 }
                 // concentrate
-                let neighbors = neighbor_adv.into_unique();
                 channeler.make_top_level_cnode(neighbors.keys().copied(), next_lvl);
 
                 concentrated = true;
@@ -183,7 +182,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 }
                 // TODO in the referents refactor, we need some formulaic way to add extra data
                 // to the surject value structs to avoid all these `OrdArena`s
-                ptr_struct!(P0; P1; P2);
+                ptr_struct!(P0; P1; P2; P3);
                 // first get the set of subnodes
                 let mut subnode_set = OrdArena::<P0, PBack, ()>::new();
                 let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
@@ -195,10 +194,9 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 let mut related_subnodes_set = OrdArena::<P1, PBack, ()>::new();
                 let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
                 while let Some(p_subnode) = subnode_adv.advance(channeler) {
-                    let mut second_neighbors = channeler.advancer_neighbors_of_node(p_subnode);
-                    while let Some(p_neighbor) = second_neighbors.advance(channeler) {
+                    for p_neighbor in channeler.neighbors_of_node(p_subnode).keys() {
                         if subnode_set.find_key(&p_neighbor).is_none() {
-                            let _ = related_subnodes_set.insert(p_neighbor, ());
+                            let _ = related_subnodes_set.insert(*p_neighbor, ());
                         }
                     }
                 }
@@ -208,7 +206,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 // incidents will contribute to the bulk behavior), and when the related cnode
                 // is under consideration it will handle the edge in the other direction, so we
                 // can avoid duplication.
-                let mut related_supernodes_set = OrdArena::<P1, PBack, BulkBehavior>::new();
+                let mut related_supernodes_set = OrdArena::<P2, PBack, BulkBehavior>::new();
                 for p_related_subnode in related_subnodes_set.keys() {
                     let p_related_supernode = channeler.get_supernode(*p_related_subnode).unwrap();
                     let _ =
@@ -251,7 +249,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                                 let cedge = channeler.cedges.get(*p_cedge).unwrap();
                                 // this is an `OrdArena` to handle the multiple incidents from the
                                 // same set redundancy
-                                let mut bulk_info = OrdArena::<P2, PBack, usize>::new();
+                                let mut bulk_info = OrdArena::<P3, PBack, usize>::new();
                                 for (i, p_source) in cedge.sources().iter().enumerate() {
                                     let cnode = channeler.cnodes.get_val(*p_source).unwrap();
                                     // TODO if we commit to having a single supernode, have the info

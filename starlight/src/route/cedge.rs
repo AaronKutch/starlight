@@ -1,7 +1,9 @@
 use std::num::NonZeroUsize;
 
 use awint::{
-    awint_dag::triple_arena::{surject_iterators::SurjectPtrAdvancer, Advancer, OrdArena},
+    awint_dag::triple_arena::{
+        surject_iterators::SurjectPtrAdvancer, Advancer, ArenaTrait, OrdArena,
+    },
     Awi,
 };
 
@@ -363,12 +365,22 @@ impl Channeler {
 
     /// Advances over all neighbors of a node exactly once (do not mutate the
     /// surject of `p`). Note that `CNodeNeighborAdvancer` has a function for
-    /// getting the unique nodes.
-    pub fn advancer_neighbors_of_node(&self, p: PBack) -> CNodeNeighborAdvancer {
-        CNodeNeighborAdvancer {
-            adv: self.cnodes.advancer_surject(p),
-            unique: OrdArena::new(),
+    /// getting the unique nodes. Excludes `p` itself.
+    pub fn neighbors_of_node(&self, p: PBack) -> OrdArena<PUniqueCNode, PBack, ()> {
+        let mut res = OrdArena::new();
+        let mut adv = self.cnodes.advancer_surject(p);
+        while let Some(p_referent) = adv.advance(&self.cnodes) {
+            if let Referent::CEdgeIncidence(p_cedge, _) = self.cnodes.get_key(p_referent).unwrap() {
+                let cedge = self.cedges.get(*p_cedge).unwrap();
+                cedge.incidents(|p_incident| {
+                    let p_tmp = self.cnodes.get_val(p_incident).unwrap().p_this_cnode;
+                    if p_tmp != p {
+                        let _ = res.insert(p_tmp, ());
+                    }
+                });
+            }
         }
+        res
     }
 
     /// Advances over all subnodes of a node
@@ -390,47 +402,6 @@ impl Channeler {
 }
 
 ptr_struct!(PUniqueCNode);
-
-pub struct CNodeNeighborAdvancer {
-    adv: SurjectPtrAdvancer<PBack, Referent, CNode>,
-    // we have multiedges, so we need to track unique CNodes
-    unique: OrdArena<PUniqueCNode, PBack, ()>,
-}
-
-impl CNodeNeighborAdvancer {
-    /// If this is called after advancing is done, this has all the unique
-    /// `CNode`s
-    pub fn into_unique(self) -> OrdArena<PUniqueCNode, PBack, ()> {
-        self.unique
-    }
-}
-
-impl Advancer for CNodeNeighborAdvancer {
-    type Collection = Channeler;
-    type Item = PBack;
-
-    fn advance(&mut self, collection: &Self::Collection) -> Option<Self::Item> {
-        while let Some(p_referent) = self.adv.advance(&collection.cnodes) {
-            if let Referent::CEdgeIncidence(p_cedge, i) =
-                collection.cnodes.get_key(p_referent).unwrap()
-            {
-                let cedge = collection.cedges.get(*p_cedge).unwrap();
-                let p_neighbor = if let Some(source_i) = *i {
-                    cedge.sources()[source_i]
-                } else {
-                    cedge.sink()
-                };
-                let p_neighbor = collection.cnodes.get_val(p_neighbor).unwrap().p_this_cnode;
-                let replace = self.unique.insert(p_neighbor, ()).1;
-                if replace.is_none() {
-                    return Some(p_neighbor)
-                }
-            }
-            // need to be in a loop to skip over non-incidence referents
-        }
-        None
-    }
-}
 
 pub struct CNodeSubnodeAdvancer {
     adv: SurjectPtrAdvancer<PBack, Referent, CNode>,
