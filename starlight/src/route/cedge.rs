@@ -230,18 +230,25 @@ impl Channeler {
     pub fn new(ensemble: &Ensemble, configurator: &Configurator) -> Result<Self, Error> {
         let mut channeler = Self::empty();
 
-        // for each equivalence make a `CNode` with associated `EnsembleBackref`
+        // for each equivalence make a `CNode` with associated `EnsembleBackref`, unless
+        // it is one of the configurable bits
         for equiv in ensemble.backrefs.vals() {
-            let p_cnode = channeler.make_top_level_cnode(vec![], 0);
-            let channeler_backref = channeler
-                .cnodes
-                .insert_key(p_cnode, Referent::EnsembleBackRef(equiv.p_self_equiv))
-                .unwrap();
-            let replaced = channeler
-                .ensemble_backref_to_channeler_backref
-                .insert(equiv.p_self_equiv, channeler_backref)
-                .1;
-            assert!(replaced.is_none());
+            if configurator
+                .configurations
+                .find_key(&equiv.p_self_equiv)
+                .is_none()
+            {
+                let p_cnode = channeler.make_top_level_cnode(vec![], 0);
+                let channeler_backref = channeler
+                    .cnodes
+                    .insert_key(p_cnode, Referent::EnsembleBackRef(equiv.p_self_equiv))
+                    .unwrap();
+                let replaced = channeler
+                    .ensemble_backref_to_channeler_backref
+                    .insert(equiv.p_self_equiv, channeler_backref)
+                    .1;
+                assert!(replaced.is_none());
+            }
         }
 
         // translate from any ensemble backref to the equivalence backref to the
@@ -250,7 +257,7 @@ impl Channeler {
             ensemble: &Ensemble,
             channeler: &Channeler,
             ensemble_backref: ensemble::PBack,
-        ) -> (ensemble::PBack, PBack) {
+        ) -> (ensemble::PBack, Option<PBack>) {
             let p_equiv = ensemble
                 .backrefs
                 .get_val(ensemble_backref)
@@ -258,29 +265,31 @@ impl Channeler {
                 .p_self_equiv;
             let p0 = channeler
                 .ensemble_backref_to_channeler_backref
-                .find_key(&p_equiv)
-                .unwrap();
-            let channeler_p_back = *channeler
-                .ensemble_backref_to_channeler_backref
-                .get_val(p0)
-                .unwrap();
-            (p_equiv, channeler_p_back)
+                .find_key(&p_equiv);
+            if let Some(p0) = p0 {
+                let channeler_p_back = *channeler
+                    .ensemble_backref_to_channeler_backref
+                    .get_val(p0)
+                    .unwrap();
+                (p_equiv, Some(channeler_p_back))
+            } else {
+                (p_equiv, None)
+            }
         }
 
         // add `CEdge`s according to `LNode`s
         for lnode in ensemble.lnodes.vals() {
-            let p_self = translate(ensemble, &channeler, lnode.p_self).1;
+            let p_self = translate(ensemble, &channeler, lnode.p_self).1.unwrap();
             match &lnode.kind {
                 LNodeKind::Copy(_) => return Err(Error::OtherStr("the epoch was not optimized")),
                 LNodeKind::Lut(inp, awi) => {
                     let mut v = SmallVec::<[PBack; 8]>::with_capacity(inp.len());
                     for input in inp {
-                        v.push(translate(ensemble, &channeler, *input).1);
+                        v.push(translate(ensemble, &channeler, *input).1.unwrap());
                     }
                     channeler.make_cedge(&v, p_self, Programmability::StaticLut(awi.clone()));
                 }
                 LNodeKind::DynamicLut(inp, lut) => {
-                    //let p_self = translate(ensemble, &channeler, lnode.p_self).1;
                     let mut is_full_selector = true;
                     for input in inp {
                         let p_equiv = translate(ensemble, &channeler, *input).0;
@@ -325,7 +334,7 @@ impl Channeler {
                                         }
                                     }
                                     DynamicValue::Dynam(p) => {
-                                        v.push(translate(ensemble, &channeler, *p).1);
+                                        v.push(translate(ensemble, &channeler, *p).1.unwrap());
                                     }
                                 }
                             }
@@ -338,7 +347,7 @@ impl Channeler {
                         (false, true) => {
                             let mut v = SmallVec::<[PBack; 8]>::with_capacity(inp.len());
                             for input in inp {
-                                v.push(translate(ensemble, &channeler, *input).1);
+                                v.push(translate(ensemble, &channeler, *input).1.unwrap());
                             }
                             let mut config = vec![];
                             for lut_bit in lut.iter() {
