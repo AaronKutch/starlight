@@ -276,10 +276,13 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                                                 bulk.channel_entry_widths[i]
                                             }
                                         };
+                                        let p_related_supernode =
+                                            channeler.get_supernode(p_related_subnode).unwrap();
                                         // TODO `OrdArena` needs a function for the common update or
                                         // insert new pattern, use find_similar internally instead
                                         // of a potentially expensive replace
-                                        let (p, replaced) = bulk_info.insert(p_related_subnode, w);
+                                        let (p, replaced) =
+                                            bulk_info.insert(p_related_supernode, w);
                                         if let Some((_, w_replaced)) = replaced {
                                             *bulk_info.get_val_mut(p).unwrap() =
                                                 w.checked_add(w_replaced).unwrap();

@@ -81,23 +81,23 @@ impl DebugNodeTrait<PBack> for NodeKind {
     }
 }
 
-/// For viewing only the base level
+/// For viewing the cgraph at only one level
 #[derive(Debug, Clone)]
-pub enum BaseNodeKind {
+pub enum LevelNodeKind {
     CNode(CNode),
     CEdge(CEdge, CEdge),
     Remove,
 }
 
-impl DebugNodeTrait<PBack> for BaseNodeKind {
+impl DebugNodeTrait<PBack> for LevelNodeKind {
     fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
         match this {
-            BaseNodeKind::CNode(cnode) => DebugNode {
+            LevelNodeKind::CNode(cnode) => DebugNode {
                 sources: vec![],
                 center: { vec!["cnode".to_owned(), format!("{}", cnode.p_this_cnode)] },
                 sinks: vec![],
             },
-            BaseNodeKind::CEdge(cedge, cedge_forwarded) => DebugNode {
+            LevelNodeKind::CEdge(cedge, cedge_forwarded) => DebugNode {
                 sources: {
                     let mut v = vec![];
                     for (source, source_forwarded) in
@@ -119,7 +119,7 @@ impl DebugNodeTrait<PBack> for BaseNodeKind {
                 },
                 sinks: { vec![(cedge_forwarded.sink(), "".to_owned())] },
             },
-            BaseNodeKind::Remove => panic!("should have been removed"),
+            LevelNodeKind::Remove => panic!("should have been removed"),
         }
     }
 }
@@ -210,32 +210,28 @@ impl Channeler {
         arena
     }
 
-    pub fn to_cnode_base_level_debug(&self) -> Arena<PBack, BaseNodeKind> {
-        let mut arena = Arena::<PBack, BaseNodeKind>::new();
+    pub fn to_cnode_level_debug(&self, lvl: usize) -> Arena<PBack, LevelNodeKind> {
+        let mut arena = Arena::<PBack, LevelNodeKind>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 match referent {
                     Referent::ThisCNode => {
                         let cnode = self.cnodes.get_val(p_self).unwrap();
-                        if cnode.lvl == 0 {
-                            BaseNodeKind::CNode(cnode.clone())
+                        if cnode.lvl == u16::try_from(lvl).unwrap() {
+                            LevelNodeKind::CNode(cnode.clone())
                         } else {
-                            BaseNodeKind::Remove
+                            LevelNodeKind::Remove
                         }
                     }
-                    Referent::SubNode(_) => BaseNodeKind::Remove,
-                    Referent::SuperNode(_) => BaseNodeKind::Remove,
+                    Referent::SubNode(_) => LevelNodeKind::Remove,
+                    Referent::SuperNode(_) => LevelNodeKind::Remove,
                     Referent::CEdgeIncidence(p_cedge, i) => {
                         // insures that there is only one `CEdge` per set of incidents
                         if i.is_none() {
                             let cedge = self.cedges.get(*p_cedge).unwrap().clone();
-                            let is_base = match cedge.programmability() {
-                                Programmability::StaticLut(_) => true,
-                                Programmability::ArbitraryLut(_) => true,
-                                Programmability::SelectorLut(_) => true,
-                                Programmability::Bulk(_) => false,
-                            };
-                            if is_base {
+                            if self.cnodes.get_val(cedge.sink()).unwrap().lvl
+                                == u16::try_from(lvl).unwrap()
+                            {
                                 let mut cedge_forwarded = cedge.clone();
                                 for source in cedge_forwarded.sources_mut() {
                                     *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;
@@ -244,20 +240,20 @@ impl Channeler {
                                     *cedge_forwarded.sink_mut() =
                                         self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
                                 }
-                                BaseNodeKind::CEdge(cedge, cedge_forwarded)
+                                LevelNodeKind::CEdge(cedge, cedge_forwarded)
                             } else {
-                                BaseNodeKind::Remove
+                                LevelNodeKind::Remove
                             }
                         } else {
-                            BaseNodeKind::Remove
+                            LevelNodeKind::Remove
                         }
                     }
-                    Referent::EnsembleBackRef(_) => BaseNodeKind::Remove,
+                    Referent::EnsembleBackRef(_) => LevelNodeKind::Remove,
                 }
             });
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
-            if let BaseNodeKind::Remove = arena.get(p).unwrap() {
+            if let LevelNodeKind::Remove = arena.get(p).unwrap() {
                 arena.remove(p).unwrap();
             }
         }
@@ -308,7 +304,7 @@ impl Channeler {
         arena
     }
 
-    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), Error> {
+    pub fn render_to_svgs_in_dir(&self, lvl: usize, out_file: PathBuf) -> Result<(), Error> {
         let dir = match out_file.canonicalize() {
             Ok(o) => {
                 if !o.is_dir() {
@@ -322,13 +318,13 @@ impl Channeler {
         };
         let mut cnode_backrefs_file = dir.clone();
         cnode_backrefs_file.push("cnode_backrefs.svg");
-        let mut cnode_base_file = dir.clone();
-        cnode_base_file.push("cnode_base.svg");
+        let mut cnode_level_file = dir.clone();
+        cnode_level_file.push("cnode_level.svg");
         let mut cnode_hierarchy_file = dir;
         cnode_hierarchy_file.push("cnode_hierarchy.svg");
         let res = self.verify_integrity();
         render_to_svg_file(&self.to_cnode_backrefs_debug(), false, cnode_backrefs_file).unwrap();
-        render_to_svg_file(&self.to_cnode_base_level_debug(), false, cnode_base_file).unwrap();
+        render_to_svg_file(&self.to_cnode_level_debug(lvl), false, cnode_level_file).unwrap();
         render_to_svg_file(
             &self.to_cnode_hierarchy_debug(),
             false,
