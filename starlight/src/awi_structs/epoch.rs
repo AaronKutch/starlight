@@ -494,10 +494,14 @@ pub fn _callback() -> EpochCallback {
         })
     }
     fn register_assertion_bit(bit: dag::bool, location: Location) {
-        if let Some(awi) = bit.state().try_get_as_awi() {
+        let need_register = if let Some(awi) = bit.state().try_get_as_awi() {
             assert_eq!(awi.bw(), 1);
-            // don't need to do anything
+            // only need to register false bits so the location can get propogated
+            awi.is_zero()
         } else {
+            true
+        };
+        if need_register {
             // need a new bit to attach new location data to
             let new_bit = new_pstate(bw(1), Op::Assert([bit.state()]), Some(location));
             let eval_awi = EvalAwi::from_state(new_bit);

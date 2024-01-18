@@ -123,12 +123,10 @@ impl Programmability {
     pub fn debug_strings(&self) -> Vec<String> {
         let mut v = vec![];
         match self {
-            Programmability::StaticLut(lut) => v.push(format!("{}", lut.bw().trailing_zeros())),
-            Programmability::ArbitraryLut(lut) => {
-                v.push(format!("ArbLut {}", lut.len().trailing_zeros()))
-            }
+            Programmability::StaticLut(lut) => v.push(format!("{}", lut)),
+            Programmability::ArbitraryLut(lut) => v.push(format!("ArbLut {}", lut.len())),
             Programmability::SelectorLut(selector_lut) => {
-                v.push(format!("SelLut {}", selector_lut.v.len().trailing_zeros()))
+                v.push(format!("SelLut {}", selector_lut.v.len()))
             }
             Programmability::Bulk(bulk) => {
                 let mut s = String::new();

@@ -1,4 +1,9 @@
-use starlight::{awi, awi::*, dag, Epoch, EvalAwi, LazyAwi};
+use starlight::{
+    awi,
+    awi::*,
+    awint_dag::{epoch::register_assertion_bit_for_current_epoch, Location},
+    dag, Epoch, EvalAwi, LazyAwi,
+};
 
 #[test]
 fn lazy_awi() {
@@ -74,6 +79,18 @@ fn multiplier() {
 
         input_a.retro_u16_(10u16).unwrap();
         std::assert_eq!(output.eval_u32().unwrap(), 770u32);
+    }
+    drop(epoch);
+}
+
+#[test]
+fn const_assertion_fail() {
+    let epoch = Epoch::new();
+    // directly register because most of the functions calling this have their own
+    // handling
+    register_assertion_bit_for_current_epoch(false.into(), Location::dummy());
+    {
+        awi::assert!(epoch.assert_assertions(false).is_err());
     }
     drop(epoch);
 }
