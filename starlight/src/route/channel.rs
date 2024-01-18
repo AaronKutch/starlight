@@ -198,7 +198,9 @@ impl Channeler {
                     selector_lut.verify_integrity(sources_len)?;
                     true
                 }
-                Programmability::Bulk(_) => todo!(),
+                Programmability::Bulk(bulk_behavior) => {
+                    bulk_behavior.channel_entry_widths.len() == cedge.sources().len()
+                }
             };
             if !ok {
                 return Err(Error::OtherString(format!(

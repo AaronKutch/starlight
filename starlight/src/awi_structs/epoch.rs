@@ -494,25 +494,30 @@ pub fn _callback() -> EpochCallback {
         })
     }
     fn register_assertion_bit(bit: dag::bool, location: Location) {
-        // need a new bit to attach new location data to
-        let new_bit = new_pstate(bw(1), Op::Assert([bit.state()]), Some(location));
-        let eval_awi = EvalAwi::from_state(new_bit);
-        // manual to get around closure issue
-        CURRENT_EPOCH.with(|top| {
-            let mut top = top.borrow_mut();
-            if let Some(current) = top.as_mut() {
-                let mut epoch_data = current.epoch_data.borrow_mut();
-                epoch_data
-                    .responsible_for
-                    .get_mut(current.p_self)
-                    .unwrap()
-                    .assertions
-                    .bits
-                    .push(eval_awi);
-            } else {
-                panic!("There needs to be an `Epoch` in scope for this to work");
-            }
-        })
+        if let Some(awi) = bit.state().try_get_as_awi() {
+            assert_eq!(awi.bw(), 1);
+            // don't need to do anything
+        } else {
+            // need a new bit to attach new location data to
+            let new_bit = new_pstate(bw(1), Op::Assert([bit.state()]), Some(location));
+            let eval_awi = EvalAwi::from_state(new_bit);
+            // manual to get around closure issue
+            CURRENT_EPOCH.with(|top| {
+                let mut top = top.borrow_mut();
+                if let Some(current) = top.as_mut() {
+                    let mut epoch_data = current.epoch_data.borrow_mut();
+                    epoch_data
+                        .responsible_for
+                        .get_mut(current.p_self)
+                        .unwrap()
+                        .assertions
+                        .bits
+                        .push(eval_awi);
+                } else {
+                    panic!("There needs to be an `Epoch` in scope for this to work");
+                }
+            })
+        }
     }
     fn get_nzbw(p_state: PState) -> NonZeroUsize {
         no_recursive_current_epoch(|current| {
