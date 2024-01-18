@@ -6,7 +6,7 @@ use crate::route::{channel::Referent, BulkBehavior, Channeler, PBack, Programmab
 
 #[derive(Debug, Clone)]
 pub struct InternalBehavior {
-    lut_bits: usize,
+    pub lut_bits: usize,
 }
 
 impl InternalBehavior {
@@ -24,10 +24,21 @@ pub struct CNode {
     pub internal_behavior: InternalBehavior,
 }
 
+impl CNode {
+    pub fn internal_behavior(&self) -> &InternalBehavior {
+        &self.internal_behavior
+    }
+}
+
 impl Channeler {
     /// Given the `subnodes` (which should point to unique `ThisCNode`s) for a
     /// new top level `CNode`, this will manage the backrefs
-    pub fn make_top_level_cnode<I>(&mut self, subnodes: I, lvl: u16) -> PBack
+    pub fn make_top_level_cnode<I>(
+        &mut self,
+        subnodes: I,
+        lvl: u16,
+        internal_behavior: InternalBehavior,
+    ) -> PBack
     where
         I: IntoIterator<Item = PBack>,
     {
@@ -36,7 +47,7 @@ impl Channeler {
                 p_this_cnode,
                 lvl,
                 has_supernode: false,
-                internal_behavior: InternalBehavior::empty(),
+                internal_behavior,
             })
         });
         for subnode in subnodes {
@@ -153,7 +164,11 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                     }
                 }
                 // concentrate
-                channeler.make_top_level_cnode(related.keys().copied(), next_lvl);
+                channeler.make_top_level_cnode(
+                    related.keys().copied(),
+                    next_lvl,
+                    InternalBehavior::empty(),
+                );
 
                 concentrated = true;
             }
@@ -171,7 +186,12 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 if (cnode.lvl != current_lvl) || cnode.has_supernode {
                     continue
                 }
-                channeler.make_top_level_cnode([p_consider], next_lvl);
+                // need to also forward the internal behavior
+                channeler.make_top_level_cnode(
+                    [p_consider],
+                    next_lvl,
+                    cnode.internal_behavior().clone(),
+                );
             }
         }
 
@@ -349,10 +369,15 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
     if channeler.top_level_cnodes.len() > 1 {
         let mut set = vec![];
         let mut max_lvl = 0;
+        let mut lut_bits = 0usize;
         for p_cnode in channeler.top_level_cnodes.keys() {
             set.push(*p_cnode);
-            max_lvl = max(max_lvl, channeler.cnodes.get_val(*p_cnode).unwrap().lvl)
+            let cnode = channeler.cnodes.get_val(*p_cnode).unwrap();
+            max_lvl = max(max_lvl, cnode.lvl);
+            lut_bits = lut_bits
+                .checked_add(cnode.internal_behavior().lut_bits)
+                .unwrap();
         }
-        channeler.make_top_level_cnode(set, max_lvl);
+        channeler.make_top_level_cnode(set, max_lvl, InternalBehavior { lut_bits });
     }
 }

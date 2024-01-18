@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{fmt::Write, num::NonZeroUsize};
 
 use awint::{
     awint_dag::triple_arena::{
@@ -11,7 +11,11 @@ use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble,
     ensemble::{DynamicValue, Ensemble, LNodeKind},
-    route::{channel::Referent, cnode::generate_hierarchy, CNode, Channeler, Configurator, PBack},
+    route::{
+        channel::Referent,
+        cnode::{generate_hierarchy, InternalBehavior},
+        CNode, Channeler, Configurator, PBack,
+    },
     triple_arena::ptr_struct,
     Error, SuspendedEpoch,
 };
@@ -113,6 +117,30 @@ pub enum Programmability {
 
     /// Bulk behavior
     Bulk(BulkBehavior),
+}
+
+impl Programmability {
+    pub fn debug_strings(&self) -> Vec<String> {
+        let mut v = vec![];
+        match self {
+            Programmability::StaticLut(lut) => v.push(format!("{}", lut.bw().trailing_zeros())),
+            Programmability::ArbitraryLut(lut) => {
+                v.push(format!("ArbLut {}", lut.len().trailing_zeros()))
+            }
+            Programmability::SelectorLut(selector_lut) => {
+                v.push(format!("SelLut {}", selector_lut.v.len().trailing_zeros()))
+            }
+            Programmability::Bulk(bulk) => {
+                let mut s = String::new();
+                for width in &bulk.channel_entry_widths {
+                    write!(s, " {}", width).unwrap();
+                }
+                v.push(s);
+                v.push(format!("lut_bits {}", bulk.lut_bits));
+            }
+        }
+        v
+    }
 }
 
 /// An edge between channels
@@ -238,7 +266,7 @@ impl Channeler {
                 .find_key(&equiv.p_self_equiv)
                 .is_none()
             {
-                let p_cnode = channeler.make_top_level_cnode(vec![], 0);
+                let p_cnode = channeler.make_top_level_cnode(vec![], 0, InternalBehavior::empty());
                 let channeler_backref = channeler
                     .cnodes
                     .insert_key(p_cnode, Referent::EnsembleBackRef(equiv.p_self_equiv))

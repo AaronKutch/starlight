@@ -94,7 +94,12 @@ impl DebugNodeTrait<PBack> for LevelNodeKind {
         match this {
             LevelNodeKind::CNode(cnode) => DebugNode {
                 sources: vec![],
-                center: { vec!["cnode".to_owned(), format!("{}", cnode.p_this_cnode)] },
+                center: {
+                    vec![
+                        format!("{} cnode {}", cnode.lvl, cnode.internal_behavior.lut_bits),
+                        format!("{}", cnode.p_this_cnode),
+                    ]
+                },
                 sinks: vec![],
             },
             LevelNodeKind::CEdge(cedge, cedge_forwarded) => DebugNode {
@@ -107,16 +112,7 @@ impl DebugNodeTrait<PBack> for LevelNodeKind {
                     }
                     v
                 },
-                center: {
-                    let mut v = vec![];
-                    v.push(match cedge_forwarded.programmability() {
-                        Programmability::StaticLut(_) => "StaticLut".to_owned(),
-                        Programmability::ArbitraryLut(_) => "ArbitraryLut".to_owned(),
-                        Programmability::SelectorLut(_) => "SelectorLut".to_owned(),
-                        Programmability::Bulk(_) => "Bulk".to_owned(),
-                    });
-                    v
-                },
+                center: { cedge.programmability().debug_strings() },
                 sinks: { vec![(cedge_forwarded.sink(), "".to_owned())] },
             },
             LevelNodeKind::Remove => panic!("should have been removed"),
@@ -142,7 +138,12 @@ impl DebugNodeTrait<PBack> for HierarchyNodeKind {
                 } else {
                     vec![]
                 },
-                center: { vec!["cnode".to_owned(), format!("{}", cnode.p_this_cnode)] },
+                center: {
+                    vec![
+                        format!("{} cnode {}", cnode.lvl, cnode.internal_behavior.lut_bits),
+                        format!("{}", cnode.p_this_cnode),
+                    ]
+                },
                 sinks: vec![],
             },
             HierarchyNodeKind::CEdge(cedge, cedge_forwarded) => DebugNode {
@@ -155,16 +156,7 @@ impl DebugNodeTrait<PBack> for HierarchyNodeKind {
                     }
                     v
                 },
-                center: {
-                    let mut v = vec![];
-                    v.push(match cedge_forwarded.programmability() {
-                        Programmability::StaticLut(_) => "StaticLut".to_owned(),
-                        Programmability::ArbitraryLut(_) => "ArbitraryLut".to_owned(),
-                        Programmability::SelectorLut(_) => "SelectorLut".to_owned(),
-                        Programmability::Bulk(_) => "Bulk".to_owned(),
-                    });
-                    v
-                },
+                center: { cedge.programmability().debug_strings() },
                 sinks: { vec![(cedge_forwarded.sink(), "".to_owned())] },
             },
             HierarchyNodeKind::Remove => panic!("should have been removed"),
