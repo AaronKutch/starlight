@@ -372,20 +372,18 @@ impl Channeler {
         Ok(channeler)
     }
 
-    /// Advances over all neighbors of a node exactly once (do not mutate the
-    /// surject of `p`). Note that `CNodeNeighborAdvancer` has a function for
-    /// getting the unique nodes. Excludes `p` itself.
-    pub fn neighbors_of_node(&self, p: PBack) -> OrdArena<PUniqueCNode, PBack, ()> {
+    /// Returns an `OrdArena` of `ThisCNode` `PBack`s of `p` itself and all
+    /// nodes directly incident to it through edges.
+    pub fn related_nodes(&self, p: PBack) -> OrdArena<PUniqueCNode, PBack, ()> {
         let mut res = OrdArena::new();
+        res.insert(p, ());
         let mut adv = self.cnodes.advancer_surject(p);
         while let Some(p_referent) = adv.advance(&self.cnodes) {
             if let Referent::CEdgeIncidence(p_cedge, _) = self.cnodes.get_key(p_referent).unwrap() {
                 let cedge = self.cedges.get(*p_cedge).unwrap();
                 cedge.incidents(|p_incident| {
                     let p_tmp = self.cnodes.get_val(p_incident).unwrap().p_this_cnode;
-                    if p_tmp != p {
-                        let _ = res.insert(p_tmp, ());
-                    }
+                    let _ = res.insert(p_tmp, ());
                 });
             }
         }

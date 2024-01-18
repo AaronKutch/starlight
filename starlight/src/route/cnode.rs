@@ -141,15 +141,19 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 if (cnode.lvl != current_lvl) || cnode.has_supernode {
                     continue
                 }
-                let neighbors = channeler.neighbors_of_node(p_consider);
+                let related = channeler.related_nodes(p_consider);
+                if related.len() == 1 {
+                    // the node is disconnected
+                    continue
+                }
                 // check if the node's neighbors have supernodes
-                for p_neighbor in neighbors.keys() {
+                for p_neighbor in related.keys() {
                     if channeler.cnodes.get_val(*p_neighbor).unwrap().has_supernode {
                         continue 'over_cnodes;
                     }
                 }
                 // concentrate
-                channeler.make_top_level_cnode(neighbors.keys().copied(), next_lvl);
+                channeler.make_top_level_cnode(related.keys().copied(), next_lvl);
 
                 concentrated = true;
             }
@@ -159,7 +163,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
             break
         }
         // for nodes that couldn't be concentrated, create single subnode supernodes for
-        // them
+        // them, so that edges are only between nodes at the same level
         let mut adv = channeler.cnodes.advancer();
         while let Some(p_consider) = adv.advance(&channeler.cnodes) {
             if let Referent::ThisCNode = channeler.cnodes.get_key(p_consider).unwrap() {
@@ -194,9 +198,9 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                 let mut related_subnodes_set = OrdArena::<P1, PBack, ()>::new();
                 let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
                 while let Some(p_subnode) = subnode_adv.advance(channeler) {
-                    for p_neighbor in channeler.neighbors_of_node(p_subnode).keys() {
-                        if subnode_set.find_key(&p_neighbor).is_none() {
-                            let _ = related_subnodes_set.insert(*p_neighbor, ());
+                    for p_related in channeler.related_nodes(p_subnode).keys() {
+                        if subnode_set.find_key(p_related).is_none() {
+                            let _ = related_subnodes_set.insert(*p_related, ());
                         }
                     }
                 }
