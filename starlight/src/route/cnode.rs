@@ -157,17 +157,31 @@ pub fn generate_hierarchy(channeler: &mut Channeler) {
                     // the node is disconnected
                     continue
                 }
-                // check if the node's neighbors have supernodes
-                for p_neighbor in related.keys() {
-                    if channeler.cnodes.get_val(*p_neighbor).unwrap().has_supernode {
+                // check if any related nodes have supernodes
+                for p_related in related.keys() {
+                    if channeler.cnodes.get_val(*p_related).unwrap().has_supernode {
                         continue 'over_cnodes;
                     }
+                }
+                // add up internal bits
+                let mut lut_bits = 0usize;
+                for p in related.keys() {
+                    lut_bits = lut_bits
+                        .checked_add(
+                            channeler
+                                .cnodes
+                                .get_val(*p)
+                                .unwrap()
+                                .internal_behavior()
+                                .lut_bits,
+                        )
+                        .unwrap();
                 }
                 // concentrate
                 channeler.make_top_level_cnode(
                     related.keys().copied(),
                     next_lvl,
-                    InternalBehavior::empty(),
+                    InternalBehavior { lut_bits },
                 );
 
                 concentrated = true;
