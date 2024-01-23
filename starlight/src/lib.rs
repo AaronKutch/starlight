@@ -170,8 +170,10 @@
 mod awi_structs;
 /// Data structure internals used by this crate
 pub mod ensemble;
+/// Internal definitions used in lowering
 pub mod lower;
 mod misc;
+/// WIP routing functionality
 pub mod route;
 pub use awi_structs::{
     epoch, Assertions, Epoch, EvalAwi, LazyAwi, LazyInlAwi, Loop, Net, SuspendedEpoch,
