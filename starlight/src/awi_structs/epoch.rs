@@ -3,19 +3,30 @@
 
 #![allow(clippy::new_without_default)]
 
-use std::{cell::RefCell, mem, num::NonZeroUsize, rc::Rc, thread::panicking};
+use std::{
+    cell::RefCell,
+    fmt::Debug,
+    mem::{self},
+    num::NonZeroUsize,
+    rc::Rc,
+    thread::panicking,
+};
 
 use awint::{
     awint_dag::{
         epoch::{EpochCallback, EpochKey},
         triple_arena::{ptr_struct, Advancer, Arena},
-        EvalError, Lineage, Location, Op, PState,
+        Lineage, Location, Op, PState,
     },
     bw, dag,
 };
 
-use crate::{ensemble::Ensemble, EvalAwi};
+use crate::{
+    ensemble::{Ensemble, Value},
+    Error, EvalAwi,
+};
 
+/// A list of single bit `EvalAwi`s for assertions
 #[derive(Debug, Clone)]
 pub struct Assertions {
     pub bits: Vec<EvalAwi>,
@@ -35,6 +46,7 @@ impl Default for Assertions {
 
 ptr_struct!(PEpochShared);
 
+/// Data stored  in `EpochData` per each live `EpochShared`
 #[derive(Debug)]
 pub struct PerEpochShared {
     pub states_inserted: Vec<PState>,
@@ -50,51 +62,82 @@ impl PerEpochShared {
     }
 }
 
+/// The unit of data that gets a registered `awint_dag` `EpochKey`, and which
+/// several `EpochShared`s can share
+///
 /// # Custom Drop
 ///
-/// This deregisters the `awint_dag::epoch::EpochKey` upon being dropped
-#[derive(Debug)]
+/// This struct should have its `epoch_key` popped off the stack and
+/// `responsible_for` emptied before being dropped normally. During a panic, the
+/// order of TLS operations is unspecified, and in practice
+/// `std::thread::panicking` can return false during the drop code of structs in
+/// TLS even if the thread is panicking. So, the drop code for `EpochData` does
+/// nothing with the `EpochKey` and `mem::forget`s the `EvalAwi` assertions.
 pub struct EpochData {
-    pub epoch_key: EpochKey,
+    pub epoch_key: Option<EpochKey>,
     pub ensemble: Ensemble,
     pub responsible_for: Arena<PEpochShared, PerEpochShared>,
 }
 
 impl Drop for EpochData {
     fn drop(&mut self) {
-        // prevent invoking recursive panics and a buffer overrun
-        if !panicking() {
-            // if `responsible_for` is not empty, then this `EpochData` is probably being
-            // dropped in a special case like a panic (I have `panicking` guards on all the
-            // impls, but it seems that in some cases that for some reason a panic on unwrap
-            // can start dropping `EpochData`s before the `Epoch`s, and there are
-            // arbitrarily bad interactions so we always need to forget any `EvalAwi`s here)
-            // in which the `Epoch` is not going to be useful anyway. We need to
-            // `mem::forget` just the `EvalAwi`s of the assertions
-            for (_, mut shared) in self.responsible_for.drain() {
-                for eval_awi in shared.assertions.bits.drain(..) {
-                    // avoid the `EvalAwi` drop code trying to access recursively
-                    mem::forget(eval_awi);
-                }
+        for (_, mut shared) in self.responsible_for.drain() {
+            for eval_awi in shared.assertions.bits.drain(..) {
+                // avoid the `EvalAwi` drop code
+                mem::forget(eval_awi);
             }
-            self.epoch_key.pop_off_epoch_stack();
         }
     }
 }
 
-// `awint_dag::epoch` has a stack system which this uses, but this can have its
-// own stack on top of that.
+impl Debug for EpochData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EpochData")
+            .field("epoch_key", &self.epoch_key)
+            .field("responsible_for.len()", &self.responsible_for.len())
+            .finish()
+    }
+}
+
+/// The raw internal management struct for `Epoch`s. Most users should be using
+/// `Epoch`.
+///
+/// `awint_dag::epoch` has a stack system which this uses, but this can have its
+/// own stack on top of that.
+///
+/// This raw version of `Epoch` has no drop code and all things need to be
+/// carefully handled to avoid virtual leakage or trying to call
+/// `remove_as_current` twice.
 #[derive(Clone)]
 pub struct EpochShared {
     pub epoch_data: Rc<RefCell<EpochData>>,
     pub p_self: PEpochShared,
 }
 
+impl Debug for EpochShared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Ok(epoch_data) = self.epoch_data.try_borrow() {
+            f.debug_struct("EpochShared")
+                .field("epoch_data", &epoch_data)
+                .field("p_self", &self.p_self)
+                .finish()
+        } else {
+            f.debug_struct("EpochShared")
+                .field(
+                    "epoch_data (already borrowed, cannot display in `Debug` impl)",
+                    &(),
+                )
+                .field("p_self", &self.p_self)
+                .finish()
+        }
+    }
+}
+
 impl EpochShared {
-    /// Creates a new `Ensemble` and registers a new `EpochCallback`.
+    /// Creates a new `EpochData` and registers a new `EpochCallback`.
     pub fn new() -> Self {
         let mut epoch_data = EpochData {
-            epoch_key: _callback().push_on_epoch_stack(),
+            epoch_key: Some(_callback().push_on_epoch_stack()),
             ensemble: Ensemble::new(),
             responsible_for: Arena::new(),
         };
@@ -105,7 +148,8 @@ impl EpochShared {
         }
     }
 
-    /// Does _not_ register a new `EpochCallback`, instead
+    /// Does _not_ register a new `EpochCallback`, instead adds a new
+    /// `PerEpochShared` to the current `EpochData` of `other`
     pub fn shared_with(other: &Self) -> Self {
         let p_self = other
             .epoch_data
@@ -116,6 +160,110 @@ impl EpochShared {
             epoch_data: Rc::clone(&other.epoch_data),
             p_self,
         }
+    }
+
+    /// Sets `self` as the current `EpochShared` with respect to the starlight
+    /// stack (does not affect whatever the `awint_dag` stack is doing)
+    pub fn set_as_current(&self) {
+        CURRENT_EPOCH.with(|top| {
+            let mut current = top.borrow_mut();
+            if let Some(current) = current.take() {
+                EPOCH_STACK.with(|top| {
+                    let mut stack = top.borrow_mut();
+                    stack.push(current);
+                })
+            }
+            *current = Some(self.clone());
+        });
+    }
+
+    /// Removes `self` as the current `EpochShared` with respect to the
+    /// starlight stack. Returns an error if there is no current `EpochShared`
+    /// or `self.epoch_data` did not match the current.
+    pub fn remove_as_current(&self) -> Result<(), &'static str> {
+        EPOCH_STACK.with(|top| {
+            let mut stack = top.borrow_mut();
+            let next_current = stack.pop();
+            CURRENT_EPOCH.with(|top| {
+                let mut current = top.borrow_mut();
+                if let Some(ref to_drop) = current.take() {
+                    if Rc::ptr_eq(&to_drop.epoch_data, &self.epoch_data) {
+                        *current = next_current;
+                        Ok(())
+                    } else {
+                        // return the error how most users will trigger it
+                        Err(
+                            "tried to drop or suspend an `Epoch` out of stacklike order before \
+                             dropping or suspending the current `Epoch`",
+                        )
+                    }
+                } else {
+                    Err(
+                        "`remove_as_current` encountered no current `EpochShared`, which should \
+                         not be possible if an `Epoch` still exists",
+                    )
+                }
+            })
+        })
+    }
+
+    /// Removes states and drops assertions from the `Ensemble` that were
+    /// associated with this particular `EpochShared`. This also deregisters the
+    /// `EpochCallback` if this was the last `EpochShared` with a
+    /// `PerEpochShared` in the `EpochData`.
+    ///
+    /// This function should not be called more than once per `self.p_self`.
+    pub fn drop_associated(&self) -> Result<(), Error> {
+        let mut lock = self.epoch_data.borrow_mut();
+        if let Some(ours) = lock.responsible_for.remove(self.p_self) {
+            for p_state in &ours.states_inserted {
+                let _ = lock.ensemble.remove_state(*p_state);
+            }
+            drop(lock);
+            // drop the `EvalAwi`s of the assertions after unlocking
+            drop(ours);
+
+            let mut lock = self.epoch_data.borrow_mut();
+            if lock.responsible_for.is_empty() {
+                // we are the last `EpochShared`
+                match lock.epoch_key.take().unwrap().pop_off_epoch_stack() {
+                    Ok(()) => (),
+                    Err((self_gen, top_gen)) => {
+                        return Err(Error::OtherString(format!(
+                            "The last `starlight::Epoch` or `starlight::SuspendedEpoch` of a \
+                             group of one or more shared `Epoch`s was dropped out of stacklike \
+                             order, such that an `awint_dag::epoch::EpochKey` with generation {} \
+                             was attempted to be dropped before the current key with generation \
+                             {}. This may be because explicit `drop`s of `Epoch`s should be used \
+                             in a different order.",
+                            self_gen, top_gen
+                        )));
+                    }
+                }
+            }
+            Ok(())
+        } else {
+            Err(Error::OtherStr(
+                "should be unreachable: called `EpochShared::drop_associated` on the same \
+                 `EpochShared`",
+            ))
+        }
+    }
+
+    /// Access to the `Ensemble`
+    pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, mut f: F) -> O {
+        f(&self.epoch_data.borrow().ensemble)
+    }
+
+    /// Takes the `Vec<PState>` corresponding to just states added when the
+    /// current `EpochShared` was active. This also means that
+    /// `remove_associated` done immediately after this will only remove
+    /// assertions, responsibility should be taken over for the `PState`s
+    /// returned by this function
+    pub fn take_states_added(&mut self) -> Vec<PState> {
+        let mut epoch_data = self.epoch_data.borrow_mut();
+        let ours = epoch_data.responsible_for.get_mut(self.p_self).unwrap();
+        mem::take(&mut ours.states_inserted)
     }
 
     /// Returns a clone of the assertions currently associated with `self`
@@ -141,9 +289,11 @@ impl EpochShared {
         Assertions { bits: cloned }
     }
 
-    /// Using `EpochShared::assertions` creates all new `Assertions`. This
-    /// eliminates assertions that evaluate to a constant true.
-    pub fn assert_assertions(&self, strict: bool) -> Result<(), EvalError> {
+    /// This evaluates all associated assertions of this `EpochShared`
+    /// (returning an error if any are false, and returning an error on
+    /// unevaluatable assertions if `strict`), and eliminates assertions
+    /// that evaluate to a constant true.
+    pub fn assert_assertions(&self, strict: bool) -> Result<(), Error> {
         let p_self = self.p_self;
         let epoch_data = self.epoch_data.borrow();
         let mut len = epoch_data
@@ -168,28 +318,31 @@ impl EpochShared {
                 .assertions
                 .bits[i];
             let p_state = eval_awi.state();
-            let p_note = eval_awi.p_note();
+            let p_external = eval_awi.p_external();
             drop(epoch_data);
-            let val = Ensemble::calculate_thread_local_note_value(p_note, 0)?;
+            let val = Ensemble::calculate_thread_local_rnode_value(p_external, 0)?;
             if let Some(val) = val.known_value() {
                 if !val {
                     let epoch_data = self.epoch_data.borrow();
                     let s = epoch_data.ensemble.get_state_debug(p_state);
                     if let Some(s) = s {
-                        return Err(EvalError::OtherString(format!(
-                            "an assertion bit evaluated to false, failed on {p_note} {:?}",
+                        return Err(Error::OtherString(format!(
+                            "an assertion bit evaluated to false, failed on {p_external} {:?}",
                             s
                         )))
                     } else {
-                        return Err(EvalError::OtherString(format!(
-                            "an assertion bit evaluated to false, failed on {p_note} {p_state}"
+                        return Err(Error::OtherString(format!(
+                            "an assertion bit evaluated to false, failed on {p_external} {p_state}"
                         )))
                     }
                 }
             } else if unknown.is_none() {
                 // get the earliest failure to evaluate, should be closest to the root cause.
                 // Wait for all bits to be checked for falsity
-                unknown = Some((p_note, p_state));
+                unknown = Some((p_external, p_state));
+            }
+            if (val == Value::ConstUnknown) && strict && unknown.is_none() {
+                unknown = Some((p_external, p_state));
             }
             if val.is_const() {
                 // remove the assertion
@@ -209,19 +362,19 @@ impl EpochShared {
             }
         }
         if strict {
-            if let Some((p_note, p_state)) = unknown {
+            if let Some((p_external, p_state)) = unknown {
                 let epoch_data = self.epoch_data.borrow();
                 let s = epoch_data.ensemble.get_state_debug(p_state);
                 if let Some(s) = s {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "an assertion bit could not be evaluated to a known value, failed on \
-                         {p_note} {:?}",
+                         {p_external} {}",
                         s
                     )))
                 } else {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "an assertion bit could not be evaluated to a known value, failed on \
-                         {p_note} {p_state}"
+                         {p_external} {p_state}"
                     )))
                 }
             }
@@ -229,98 +382,18 @@ impl EpochShared {
         Ok(())
     }
 
-    /// Returns a clone of the ensemble
-    pub fn ensemble(&self) -> Ensemble {
-        self.epoch_data.borrow().ensemble.clone()
-    }
-
-    pub fn assertions_empty(&self) -> bool {
-        let epoch_data = self.epoch_data.borrow();
-        let ours = epoch_data.responsible_for.get(self.p_self).unwrap();
-        ours.assertions.bits.is_empty()
-    }
-
-    pub fn take_states_added(&mut self) -> Vec<PState> {
-        let mut epoch_data = self.epoch_data.borrow_mut();
-        let ours = epoch_data.responsible_for.get_mut(self.p_self).unwrap();
-        mem::take(&mut ours.states_inserted)
-    }
-
-    /// Removes associated states and assertions
-    pub fn remove_associated(&self) {
-        let mut epoch_data = self.epoch_data.borrow_mut();
-        let ours = epoch_data.responsible_for.remove(self.p_self).unwrap();
-        for p_state in &ours.states_inserted {
-            let _ = epoch_data.ensemble.remove_state(*p_state);
-        }
-        drop(epoch_data);
-        // drop the `EvalAwi`s of the assertions after unlocking
-        drop(ours);
-    }
-
-    pub fn set_as_current(&self) {
-        CURRENT_EPOCH.with(|top| {
-            let mut current = top.borrow_mut();
-            if let Some(current) = current.take() {
-                EPOCH_STACK.with(|top| {
-                    let mut stack = top.borrow_mut();
-                    stack.push(current);
-                })
-            }
-            *current = Some(self.clone());
-        });
-    }
-
-    pub fn remove_as_current(&self) {
-        EPOCH_STACK.with(|top| {
-            let mut stack = top.borrow_mut();
-            if let Some(next_current) = stack.pop() {
-                CURRENT_EPOCH.with(|top| {
-                    let mut current = top.borrow_mut();
-                    if let Some(to_drop) = current.take() {
-                        if !Rc::ptr_eq(&to_drop.epoch_data, &self.epoch_data) {
-                            panic!(
-                                "tried to drop an `Epoch` out of stacklike order before dropping \
-                                 the current one"
-                            );
-                        }
-                        *current = Some(next_current);
-                    } else {
-                        // there should be something current if the `Epoch` still exists
-                        unreachable!()
-                    }
-                });
-            } else {
-                CURRENT_EPOCH.with(|top| {
-                    let mut current = top.borrow_mut();
-                    if let Some(to_drop) = current.take() {
-                        if !Rc::ptr_eq(&to_drop.epoch_data, &self.epoch_data) {
-                            panic!(
-                                "tried to drop an `Epoch` out of stacklike order before dropping \
-                                 the current one"
-                            );
-                        }
-                    } else {
-                        // there should be something current if the `Epoch` still exists
-                        unreachable!()
-                    }
-                });
-            }
-        });
-    }
-
-    fn internal_drive_loops_with_lower_capability(&self) -> Result<(), EvalError> {
+    fn internal_drive_loops_with_lower_capability(&self) -> Result<(), Error> {
         // `Loop`s register states to lower so that the below loops can find them
         Ensemble::handle_requests_with_lower_capability(self)?;
         // first evaluate all loop drivers
         let lock = self.epoch_data.borrow();
-        let mut adv = lock.ensemble.lnodes.advancer();
+        let mut adv = lock.ensemble.tnodes.advancer();
         drop(lock);
         loop {
             let lock = self.epoch_data.borrow();
-            if let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
-                let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
-                let p_driver = lnode.p_driver;
+            if let Some(p_tnode) = adv.advance(&lock.ensemble.tnodes) {
+                let tnode = lock.ensemble.tnodes.get(p_tnode).unwrap();
+                let p_driver = tnode.p_driver;
                 drop(lock);
                 Ensemble::calculate_value_with_lower_capability(self, p_driver)?;
             } else {
@@ -329,33 +402,33 @@ impl EpochShared {
         }
         // second do all loopback changes
         let mut lock = self.epoch_data.borrow_mut();
-        let mut adv = lock.ensemble.lnodes.advancer();
-        while let Some(p_lnode) = adv.advance(&lock.ensemble.lnodes) {
-            let lnode = lock.ensemble.lnodes.get(p_lnode).unwrap();
-            let val = lock.ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
-            let p_self = lnode.p_self;
+        let mut adv = lock.ensemble.tnodes.advancer();
+        while let Some(p_tnode) = adv.advance(&lock.ensemble.tnodes) {
+            let tnode = lock.ensemble.tnodes.get(p_tnode).unwrap();
+            let val = lock.ensemble.backrefs.get_val(tnode.p_driver).unwrap().val;
+            let p_self = tnode.p_self;
             lock.ensemble.change_value(p_self, val).unwrap();
         }
         Ok(())
     }
 
-    fn internal_drive_loops(&self) -> Result<(), EvalError> {
+    fn internal_drive_loops(&self) -> Result<(), Error> {
         // first evaluate all loop drivers
         let mut lock = self.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
 
-        let mut adv = ensemble.lnodes.advancer();
-        while let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
-            let lnode = ensemble.lnodes.get(p_lnode).unwrap();
-            let p_driver = lnode.p_driver;
+        let mut adv = ensemble.tnodes.advancer();
+        while let Some(p_tnode) = adv.advance(&ensemble.tnodes) {
+            let tnode = ensemble.tnodes.get(p_tnode).unwrap();
+            let p_driver = tnode.p_driver;
             ensemble.calculate_value(p_driver)?;
         }
         // second do all loopback changes
-        let mut adv = ensemble.lnodes.advancer();
-        while let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
-            let lnode = ensemble.lnodes.get(p_lnode).unwrap();
-            let val = ensemble.backrefs.get_val(lnode.p_driver).unwrap().val;
-            let p_self = lnode.p_self;
+        let mut adv = ensemble.tnodes.advancer();
+        while let Some(p_tnode) = adv.advance(&ensemble.tnodes) {
+            let tnode = ensemble.tnodes.get(p_tnode).unwrap();
+            let val = ensemble.backrefs.get_val(tnode.p_driver).unwrap().val;
+            let p_self = tnode.p_self;
             ensemble.change_value(p_self, val).unwrap();
         }
         Ok(())
@@ -371,6 +444,8 @@ thread_local!(
     static EPOCH_STACK: RefCell<Vec<EpochShared>> = RefCell::new(vec![]);
 );
 
+/// Returns a clone of the current `EpochShared`, or return `None` if there is
+/// none
 #[must_use]
 pub fn get_current_epoch() -> Option<EpochShared> {
     CURRENT_EPOCH.with(|top| {
@@ -379,7 +454,7 @@ pub fn get_current_epoch() -> Option<EpochShared> {
     })
 }
 
-/// Do no call recursively.
+/// Allows access to the current epoch. Do no call recursively.
 pub fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T {
     CURRENT_EPOCH.with(|top| {
         let top = top.borrow();
@@ -391,7 +466,7 @@ pub fn no_recursive_current_epoch<T, F: FnMut(&EpochShared) -> T>(mut f: F) -> T
     })
 }
 
-/// Do no call recursively.
+/// Allows mutable access to the current epoch. Do no call recursively.
 pub fn no_recursive_current_epoch_mut<T, F: FnMut(&mut EpochShared) -> T>(mut f: F) -> T {
     CURRENT_EPOCH.with(|top| {
         let mut top = top.borrow_mut();
@@ -419,25 +494,34 @@ pub fn _callback() -> EpochCallback {
         })
     }
     fn register_assertion_bit(bit: dag::bool, location: Location) {
-        // need a new bit to attach new location data to
-        let new_bit = new_pstate(bw(1), Op::Assert([bit.state()]), Some(location));
-        let eval_awi = EvalAwi::from_state(new_bit);
-        // manual to get around closure issue
-        CURRENT_EPOCH.with(|top| {
-            let mut top = top.borrow_mut();
-            if let Some(current) = top.as_mut() {
-                let mut epoch_data = current.epoch_data.borrow_mut();
-                epoch_data
-                    .responsible_for
-                    .get_mut(current.p_self)
-                    .unwrap()
-                    .assertions
-                    .bits
-                    .push(eval_awi);
-            } else {
-                panic!("There needs to be an `Epoch` in scope for this to work");
-            }
-        })
+        let need_register = if let Some(awi) = bit.state().try_get_as_awi() {
+            assert_eq!(awi.bw(), 1);
+            // only need to register false bits so the location can get propogated
+            awi.is_zero()
+        } else {
+            true
+        };
+        if need_register {
+            // need a new bit to attach new location data to
+            let new_bit = new_pstate(bw(1), Op::Assert([bit.state()]), Some(location));
+            let eval_awi = EvalAwi::from_state(new_bit);
+            // manual to get around closure issue
+            CURRENT_EPOCH.with(|top| {
+                let mut top = top.borrow_mut();
+                if let Some(current) = top.as_mut() {
+                    let mut epoch_data = current.epoch_data.borrow_mut();
+                    epoch_data
+                        .responsible_for
+                        .get_mut(current.p_self)
+                        .unwrap()
+                        .assertions
+                        .bits
+                        .push(eval_awi);
+                } else {
+                    panic!("There needs to be an `Epoch` in scope for this to work");
+                }
+            })
+        }
     }
     fn get_nzbw(p_state: PState) -> NonZeroUsize {
         no_recursive_current_epoch(|current| {
@@ -474,6 +558,31 @@ pub fn _callback() -> EpochCallback {
     }
 }
 
+/// Has the actual drop code attached, preventing the need for unsafe or a
+/// nonzero cost abstraction somewhere
+#[derive(Debug)]
+struct EpochInnerDrop {
+    epoch_shared: EpochShared,
+    is_suspended: bool,
+}
+
+impl Drop for EpochInnerDrop {
+    // track_caller does not work for `Drop`
+    fn drop(&mut self) {
+        // prevent invoking recursive panics and a buffer overrun
+        if !panicking() {
+            if let Err(e) = self.epoch_shared.drop_associated() {
+                panic!("{e}");
+            }
+            if !self.is_suspended {
+                if let Err(e) = self.epoch_shared.remove_as_current() {
+                    panic!("panicked upon dropping an `Epoch`: {e}");
+                }
+            }
+        }
+    }
+}
+
 /// Manages the lifetimes and assertions of `State`s created by mimicking types.
 ///
 /// During the lifetime of a `Epoch` struct, all thread local `State`s
@@ -485,133 +594,256 @@ pub fn _callback() -> EpochCallback {
 /// associated with the top level `Epoch` alive at the time they are
 /// created. Use [Epoch::assertions] to acquire these.
 ///
-/// The internal `Ensemble` can be freed from any non-`Send`, non-`Sync`, and
-/// other thread local restrictions once all states have been lowered.
-/// [Epoch::ensemble] can be called to get it.
+/// # Custom Drop
 ///
-/// # Panics
+/// Upon being dropped, this will remove states that were associated with this
+/// epoch, completely removing the `Ensemble` if there are no other `Epoch`s
+/// shared with this one, and deregistering this as the current `Epoch`.
 ///
 /// The lifetimes of `Epoch` structs should be stacklike, such that a
 /// `Epoch` created during the lifetime of another `Epoch` should be
 /// dropped before the older `Epoch` is dropped, otherwise a panic occurs.
 ///
+/// ```
+/// use starlight::Epoch;
+///
+/// // let epoch0 = Epoch::new();
+/// // // `epoch0` is the current epoch
+/// // let epoch1 = Epoch::new();
+/// // // `epoch1` is the current epoch
+/// // drop(epoch0); // panics here because `epoch1` was created during `epoch0`
+/// // drop(epoch1);
+///
+/// // this succeeds
+/// let epoch0 = Epoch::new();
+/// // `epoch0` is current
+/// let epoch1 = Epoch::new();
+/// // `epoch1` is current
+/// drop(epoch1);
+/// // `epoch0` is current
+/// let epoch2 = Epoch::new();
+/// // `epoch2` is current
+/// let epoch3 = Epoch::new();
+/// // `epoch3` is current
+/// drop(epoch3);
+/// // `epoch2` is current
+/// drop(epoch2);
+/// // `epoch0` is current
+/// drop(epoch0);
+///
+/// // suspended epochs work the same with respect to
+/// // suspend and resume points
+/// let epoch0 = Epoch::new();
+/// // `epoch0` is current
+/// let suspended_epoch0 = epoch0.suspend().unwrap();
+/// // no epoch is current
+/// let epoch1 = Epoch::new();
+/// // `epoch1` is current
+/// let epoch0 = suspended_epoch0.resume();
+/// // `epoch0` is current
+/// //drop(epoch1); // not here
+/// let suspended_epoch0 = epoch0.suspend().unwrap();
+/// // `epoch1` is current
+/// drop(epoch1);
+/// // no epoch is current
+/// let epoch0 = suspended_epoch0.resume();
+/// // `epoch0` is current
+/// let suspended_epoch0 = epoch0.suspend().unwrap();
+/// // no epoch is current
+/// let epoch1 = Epoch::new();
+/// // `epoch1` is current
+/// // be aware that dropping the suspended version also counts
+/// //drop(suspended_epoch0);
+/// drop(epoch1);
+/// // no epoch is current
+/// drop(suspended_epoch0);
+///
+/// // these could be dropped in any order relative to one
+/// // another because they share the same `Ensemble` and
+/// // `awint_dag` mimicking types callback registration,
+/// let epoch0 = Epoch::new();
+/// let subepoch0 = Epoch::shared_with(&epoch0);
+/// drop(epoch0);
+/// // but the last one to be dropped has the restriction
+/// // with respect to an independent `Epoch`
+/// let epoch1 = Epoch::new();
+/// //drop(subepoch0); // would panic
+/// drop(epoch1);
+/// drop(subepoch0);
+/// ```
+///
 /// Using `mem::forget` or similar on a `Epoch` will leak `State`s and
 /// cause them to not be cleaned up, and will also likely cause panics because
 /// of the stack requirement.
+#[derive(Debug)]
 pub struct Epoch {
-    shared: EpochShared,
+    inner: EpochInnerDrop,
 }
 
-impl Drop for Epoch {
-    fn drop(&mut self) {
-        // prevent invoking recursive panics and a buffer overrun
-        if !panicking() {
-            self.shared.remove_associated();
-            self.shared.remove_as_current();
-        }
+/// Represents a suspended epoch
+///
+/// # Custom Drop
+///
+/// Upon being dropped, this will have the effect of dropping the `Epoch` this
+/// was created from (except the fact of which epoch is current is not changed).
+#[derive(Debug)]
+pub struct SuspendedEpoch {
+    inner: EpochInnerDrop,
+}
+
+impl SuspendedEpoch {
+    /// Resumes the `Epoch` as current
+    pub fn resume(mut self) -> Epoch {
+        self.inner.epoch_shared.set_as_current();
+        self.inner.is_suspended = false;
+        Epoch { inner: self.inner }
+    }
+
+    /// Returns the `EpochShared` of `self`
+    fn shared(&self) -> &EpochShared {
+        &self.inner.epoch_shared
+    }
+
+    pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, f: F) -> O {
+        self.shared().ensemble(f)
     }
 }
 
 impl Epoch {
+    /// Creates a new `Epoch` with an independent `Ensemble`
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let new = EpochShared::new();
         new.set_as_current();
-        Self { shared: new }
+        Self {
+            inner: EpochInnerDrop {
+                epoch_shared: new,
+                is_suspended: false,
+            },
+        }
     }
 
+    /// Creates an `Epoch` that shares the `Ensemble` of `other`
+    ///
     /// The epoch from this can be dropped out of order from `other`,
-    /// but must be dropped before others that aren't also shared
+    /// but the shared group of `Epoch`s as a whole must follow the stacklike
+    /// drop order described in the documentation of `Epoch`.
     pub fn shared_with(other: &Epoch) -> Self {
-        let shared = EpochShared::shared_with(&other.shared);
+        let shared = EpochShared::shared_with(other.shared());
         shared.set_as_current();
-        Self { shared }
+        Self {
+            inner: EpochInnerDrop {
+                epoch_shared: shared,
+                is_suspended: false,
+            },
+        }
     }
 
-    /// Intended primarily for developer use
-    #[doc(hidden)]
-    pub fn internal_epoch_shared(this: &Epoch) -> &EpochShared {
-        &this.shared
+    /// Returns the `EpochShared` of `self`
+    fn shared(&self) -> &EpochShared {
+        &self.inner.epoch_shared
+    }
+
+    /// Checks if `self.shared()` is the same as the current epoch, and returns
+    /// the `EpochShared` if so
+    fn check_current(&self) -> Result<EpochShared, Error> {
+        let epoch_shared = get_current_epoch().unwrap();
+        if Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared().epoch_data) {
+            Ok(self.shared().clone())
+        } else {
+            Err(Error::OtherStr("epoch is not the current epoch"))
+        }
+    }
+
+    /// Suspends the `Epoch` from being the current epoch temporarily. Returns
+    /// an error if `self` is not the current `Epoch`.
+    pub fn suspend(mut self) -> Result<SuspendedEpoch, Error> {
+        // TODO in the `Error` redo (probably needs a `starlight` side `Error`),
+        // there should be a variant that returns the `Epoch` to prevent it from being
+        // dropped and causing another error
+        self.inner.epoch_shared.remove_as_current().unwrap();
+        self.inner.is_suspended = true;
+        Ok(SuspendedEpoch { inner: self.inner })
+    }
+
+    pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, f: F) -> O {
+        self.shared().ensemble(f)
+    }
+
+    pub fn clone_ensemble(&self) -> Ensemble {
+        self.ensemble(|ensemble| ensemble.clone())
+    }
+
+    pub fn verify_integrity(&self) -> Result<(), Error> {
+        self.ensemble(|ensemble| ensemble.verify_integrity())
     }
 
     /// Gets the assertions associated with this Epoch (not including assertions
     /// from when sub-epochs are alive or from before the this Epoch was
     /// created)
     pub fn assertions(&self) -> Assertions {
-        self.shared.assertions()
+        self.shared().assertions()
     }
 
-    /// If any assertion bit evaluates to false, this returns an error.
-    pub fn assert_assertions(&self) -> Result<(), EvalError> {
-        self.shared.assert_assertions(false)
+    /// If any assertion bit evaluates to false, this returns an error. If
+    /// `strict` and an assertion could not be evaluated to a known value, this
+    /// also returns an error. Prunes assertions evaluated to a constant true.
+    pub fn assert_assertions(&self, strict: bool) -> Result<(), Error> {
+        self.shared().assert_assertions(strict)
     }
 
-    /// If any assertion bit evaluates to false, this returns an error. If there
-    /// were no known false assertions but some are `Value::Unknown`, this
-    /// returns a specific error for it.
-    pub fn assert_assertions_strict(&self) -> Result<(), EvalError> {
-        self.shared.assert_assertions(true)
-    }
-
-    pub fn ensemble(&self) -> Ensemble {
-        self.shared.ensemble()
-    }
-
-    /// Used for testing
-    pub fn prune_ignore_assertions(&self) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
-            return Err(EvalError::OtherStr("epoch is not the current epoch"))
-        }
-        // do not assert assertions because that can trigger lowering
-        let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.prune_states()
-    }
-
-    /// For users, this removes all states that do not lead to a live `EvalAwi`
-    pub fn prune(&self) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
-            return Err(EvalError::OtherStr("epoch is not the current epoch"))
-        }
+    /// Removes all states that do not lead to a live `EvalAwi`, and loosely
+    /// evaluates assertions.
+    pub fn prune_unused_states(&self) -> Result<(), Error> {
+        let epoch_shared = self.shared();
         // get rid of constant assertions
         let _ = epoch_shared.assert_assertions(false);
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.prune_states()
+        lock.ensemble.prune_unused_states()
     }
 
-    /// Lowers all states. This is not needed in most circumstances, `EvalAwi`
-    /// and optimization functions do this on demand.
-    pub fn lower(&self) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
-            return Err(EvalError::OtherStr("epoch is not the current epoch"))
-        }
-        Ensemble::lower_all(&epoch_shared)?;
+    /// Lowers states internally into `LNode`s and `TNode`s, for trees of
+    /// `RNode`s that need it. This is not needed in most circumstances,
+    /// `EvalAwi` and optimization functions do this on demand. Requires
+    /// that `self` be the current `Epoch`.
+    pub fn lower(&self) -> Result<(), Error> {
+        let epoch_shared = self.check_current()?;
+        Ensemble::lower_for_rnodes(&epoch_shared)?;
         let _ = epoch_shared.assert_assertions(false);
         Ok(())
     }
 
-    /// Runs optimization including lowering then pruning all states.
-    pub fn optimize(&self) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
-            return Err(EvalError::OtherStr("epoch is not the current epoch"))
-        }
-        Ensemble::lower_all(&epoch_shared)?;
+    /// Aggressively prunes all states, lowering `RNode`s for `EvalAwi`s and
+    /// `LazyAwi`s if necessary and evaluating assertions. Requires that `self`
+    /// be the current `Epoch`.
+    pub fn lower_and_prune(&self) -> Result<(), Error> {
+        let epoch_shared = self.check_current()?;
+        Ensemble::lower_for_rnodes(&epoch_shared)?;
+        // get rid of constant assertions
+        let _ = epoch_shared.assert_assertions(false);
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.optimize_all();
+        lock.ensemble.force_remove_all_states()
+    }
+
+    /// Runs optimization including lowering then pruning all states. Requires
+    /// that `self` be the current `Epoch`.
+    pub fn optimize(&self) -> Result<(), Error> {
+        let epoch_shared = self.check_current()?;
+        Ensemble::lower_for_rnodes(&epoch_shared).unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        lock.ensemble.optimize_all().unwrap();
         drop(lock);
         let _ = epoch_shared.assert_assertions(false);
         Ok(())
     }
 
-    /// This evaluates all loop drivers, and then registers loopback changes
-    pub fn drive_loops(&self) -> Result<(), EvalError> {
-        let epoch_shared = get_current_epoch().unwrap();
-        if !Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared.epoch_data) {
-            return Err(EvalError::OtherStr("epoch is not the current epoch"))
-        }
+    // TODO this only requires the current `Epoch` for the general case, may need a
+    // second function
+
+    /// This evaluates all loop drivers, and then registers loopback changes.
+    /// Requires that `self` be the current `Epoch`.
+    pub fn drive_loops(&self) -> Result<(), Error> {
+        let epoch_shared = self.check_current()?;
         if epoch_shared
             .epoch_data
             .borrow()

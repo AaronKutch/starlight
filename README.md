@@ -1,15 +1,19 @@
 # Starlight
 
- This is a RTL (Register Transfer Level) description library. Instead of the
- typical DSL (Domain Specific Language) approach, this allows RTL
+ This is a DSL (Domain Specific Language) that can describe combinational
+ logic and temporal logic. This allows RTL (Register Transfer Level)
  descriptions in ordinary Rust code with all the features that Rust provides.
 
- This crate is still a WIP, but it currently can describe most combinational
- logic. The temporal structs (`Loop` and `Net`) need more development before
- they will work properly. Many optimizations are planned in the near future.
+ This crate still has a considerable amount of WIP stuff needed to evolve
+ into a proper HDL (Hardware Description Language).
 
  See the documentation of `awint`/`awint_dag` which is used as the backend
- for this.
+ for this. `awint` is the base library that operations are modeled off of.
+ `awint_dag` allows for recording a DAG of arbitrary bitwidth integer
+ operations. `starlight` lowers high level operations down into a DAG of
+ simple lookup tables, and also adds on temporal structs like `Loop`s. It can
+ optimize, evaluate, and retroactively change values in the `DAG` for various
+ purposes.
 
  ```
  use std::num::NonZeroUsize;
@@ -56,7 +60,7 @@
  // First, create an epoch, this will live until this struct is dropped. The
  // epoch needs to live until all mimicking operations are done and states are
  // lowered. Manually drop it with the `drop` function to avoid mistakes.
- let epoch0 = Epoch::new();
+ let epoch = Epoch::new();
 
  let mut m = StateMachine::new(bw(4));
 
@@ -81,45 +85,46 @@
      use awi::*;
 
      // discard all unused mimicking states so the render is cleaner
-     epoch0.prune().unwrap();
+     epoch.prune_unused_states().unwrap();
 
      // See the mimicking state DAG before it is lowered
-     epoch0
+     epoch
          .render_to_svgs_in_dir(std::path::PathBuf::from("./".to_owned()))
          .unwrap();
 
-     // lower into purely static bit movements and lookup tables.
-     epoch0.lower().unwrap();
-     epoch0.optimize().unwrap();
+     // lower into purely static bit movements and lookup tables and optimize
+     epoch.optimize().unwrap();
 
      // Now the combinational logic is described in a DAG of lookup tables that we
      // could use for various purposes
-     for state in epoch0.ensemble().stator.states.vals() {
-         awi::assert!(state.lowered_to_tnodes);
-     }
+     epoch.ensemble(|ensemble| {
+         for state in ensemble.stator.states.vals() {
+             awi::assert!(state.lowered_to_lnodes);
+         }
+     });
 
      // "retroactively" assign the input with a non-opaque value
      input.retro_(&awi!(0101)).unwrap();
      // check assertions (all `dag::assert*` functions and dynamic `unwrap`s done
      // during the current `Epoch`)
-     epoch0.assert_assertions_strict().unwrap();
+     epoch.assert_assertions(true).unwrap();
      // evaluate the outputs
      awi::assert_eq!(output_counter.eval().unwrap(), awi!(0011));
      awi::assert_eq!(output_data.eval().unwrap(), awi!(0xa505_u16));
 
      // reassign and reevaluate
      input.retro_(&awi!(1011)).unwrap();
-     awi::assert!(epoch0.assert_assertions().is_err());
+     awi::assert!(epoch.assert_assertions(true).is_err());
      awi::assert_eq!(output_data.eval().unwrap(), awi!(0x7b0b_u16));
  }
- drop(epoch0);
+ drop(epoch);
  ```
 
  ```
  use starlight::{dag, awi, Epoch, EvalAwi};
  use dag::*;
 
- let epoch0 = Epoch::new();
+ let epoch = Epoch::new();
 
  let mut lhs = inlawi!(zero: ..8);
  let rhs = inlawi!(umax: ..8);
@@ -155,4 +160,5 @@
      use awi::*;
      awi::assert_eq!(output_eval.eval().unwrap(), awi!(01010101));
  }
- drop(epoch0);
+ drop(epoch);
+ ```

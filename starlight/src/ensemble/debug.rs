@@ -1,15 +1,17 @@
 use std::path::PathBuf;
 
 use awint::{
-    awint_dag::{EvalError, Op, PState},
+    awint_dag::{Op, PState},
     awint_macro_internals::triple_arena::Arena,
 };
 
 use crate::{
-    ensemble::{Ensemble, Equiv, PBack, PLNode, PNote, Referent, State, TNode},
+    ensemble::{
+        DynamicValue, Ensemble, Equiv, LNode, LNodeKind, PBack, PRNode, PTNode, Referent, State,
+    },
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
-    Epoch,
+    Epoch, Error,
 };
 
 impl DebugNodeTrait<PState> for State {
@@ -54,7 +56,7 @@ impl DebugNodeTrait<PState> for State {
                     this.rc,
                     this.extern_rc,
                     short(this.lowered_to_elementary),
-                    short(this.lowered_to_tnodes)
+                    short(this.lowered_to_lnodes)
                 ));
                 if let Some(ref e) = this.err {
                     let s = format!("{e}");
@@ -77,27 +79,27 @@ pub struct StateBit {
 }
 
 #[derive(Debug, Clone)]
-pub struct LNodeTmp {
+pub struct TNodeTmp {
     p_self: PBack,
     p_driver: PBack,
-    p_lnode: PLNode,
+    p_tnode: PTNode,
 }
 
 #[derive(Debug, Clone)]
-pub struct NoteTmp {
+pub struct RNodeTmp {
     p_self: PBack,
     p_equiv: PBack,
-    p_note: PNote,
+    p_rnode: PRNode,
     i: u64,
 }
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
-    StateBit(StateBit),
-    TNode(TNode),
-    LNode(LNodeTmp),
     Equiv(Equiv, Vec<PBack>),
-    Note(NoteTmp),
+    StateBit(StateBit),
+    RNode(RNodeTmp),
+    LNode(LNode),
+    TNode(TNodeTmp),
     Remove,
 }
 
@@ -119,39 +121,57 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     }
                 },
             },
-            NodeKind::TNode(tnode) => DebugNode {
-                sources: tnode
-                    .inp
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| (*p, format!("{i}")))
-                    .collect(),
+            NodeKind::LNode(lnode) => DebugNode {
+                sources: {
+                    match &lnode.kind {
+                        LNodeKind::Copy(inp) => vec![(*inp, "copy".to_owned())],
+                        LNodeKind::Lut(inp, _) => inp
+                            .iter()
+                            .enumerate()
+                            .map(|(i, p)| (*p, format!("{i}")))
+                            .collect(),
+                        LNodeKind::DynamicLut(inp, lut) => {
+                            let mut v = vec![];
+                            for (i, p) in inp.iter().enumerate() {
+                                v.push((*p, format!("i{i}")));
+                            }
+                            for (i, p) in lut.iter().enumerate() {
+                                if let DynamicValue::Dynam(p_back) = p {
+                                    v.push((*p_back, format!("l{i}")));
+                                }
+                            }
+                            v
+                        }
+                    }
+                },
                 center: {
                     let mut v = vec![format!("{:?}", p_this)];
-                    if let Some(ref lut) = tnode.lut {
-                        v.push(format!("{:?} ", lut));
+                    match &lnode.kind {
+                        LNodeKind::Copy(_) => (),
+                        LNodeKind::Lut(_, lut) => v.push(format!("{:?} ", lut)),
+                        LNodeKind::DynamicLut(..) => v.push("dyn".to_owned()),
                     }
-                    if let Some(lowered_from) = tnode.lowered_from {
+                    if let Some(lowered_from) = lnode.lowered_from {
                         v.push(format!("{:?}", lowered_from));
                     }
                     v
                 },
                 sinks: vec![],
             },
-            NodeKind::LNode(lnode) => DebugNode {
+            NodeKind::TNode(tnode) => DebugNode {
                 sources: vec![
-                    (lnode.p_self, "self".to_owned()),
-                    (lnode.p_driver, "driver".to_owned()),
+                    (tnode.p_self, "self".to_owned()),
+                    (tnode.p_driver, "driver".to_owned()),
                 ],
                 center: {
                     let mut v = vec![format!("{:?}", p_this)];
-                    v.push(format!("{:?}", lnode.p_lnode));
+                    v.push(format!("{:?}", tnode.p_tnode));
                     v
                 },
                 sinks: vec![],
             },
-            NodeKind::Equiv(equiv, p_tnodes) => DebugNode {
-                sources: p_tnodes.iter().map(|p| (*p, String::new())).collect(),
+            NodeKind::Equiv(equiv, p_lnodes) => DebugNode {
+                sources: p_lnodes.iter().map(|p| (*p, String::new())).collect(),
                 center: {
                     vec![
                         format!("{:?}", equiv.p_self_equiv),
@@ -160,12 +180,12 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 },
                 sinks: vec![],
             },
-            NodeKind::Note(note) => DebugNode {
-                sources: vec![(note.p_equiv, String::new())],
+            NodeKind::RNode(rnode) => DebugNode {
+                sources: vec![(rnode.p_equiv, String::new())],
                 center: {
                     vec![
-                        format!("{}", note.p_self),
-                        format!("{} [{}]", note.p_note, note.i),
+                        format!("{}", rnode.p_self),
+                        format!("{} [{}]", rnode.p_rnode, rnode.i),
                     ]
                 },
                 sinks: vec![],
@@ -179,7 +199,7 @@ impl Ensemble {
     pub fn backrefs_to_chain_arena(&self) -> ChainArena<PBack, Referent> {
         let mut chain_arena = ChainArena::new();
         self.backrefs
-            .clone_keys_to_chain_arena(&mut chain_arena, |_, p_tnode| *p_tnode);
+            .clone_keys_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode);
         chain_arena
     }
 
@@ -192,8 +212,8 @@ impl Ensemble {
                         let mut v = vec![];
                         let mut adv = self.backrefs.advancer_surject(p_self);
                         while let Some(p) = adv.advance(&self.backrefs) {
-                            if let Referent::ThisTNode(_) = self.backrefs.get_key(p).unwrap() {
-                                // get every TNode that is in this equivalence
+                            if let Referent::ThisLNode(_) = self.backrefs.get_key(p).unwrap() {
+                                // get every LNode that is in this equivalence
                                 v.push(p);
                             }
                         }
@@ -216,41 +236,43 @@ impl Ensemble {
                             })
                         }
                     }
-                    Referent::ThisTNode(p_tnode) => {
-                        let mut tnode = self.tnodes.get(*p_tnode).unwrap().clone();
-                        // forward to the `PBack`s of TNodes
-                        for inp in &mut tnode.inp {
+                    Referent::ThisLNode(p_lnode) => {
+                        let mut lnode = self.lnodes.get(*p_lnode).unwrap().clone();
+                        // forward to the `PBack`s of LNodes
+                        lnode.inputs_mut(|inp| {
                             if let Referent::Input(_) = self.backrefs.get_key(*inp).unwrap() {
                                 let p_input = self.backrefs.get_val(*inp).unwrap().p_self_equiv;
                                 *inp = p_input;
                             }
-                        }
-                        NodeKind::TNode(tnode)
+                        });
+                        NodeKind::LNode(lnode)
                     }
-                    Referent::ThisLNode(p_lnode) => {
-                        let lnode = self.lnodes.get(*p_lnode).unwrap();
+                    Referent::ThisTNode(p_tnode) => {
+                        let tnode = self.tnodes.get(*p_tnode).unwrap();
                         // forward to the `PBack`s
-                        let p_self = self.backrefs.get_val(lnode.p_self).unwrap().p_self_equiv;
-                        let p_driver = self.backrefs.get_val(lnode.p_driver).unwrap().p_self_equiv;
-                        NodeKind::LNode(LNodeTmp {
+                        let p_self = self.backrefs.get_val(tnode.p_self).unwrap().p_self_equiv;
+                        let p_driver = self.backrefs.get_val(tnode.p_driver).unwrap().p_self_equiv;
+                        NodeKind::TNode(TNodeTmp {
                             p_self,
                             p_driver,
-                            p_lnode: *p_lnode,
+                            p_tnode: *p_tnode,
                         })
                     }
-                    Referent::Note(p_note) => {
-                        let note = self.notes.get(*p_note).unwrap();
+                    Referent::ThisRNode(p_rnode) => {
+                        let rnode = self.notary.rnodes().get_val(*p_rnode).unwrap();
                         let mut inx = u64::MAX;
-                        for (i, bit) in note.bits.iter().enumerate() {
-                            if *bit == Some(p_self) {
-                                inx = u64::try_from(i).unwrap();
+                        if let Some(bits) = rnode.bits() {
+                            for (i, bit) in bits.iter().enumerate() {
+                                if *bit == Some(p_self) {
+                                    inx = u64::try_from(i).unwrap();
+                                }
                             }
                         }
                         let equiv = self.backrefs.get_val(p_self).unwrap();
-                        NodeKind::Note(NoteTmp {
+                        NodeKind::RNode(RNodeTmp {
                             p_self,
                             p_equiv: equiv.p_self_equiv,
-                            p_note: *p_note,
+                            p_rnode: *p_rnode,
                             i: inx,
                         })
                     }
@@ -266,16 +288,16 @@ impl Ensemble {
         arena
     }
 
-    pub fn render_to_svgs_in_dir(&mut self, out_file: PathBuf) -> Result<(), EvalError> {
+    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), Error> {
         let dir = match out_file.canonicalize() {
             Ok(o) => {
                 if !o.is_dir() {
-                    return Err(EvalError::OtherStr("need a directory not a file"));
+                    return Err(Error::OtherStr("need a directory not a file"));
                 }
                 o
             }
             Err(e) => {
-                return Err(EvalError::OtherString(format!("{e:?}")));
+                return Err(Error::OtherString(format!("{e:?}")));
             }
         };
         let mut ensemble_file = dir.clone();
@@ -291,16 +313,21 @@ impl Ensemble {
 
 impl Epoch {
     pub fn eprint_debug_summary(&self) {
-        let ensemble = self.ensemble();
-        let chain_arena = ensemble.backrefs_to_chain_arena();
-        let debug = ensemble.to_debug();
-        eprintln!(
-            "ensemble: {:#?}\nchain_arena: {:#?}\ndebug: {:#?}",
-            ensemble, chain_arena, debug
-        );
+        self.ensemble(|ensemble| {
+            let chain_arena = ensemble.backrefs_to_chain_arena();
+            let debug = ensemble.to_debug();
+            eprintln!(
+                "ensemble: {:#?}\nchain_arena: {:#?}\ndebug: {:#?}",
+                ensemble, chain_arena, debug
+            );
+        });
     }
 
-    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), EvalError> {
-        self.ensemble().render_to_svgs_in_dir(out_file)
+    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), Error> {
+        let tmp = &out_file;
+        self.ensemble(|ensemble| {
+            let out_file = tmp.to_owned();
+            ensemble.render_to_svgs_in_dir(out_file)
+        })
     }
 }

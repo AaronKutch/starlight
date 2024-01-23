@@ -4,7 +4,7 @@ use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi, Loop};
 
 #[test]
 fn loop_invert() {
-    let epoch0 = Epoch::new();
+    let epoch = Epoch::new();
     let looper = Loop::zero(bw(1));
     let mut x = awi!(looper);
     let x_copy = x.clone();
@@ -19,18 +19,18 @@ fn loop_invert() {
 
         let eval_x = EvalAwi::from(&x);
         assert_eq!(eval_x.eval().unwrap(), awi!(1));
-        epoch0.drive_loops().unwrap();
+        epoch.drive_loops().unwrap();
         assert_eq!(eval_x.eval().unwrap(), awi!(0));
-        epoch0.drive_loops().unwrap();
+        epoch.drive_loops().unwrap();
         assert_eq!(eval_x.eval().unwrap(), awi!(1));
     }
-    drop(epoch0);
+    drop(epoch);
 }
 
 // tests an incrementing counter
 #[test]
 fn loop_incrementer() {
-    let epoch0 = Epoch::new();
+    let epoch = Epoch::new();
     let looper = Loop::zero(bw(4));
     let val = EvalAwi::from(&looper);
     let mut tmp = awi!(looper);
@@ -40,15 +40,15 @@ fn loop_incrementer() {
     {
         for i in 0..16 {
             awi::assert_eq!(i, val.eval().unwrap().to_usize());
-            epoch0.drive_loops().unwrap();
+            epoch.drive_loops().unwrap();
         }
     }
-    drop(epoch0);
+    drop(epoch);
 }
 
 #[test]
 fn loop_net4() {
-    let epoch0 = Epoch::new();
+    let epoch = Epoch::new();
     let mut net = Net::zero(bw(4));
     net.push(&awi!(0xa_u4)).unwrap();
     net.push(&awi!(0xb_u4)).unwrap();
@@ -61,25 +61,25 @@ fn loop_net4() {
     {
         use awi::{assert_eq, *};
         inx.retro_(&awi!(0_u2)).unwrap();
-        epoch0.drive_loops().unwrap();
+        epoch.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xa_u4));
 
         inx.retro_(&awi!(2_u2)).unwrap();
-        epoch0.drive_loops().unwrap();
+        epoch.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xc_u4));
 
         inx.retro_(&awi!(1_u2)).unwrap();
-        epoch0.drive_loops().unwrap();
+        epoch.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xb_u4));
 
         inx.retro_(&awi!(3_u2)).unwrap();
-        epoch0.drive_loops().unwrap();
+        epoch.drive_loops().unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xd_u4));
     }
-    drop(epoch0);
+    drop(epoch);
 }
 
-fn exhaustive_net_test(epoch0: &Epoch, num_ports: awi::usize, diff: awi::isize) {
+fn exhaustive_net_test(epoch: &Epoch, num_ports: awi::usize, diff: awi::isize) {
     let mut net = Net::zero(bw(5));
     for i in 0..num_ports {
         let mut port = awi!(0u5);
@@ -94,12 +94,12 @@ fn exhaustive_net_test(epoch0: &Epoch, num_ports: awi::usize, diff: awi::isize) 
     let eval_res = EvalAwi::from_bool(res.is_none());
     {
         use awi::*;
-        epoch0.optimize().unwrap();
+        epoch.optimize().unwrap();
         for i in 0..(1 << w.get()) {
             let mut inx = Awi::zero(w);
             inx.usize_(i);
             lazy.retro_(&inx).unwrap();
-            epoch0.drive_loops().unwrap();
+            epoch.drive_loops().unwrap();
             awi::assert_eq!(eval_res.eval().unwrap().to_bool(), i >= num_ports);
             if i < num_ports {
                 awi::assert_eq!(eval_net.eval().unwrap().to_usize(), i);
@@ -110,7 +110,7 @@ fn exhaustive_net_test(epoch0: &Epoch, num_ports: awi::usize, diff: awi::isize) 
 
 #[test]
 fn loop_net_no_ports() {
-    let epoch0 = Epoch::new();
+    let epoch = Epoch::new();
     // done separately because it results in an undriven `Loop`
     {
         let net = Net::zero(bw(5));
@@ -121,12 +121,12 @@ fn loop_net_no_ports() {
             assert!(res.is_none_at_runtime());
         }
     }
-    drop(epoch0);
+    drop(epoch);
 }
 
 #[test]
 fn loop_net() {
-    let epoch0 = Epoch::new();
+    let epoch = Epoch::new();
     // one port
     {
         let mut net = Net::zero(bw(5));
@@ -137,22 +137,22 @@ fn loop_net() {
         let eval_res = EvalAwi::from_bool(res.is_none());
         {
             use awi::{assert_eq, *};
-            lazy.retro_(&awi!(0)).unwrap();
-            epoch0.drive_loops().unwrap();
+            lazy.retro_bool_(false).unwrap();
+            epoch.drive_loops().unwrap();
             assert_eq!(eval_res.eval().unwrap(), awi!(0));
             assert_eq!(eval_net.eval().unwrap(), awi!(0xa_u5));
             // any nonzero index always returns a `None` from the function
-            lazy.retro_(&awi!(1)).unwrap();
-            epoch0.drive_loops().unwrap();
+            lazy.retro_bool_(true).unwrap();
+            epoch.drive_loops().unwrap();
             assert_eq!(eval_res.eval().unwrap(), awi!(1));
         }
     }
     for num_ports in 3..17 {
         // test with index size one less than needed to index all ports
-        exhaustive_net_test(&epoch0, num_ports, -1);
-        exhaustive_net_test(&epoch0, num_ports, 0);
-        exhaustive_net_test(&epoch0, num_ports, 1);
+        exhaustive_net_test(&epoch, num_ports, -1);
+        exhaustive_net_test(&epoch, num_ports, 0);
+        exhaustive_net_test(&epoch, num_ports, 1);
     }
 
-    drop(epoch0);
+    drop(epoch);
 }

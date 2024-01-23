@@ -87,5 +87,45 @@ fn star_rng() {
     for _ in 0..(1 << 16) {
         yes += rng0.out_of_128(42) as u64;
     }
-    assert_eq!(yes, 22115);
+    assert_eq!(yes, 21597);
+    let mut yes = 0u64;
+    for _ in 0..(1 << 16) {
+        yes += rng0.out_of_256(84) as u64;
+    }
+    assert_eq!(yes, 21429);
+    for _ in 0..(1 << 16) {
+        assert!(!rng0.out_of_128(0))
+    }
+    let mut yes = 0u64;
+    for _ in 0..(1 << 16) {
+        yes += rng0.out_of_128(127) as u64;
+    }
+    assert_eq!(yes, 65053);
+    for _ in 0..(1 << 16) {
+        assert!(rng0.out_of_128(128))
+    }
+    for _ in 0..(1 << 16) {
+        assert!(!rng0.out_of_256(0))
+    }
+    let mut yes = 0u64;
+    for _ in 0..(1 << 16) {
+        yes += rng0.out_of_256(255) as u64;
+    }
+    assert_eq!(yes, 65303);
+    let mut yes = 0u64;
+    for _ in 0..(1 << 16) {
+        yes += rng0.out_of_4(3) as u64;
+    }
+    assert_eq!(yes, 49176);
+
+    let mut rng0 = StarRng::new(0);
+    assert!(rng0.index(0).is_none());
+    assert!(rng0.index_slice(&[0u8; 0]).is_none());
+    let mut slice = vec![0u64; 7];
+    for _ in 0..(1 << 16) {
+        *rng0.index_slice_mut(&mut slice).unwrap() += 1;
+    }
+    for e in slice {
+        assert!((e > 9149) && (e < 9513));
+    }
 }

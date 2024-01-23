@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 
 use awint::{
-    awint_dag::{smallvec::smallvec, ConcatFieldsType, ConcatType, EvalError, Op::*, PState},
+    awint_dag::{smallvec::smallvec, ConcatFieldsType, ConcatType, Op::*, PState},
     bw,
 };
 
@@ -9,33 +9,38 @@ use crate::{
     ensemble::Ensemble,
     epoch::EpochShared,
     lower::{lower_op, LowerManagement},
+    Error,
 };
 
 impl Ensemble {
     /// Used for forbidden meta psuedo-DSL techniques in which a single state is
     /// replaced by more basic states.
-    pub fn graft(&mut self, p_state: PState, operands: &[PState]) -> Result<(), EvalError> {
+    pub fn graft(&mut self, p_state: PState, operands: &[PState]) -> Result<(), Error> {
         #[cfg(debug_assertions)]
         {
             if (self.stator.states[p_state].op.operands_len() + 1) != operands.len() {
-                return Err(EvalError::WrongNumberOfOperands)
+                return Err(Error::OtherStr(
+                    "wrong number of operands for the `graft` function",
+                ))
             }
             for (i, op) in self.stator.states[p_state].op.operands().iter().enumerate() {
                 let current_nzbw = self.stator.states[operands[i + 1]].nzbw;
                 let current_is_opaque = self.stator.states[operands[i + 1]].op.is_opaque();
                 if self.stator.states[op].nzbw != current_nzbw {
-                    return Err(EvalError::OtherString(format!(
+                    return Err(Error::OtherString(format!(
                         "operand {}: a bitwidth of {:?} is trying to be grafted to a bitwidth of \
                          {:?}",
                         i, current_nzbw, self.stator.states[op].nzbw
                     )))
                 }
                 if !current_is_opaque {
-                    return Err(EvalError::ExpectedOpaque)
+                    return Err(Error::OtherStr(
+                        "expected an `Opaque` for the `graft` function",
+                    ))
                 }
             }
             if self.stator.states[p_state].nzbw != self.stator.states[operands[0]].nzbw {
-                return Err(EvalError::WrongBitwidth)
+                return Err(Error::WrongBitwidth)
             }
         }
 
@@ -62,7 +67,7 @@ impl Ensemble {
         Ok(())
     }
 
-    pub fn lower_op(epoch_shared: &EpochShared, p_state: PState) -> Result<bool, EvalError> {
+    pub fn lower_op(epoch_shared: &EpochShared, p_state: PState) -> Result<bool, Error> {
         struct Tmp<'a> {
             ptr: PState,
             epoch_shared: &'a EpochShared,
@@ -168,15 +173,14 @@ impl Ensemble {
     pub fn dfs_lower_states_to_elementary(
         epoch_shared: &EpochShared,
         p_state: PState,
-    ) -> Result<(), EvalError> {
-        let mut unimplemented = false;
+    ) -> Result<(), Error> {
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         if let Some(state) = lock.ensemble.stator.states.get(p_state) {
             if state.lowered_to_elementary {
                 return Ok(())
             }
         } else {
-            return Err(EvalError::InvalidPtr)
+            return Err(Error::InvalidPtr)
         }
         lock.ensemble.stator.states[p_state].lowered_to_elementary = true;
 
@@ -207,7 +211,7 @@ impl Ensemble {
                         }
                     }
                     // Continue on to lowering
-                    Err(EvalError::Unevaluatable) => (),
+                    Err(Error::Unevaluatable) => (),
                     Err(e) => {
                         lock.ensemble.stator.states[p_state].err = Some(e.clone());
                         return Err(e)
@@ -216,6 +220,8 @@ impl Ensemble {
                 let needs_lower = match lock.ensemble.stator.states[p_state].op {
                     Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..) | Repeat(_)
                     | StaticLut(..) => false,
+                    // for dynamic LUTs
+                    Mux(_) => false,
                     Lut([lut, inx]) => {
                         if let Literal(ref lit) = lock.ensemble.stator.states[lut].op {
                             let lit = lit.clone();
@@ -239,10 +245,10 @@ impl Ensemble {
                                     StaticLut(ConcatType::from_iter([inx]), lit);
                             }
                             lock.ensemble.dec_rc(lut).unwrap();
-                            false
-                        } else {
-                            true
                         }
+                        // else it is a dynamic LUT that could be lowered on the
+                        // `LNode` side if needed
+                        false
                     }
                     Get([bits, inx]) => {
                         if let Literal(ref lit) = lock.ensemble.stator.states[inx].op {
@@ -318,13 +324,8 @@ impl Ensemble {
                     temporary.set_as_current();
                     let lowering_done = match Ensemble::lower_op(&temporary, p_state) {
                         Ok(lowering_done) => lowering_done,
-                        Err(EvalError::Unimplemented) => {
-                            // finish lowering as much as possible
-                            unimplemented = true;
-                            true
-                        }
                         Err(e) => {
-                            temporary.remove_as_current();
+                            temporary.remove_as_current().unwrap();
                             let mut lock = epoch_shared.epoch_data.borrow_mut();
                             lock.ensemble.stator.states[p_state].err = Some(e.clone());
                             return Err(e)
@@ -335,7 +336,7 @@ impl Ensemble {
                     // sure there are none using assertions assert!(temporary.
                     // assertions_empty());
                     let states = temporary.take_states_added();
-                    temporary.remove_as_current();
+                    temporary.remove_as_current().unwrap();
                     let mut lock = epoch_shared.epoch_data.borrow_mut();
                     for p_state in states {
                         let state = &lock.ensemble.stator.states[p_state];
@@ -376,10 +377,6 @@ impl Ensemble {
             }
         }
 
-        if unimplemented {
-            Err(EvalError::Unimplemented)
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 }
