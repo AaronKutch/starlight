@@ -2,7 +2,7 @@ use std::{fmt::Write, num::NonZeroUsize};
 
 use awint::{
     awint_dag::triple_arena::{
-        surject_iterators::SurjectPtrAdvancer, Advancer, ArenaTrait, OrdArena,
+        surject_iterators::SurjectPtrAdvancer, Advancer, ArenaTrait, OrdArena, Ptr,
     },
     Awi,
 };
@@ -14,13 +14,11 @@ use crate::{
     route::{
         channel::Referent,
         cnode::{generate_hierarchy, InternalBehavior},
-        CNode, Channeler, Configurator, PBack,
+        CNode, Channeler, Configurator,
     },
     triple_arena::ptr_struct,
     Error, SuspendedEpoch,
 };
-
-ptr_struct!(PCEdge);
 
 #[derive(Debug, Clone, Copy)]
 pub enum SelectorValue {
@@ -143,7 +141,7 @@ impl Programmability {
 
 /// An edge between channels
 #[derive(Debug, Clone)]
-pub struct CEdge {
+pub struct CEdge<PBack: Ptr> {
     // sources incident to nodes
     sources: Vec<PBack>,
     // the sink incident to nodes
@@ -155,7 +153,7 @@ pub struct CEdge {
     //lagrangian_weight: u64,
 }
 
-impl CEdge {
+impl<PBack: Ptr> CEdge<PBack> {
     pub fn programmability(&self) -> &Programmability {
         &self.programmability
     }
@@ -187,6 +185,10 @@ impl CEdge {
         self.sources().len().checked_add(1).unwrap()
     }
 
+    pub fn is_base(&self) -> bool {
+        matches!(self.programmability(), Programmability::Bulk(_))
+    }
+
     /*pub fn channel_entry_width(&self) -> usize {
         match self.programmability() {
             Programmability::StaticLut(awi) => awi.bw().trailing_zeros() as usize,
@@ -211,7 +213,7 @@ impl CEdge {
     }*/
 }
 
-impl Channeler {
+impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
     /// Given the source and sink incidences (which should point to unique
     /// `ThisCNode`s), this will manage the backrefs
     pub fn make_cedge(
@@ -252,6 +254,32 @@ impl Channeler {
         target_epoch.ensemble(|ensemble| Self::new(ensemble, &Configurator::new()))
     }
 
+    // translate from any ensemble backref to the equivalence backref to the
+    // channeler backref
+    fn translate(
+        &self,
+        ensemble: &Ensemble,
+        ensemble_backref: ensemble::PBack,
+    ) -> (ensemble::PBack, Option<PBack>) {
+        let p_equiv = ensemble
+            .backrefs
+            .get_val(ensemble_backref)
+            .unwrap()
+            .p_self_equiv;
+        let p0 = self
+            .ensemble_backref_to_channeler_backref
+            .find_key(&p_equiv);
+        if let Some(p0) = p0 {
+            let channeler_p_back = *self
+                .ensemble_backref_to_channeler_backref
+                .get_val(p0)
+                .unwrap();
+            (p_equiv, Some(channeler_p_back))
+        } else {
+            (p_equiv, None)
+        }
+    }
+
     /// Assumes that the ensemble has been optimized
     pub fn new(ensemble: &Ensemble, configurator: &Configurator) -> Result<Self, Error> {
         let mut channeler = Self::empty();
@@ -277,48 +305,22 @@ impl Channeler {
             }
         }
 
-        // translate from any ensemble backref to the equivalence backref to the
-        // channeler backref
-        fn translate(
-            ensemble: &Ensemble,
-            channeler: &Channeler,
-            ensemble_backref: ensemble::PBack,
-        ) -> (ensemble::PBack, Option<PBack>) {
-            let p_equiv = ensemble
-                .backrefs
-                .get_val(ensemble_backref)
-                .unwrap()
-                .p_self_equiv;
-            let p0 = channeler
-                .ensemble_backref_to_channeler_backref
-                .find_key(&p_equiv);
-            if let Some(p0) = p0 {
-                let channeler_p_back = *channeler
-                    .ensemble_backref_to_channeler_backref
-                    .get_val(p0)
-                    .unwrap();
-                (p_equiv, Some(channeler_p_back))
-            } else {
-                (p_equiv, None)
-            }
-        }
-
         // add `CEdge`s according to `LNode`s
         for lnode in ensemble.lnodes.vals() {
-            let p_self = translate(ensemble, &channeler, lnode.p_self).1.unwrap();
+            let p_self = channeler.translate(ensemble, lnode.p_self).1.unwrap();
             match &lnode.kind {
                 LNodeKind::Copy(_) => return Err(Error::OtherStr("the epoch was not optimized")),
                 LNodeKind::Lut(inp, awi) => {
                     let mut v = SmallVec::<[PBack; 8]>::with_capacity(inp.len());
                     for input in inp {
-                        v.push(translate(ensemble, &channeler, *input).1.unwrap());
+                        v.push(channeler.translate(ensemble, *input).1.unwrap());
                     }
                     channeler.make_cedge(&v, p_self, Programmability::StaticLut(awi.clone()));
                 }
                 LNodeKind::DynamicLut(inp, lut) => {
                     let mut is_full_selector = true;
                     for input in inp {
-                        let p_equiv = translate(ensemble, &channeler, *input).0;
+                        let p_equiv = channeler.translate(ensemble, *input).0;
                         if configurator.find(p_equiv).is_none() {
                             is_full_selector = false;
                         }
@@ -332,7 +334,7 @@ impl Channeler {
                                 is_full_arbitrary = false;
                             }
                             DynamicValue::Dynam(p) => {
-                                let p_equiv = translate(ensemble, &channeler, *p).0;
+                                let p_equiv = channeler.translate(ensemble, *p).0;
                                 if configurator.find(p_equiv).is_none() {
                                     is_full_arbitrary = false;
                                 }
@@ -344,7 +346,7 @@ impl Channeler {
                             let mut v = SmallVec::<[PBack; 8]>::with_capacity(inp.len());
                             let mut config = vec![];
                             for input in inp.iter() {
-                                config.push(translate(ensemble, &channeler, *input).0);
+                                config.push(channeler.translate(ensemble, *input).0);
                             }
                             let mut awi = Awi::zero(NonZeroUsize::new(2 << inp.len()).unwrap());
                             for (i, lut_bit) in lut.iter().enumerate() {
@@ -360,7 +362,7 @@ impl Channeler {
                                         }
                                     }
                                     DynamicValue::Dynam(p) => {
-                                        v.push(translate(ensemble, &channeler, *p).1.unwrap());
+                                        v.push(channeler.translate(ensemble, *p).1.unwrap());
                                     }
                                 }
                             }
@@ -373,12 +375,12 @@ impl Channeler {
                         (false, true) => {
                             let mut v = SmallVec::<[PBack; 8]>::with_capacity(inp.len());
                             for input in inp {
-                                v.push(translate(ensemble, &channeler, *input).1.unwrap());
+                                v.push(channeler.translate(ensemble, *input).1.unwrap());
                             }
                             let mut config = vec![];
                             for lut_bit in lut.iter() {
                                 if let DynamicValue::Dynam(p) = lut_bit {
-                                    let p_equiv = translate(ensemble, &channeler, *p).0;
+                                    let p_equiv = channeler.translate(ensemble, *p).0;
                                     config.push(p_equiv);
                                 } else {
                                     unreachable!()
@@ -417,7 +419,7 @@ impl Channeler {
     }
 
     /// Advances over all subnodes of a node
-    pub fn advancer_subnodes_of_node(&self, p: PBack) -> CNodeSubnodeAdvancer {
+    pub fn advancer_subnodes_of_node(&self, p: PBack) -> CNodeSubnodeAdvancer<PBack, PCEdge> {
         CNodeSubnodeAdvancer {
             adv: self.cnodes.advancer_surject(p),
         }
@@ -436,12 +438,12 @@ impl Channeler {
 
 ptr_struct!(PUniqueCNode);
 
-pub struct CNodeSubnodeAdvancer {
-    adv: SurjectPtrAdvancer<PBack, Referent, CNode>,
+pub struct CNodeSubnodeAdvancer<PBack: Ptr, PCEdge: Ptr> {
+    adv: SurjectPtrAdvancer<PBack, Referent<PBack, PCEdge>, CNode<PBack>>,
 }
 
-impl Advancer for CNodeSubnodeAdvancer {
-    type Collection = Channeler;
+impl<PBack: Ptr, PCEdge: Ptr> Advancer for CNodeSubnodeAdvancer<PBack, PCEdge> {
+    type Collection = Channeler<PBack, PCEdge>;
     type Item = PBack;
 
     fn advance(&mut self, collection: &Self::Collection) -> Option<Self::Item> {

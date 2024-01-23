@@ -4,42 +4,42 @@
 use std::path::PathBuf;
 
 use awint::awint_dag::{
-    triple_arena::{Advancer, Arena, ChainArena},
+    triple_arena::{Advancer, Arena, ChainArena, Ptr},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
 };
 
 use crate::{
     ensemble,
-    route::{channel::Referent, CEdge, CNode, Channeler, PBack, PCEdge, Programmability},
+    route::{channel::Referent, CEdge, CNode, Channeler, Programmability},
     Error,
 };
 
 /// For viewing everything at once
 #[derive(Debug, Clone)]
-pub enum NodeKind {
-    CNode(CNode),
+pub enum NodeKind<PBack: Ptr, PCEdge: Ptr> {
+    CNode(CNode<PBack>),
     SubNode(PBack, PBack),
     SuperNode(PBack, PBack),
-    CEdgeIncidence(PBack, PCEdge, Option<usize>, CEdge, CEdge),
+    CEdgeIncidence(PBack, PCEdge, Option<usize>, CEdge<PBack>, CEdge<PBack>),
     EnsembleBackRef(PBack, ensemble::PBack),
     Remove,
 }
 
-impl DebugNodeTrait<PBack> for NodeKind {
+impl<PBack: Ptr, PCEdge: Ptr> DebugNodeTrait<PBack> for NodeKind<PBack, PCEdge> {
     fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
         match this {
             NodeKind::CNode(cnode) => DebugNode {
                 sources: vec![],
-                center: { vec!["cnode".to_owned(), format!("{}", cnode.p_this_cnode)] },
+                center: { vec!["cnode".to_owned(), format!("{:?}", cnode.p_this_cnode)] },
                 sinks: vec![],
             },
             NodeKind::SubNode(p_back, p_back_forwarded) => DebugNode {
                 sources: vec![],
                 center: { vec!["sub".to_owned()] },
-                sinks: vec![(*p_back_forwarded, format!("{p_back}"))],
+                sinks: vec![(*p_back_forwarded, format!("{p_back:?}"))],
             },
             NodeKind::SuperNode(p_back, p_back_forwarded) => DebugNode {
-                sources: vec![(*p_back_forwarded, format!("{p_back}"))],
+                sources: vec![(*p_back_forwarded, format!("{p_back:?}"))],
                 center: { vec!["super".to_owned()] },
                 sinks: vec![],
             },
@@ -49,13 +49,13 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     for (source, source_forwarded) in
                         cedge.sources().iter().zip(cedge_forwarded.sources().iter())
                     {
-                        v.push((*source_forwarded, format!("{source}")));
+                        v.push((*source_forwarded, format!("{source:?}")));
                     }
                     v
                 },
                 center: {
                     vec![
-                        format!("{p_cedge}"),
+                        format!("{p_cedge:?}"),
                         if let Some(source_i) = i {
                             format!("{source_i}")
                         } else {
@@ -83,13 +83,13 @@ impl DebugNodeTrait<PBack> for NodeKind {
 
 /// For viewing the cgraph at only one level
 #[derive(Debug, Clone)]
-pub enum LevelNodeKind {
-    CNode(CNode),
-    CEdge(CEdge, CEdge),
+pub enum LevelNodeKind<PBack: Ptr> {
+    CNode(CNode<PBack>),
+    CEdge(CEdge<PBack>, CEdge<PBack>),
     Remove,
 }
 
-impl DebugNodeTrait<PBack> for LevelNodeKind {
+impl<PBack: Ptr> DebugNodeTrait<PBack> for LevelNodeKind<PBack> {
     fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
         match this {
             LevelNodeKind::CNode(cnode) => DebugNode {
@@ -97,7 +97,7 @@ impl DebugNodeTrait<PBack> for LevelNodeKind {
                 center: {
                     vec![
                         format!("{} cnode {}", cnode.lvl, cnode.internal_behavior.lut_bits),
-                        format!("{}", cnode.p_this_cnode),
+                        format!("{:?}", cnode.p_this_cnode),
                     ]
                 },
                 sinks: vec![],
@@ -108,7 +108,7 @@ impl DebugNodeTrait<PBack> for LevelNodeKind {
                     for (source, source_forwarded) in
                         cedge.sources().iter().zip(cedge_forwarded.sources().iter())
                     {
-                        v.push((*source_forwarded, format!("{source}")));
+                        v.push((*source_forwarded, format!("{source:?}")));
                     }
                     v
                 },
@@ -122,14 +122,14 @@ impl DebugNodeTrait<PBack> for LevelNodeKind {
 
 /// For viewing the hierarchy structure
 #[derive(Debug, Clone)]
-pub enum HierarchyNodeKind {
+pub enum HierarchyNodeKind<PBack: Ptr> {
     // supernode edge is stored on the end
-    CNode(CNode, Option<PBack>),
-    CEdge(CEdge, CEdge),
+    CNode(CNode<PBack>, Option<PBack>),
+    CEdge(CEdge<PBack>, CEdge<PBack>),
     Remove,
 }
 
-impl DebugNodeTrait<PBack> for HierarchyNodeKind {
+impl<PBack: Ptr> DebugNodeTrait<PBack> for HierarchyNodeKind<PBack> {
     fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
         match this {
             HierarchyNodeKind::CNode(cnode, p_super) => DebugNode {
@@ -141,7 +141,7 @@ impl DebugNodeTrait<PBack> for HierarchyNodeKind {
                 center: {
                     vec![
                         format!("{} cnode {}", cnode.lvl, cnode.internal_behavior.lut_bits),
-                        format!("{}", cnode.p_this_cnode),
+                        format!("{:?}", cnode.p_this_cnode),
                     ]
                 },
                 sinks: vec![],
@@ -152,7 +152,7 @@ impl DebugNodeTrait<PBack> for HierarchyNodeKind {
                     for (source, source_forwarded) in
                         cedge.sources().iter().zip(cedge_forwarded.sources().iter())
                     {
-                        v.push((*source_forwarded, format!("{source}")));
+                        v.push((*source_forwarded, format!("{source:?}")));
                     }
                     v
                 },
@@ -164,9 +164,9 @@ impl DebugNodeTrait<PBack> for HierarchyNodeKind {
     }
 }
 
-impl Channeler {
-    pub fn to_cnode_backrefs_debug(&self) -> Arena<PBack, NodeKind> {
-        let mut arena = Arena::<PBack, NodeKind>::new();
+impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
+    pub fn to_cnode_backrefs_debug(&self) -> Arena<PBack, NodeKind<PBack, PCEdge>> {
+        let mut arena = Arena::<PBack, NodeKind<PBack, PCEdge>>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 let p_cnode = self.cnodes.get_val(p_self).unwrap().clone().p_this_cnode;
@@ -202,8 +202,8 @@ impl Channeler {
         arena
     }
 
-    pub fn to_cnode_level_debug(&self, lvl: usize) -> Arena<PBack, LevelNodeKind> {
-        let mut arena = Arena::<PBack, LevelNodeKind>::new();
+    pub fn to_cnode_level_debug(&self, lvl: usize) -> Arena<PBack, LevelNodeKind<PBack>> {
+        let mut arena = Arena::<PBack, LevelNodeKind<PBack>>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 match referent {
@@ -252,8 +252,8 @@ impl Channeler {
         arena
     }
 
-    pub fn to_cnode_hierarchy_debug(&self) -> Arena<PBack, HierarchyNodeKind> {
-        let mut arena = Arena::<PBack, HierarchyNodeKind>::new();
+    pub fn to_cnode_hierarchy_debug(&self) -> Arena<PBack, HierarchyNodeKind<PBack>> {
+        let mut arena = Arena::<PBack, HierarchyNodeKind<PBack>>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 match referent {
@@ -326,7 +326,7 @@ impl Channeler {
         res
     }
 
-    pub fn backrefs_to_chain_arena(&self) -> ChainArena<PBack, Referent> {
+    pub fn backrefs_to_chain_arena(&self) -> ChainArena<PBack, Referent<PBack, PCEdge>> {
         let mut chain_arena = ChainArena::new();
         self.cnodes
             .clone_keys_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode);

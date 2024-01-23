@@ -2,7 +2,10 @@ use std::cmp::max;
 
 use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, Ptr};
 
-use crate::route::{channel::Referent, BulkBehavior, Channeler, PBack, Programmability};
+use crate::{
+    ensemble::PBack,
+    route::{channel::Referent, BulkBehavior, Channeler, Programmability},
+};
 
 #[derive(Debug, Clone)]
 pub struct InternalBehavior {
@@ -17,20 +20,20 @@ impl InternalBehavior {
 
 /// A channel node
 #[derive(Debug, Clone)]
-pub struct CNode {
+pub struct CNode<PBack: Ptr> {
     pub p_this_cnode: PBack,
     pub lvl: u16,
     pub has_supernode: bool,
     pub internal_behavior: InternalBehavior,
 }
 
-impl CNode {
+impl<PBack: Ptr> CNode<PBack> {
     pub fn internal_behavior(&self) -> &InternalBehavior {
         &self.internal_behavior
     }
 }
 
-impl Channeler {
+impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
     /// Given the `subnodes` (which should point to unique `ThisCNode`s) for a
     /// new top level `CNode`, this will manage the backrefs
     pub fn make_top_level_cnode<I>(
@@ -135,7 +138,7 @@ For one more detail, what do we do about disconnected graphs?
 ///
 /// We are currently assuming that `generate_hierarchy` is being run once on
 /// a graph of unit channel nodes and edges
-pub fn generate_hierarchy(channeler: &mut Channeler) {
+pub fn generate_hierarchy<PBack: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PBack, PCEdge>) {
     // For each cnode on a given level, we will attempt to concentrate it and all
     // its neighbors. If any neighbor has a supernode already, it skips the cnode
 

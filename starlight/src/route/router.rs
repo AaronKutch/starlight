@@ -1,13 +1,14 @@
-use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
+use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, Ptr};
 
 use crate::{
     ensemble::{self, Ensemble, PExternal},
-    route::{Channeler, HyperPath, PBack, PCEdge, PHyperPath},
+    route::{Channeler, HyperPath, PHyperPath},
     triple_arena::Arena,
     Error, EvalAwi, LazyAwi, SuspendedEpoch,
 };
 
-ptr_struct!(PMapping);
+ptr_struct!(PBack; PCEdge; QBack; QCEdge);
+ptr_struct!(PMapping; PEmbedding);
 
 #[derive(Debug, Clone)]
 pub struct Mapping {
@@ -17,23 +18,61 @@ pub struct Mapping {
     bit_i: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum EmbeddingKind<PBack: Ptr, PCEdge: Ptr> {
+    Edge(PCEdge),
+    Node(PBack),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Embedding<PBack: Ptr, PCEdge: Ptr> {
+    /// If it is not possible for the embedding to be another way and have a
+    /// valid routing
+    absolute: bool,
+    target: EmbeddingKind<PBack, PCEdge>,
+}
+
+impl<PBack: Ptr, PCEdge: Ptr> Embedding<PBack, PCEdge> {
+    pub fn absolute_cnode(target_cnode: PBack) -> Self {
+        Self {
+            absolute: true,
+            target: EmbeddingKind::Node(target_cnode),
+        }
+    }
+
+    pub fn cnode(target_cnode: PBack) -> Self {
+        Self {
+            absolute: false,
+            target: EmbeddingKind::Node(target_cnode),
+        }
+    }
+
+    pub fn cedge(target_cedge: PCEdge) -> Self {
+        Self {
+            absolute: false,
+            target: EmbeddingKind::Edge(target_cedge),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Router {
     target_ensemble: Ensemble,
-    target_channeler: Channeler,
+    target_channeler: Channeler<QBack, QCEdge>,
     program_ensemble: Ensemble,
-    program_channeler: Channeler,
-    hyperpaths: Arena<PHyperPath, HyperPath>,
+    program_channeler: Channeler<PBack, PCEdge>,
+    hyperpaths: Arena<PHyperPath, HyperPath<QBack, QCEdge>>,
     // `ThisEquiv` `PBack` mapping from program to target
     mappings: OrdArena<PMapping, ensemble::PBack, Mapping>,
+    embeddings: OrdArena<PEmbedding, EmbeddingKind<PBack, PCEdge>, Embedding<QBack, QCEdge>>,
 }
 
 impl Router {
     pub fn new(
         target_epoch: &SuspendedEpoch,
-        target_channeler: Channeler,
+        target_channeler: Channeler<QBack, QCEdge>,
         program_epoch: &SuspendedEpoch,
-        program_channeler: Channeler,
+        program_channeler: Channeler<PBack, PCEdge>,
     ) -> Self {
         // TODO may want the primary user function to take ownership of epoch, or maybe
         // always for memory reasons
@@ -44,6 +83,7 @@ impl Router {
             program_channeler,
             hyperpaths: Arena::new(),
             mappings: OrdArena::new(),
+            embeddings: OrdArena::new(),
         }
     }
 
@@ -55,11 +95,11 @@ impl Router {
         &self.program_ensemble
     }
 
-    pub fn target_channeler(&self) -> &Channeler {
+    pub fn target_channeler(&self) -> &Channeler<QBack, QCEdge> {
         &self.target_channeler
     }
 
-    pub fn program_channeler(&self) -> &Channeler {
+    pub fn program_channeler(&self) -> &Channeler<PBack, PCEdge> {
         &self.program_channeler
     }
 
@@ -180,15 +220,12 @@ fn route(router: &mut Router) -> Result<(), Error> {
     // initialization of hyperpaths
     assert_eq!(router.target_channeler().top_level_cnodes.len(), 1);
     assert_eq!(router.program_channeler().top_level_cnodes.len(), 1);
-    ptr_struct!(P0; P1);
     let p = router.target_channeler().top_level_cnodes.min().unwrap();
     let root_level_target_cnode = *router
         .target_channeler()
         .top_level_cnodes
         .get_key(p)
         .unwrap();
-    let mut cnode_embeddings = OrdArena::<P0, PBack, PBack>::new();
-    let mut cedge_embeddings = OrdArena::<P1, PCEdge, PCEdge>::new();
     for (_, program_p_equiv, mapping) in &router.mappings {
         let program_p_equiv = *program_p_equiv;
         let target_p_equiv = mapping.target_p_equiv;
@@ -201,16 +238,41 @@ fn route(router: &mut Router) -> Result<(), Error> {
             .find_channeler_backref(target_p_equiv)
             .unwrap();
 
-        let replaced = cnode_embeddings
-            .insert(program_base_cnode, target_base_cnode)
+        let replaced = router
+            .embeddings
+            .insert(
+                EmbeddingKind::Node(program_base_cnode),
+                Embedding::absolute_cnode(target_base_cnode),
+            )
             .1;
         assert!(replaced.is_none());
     }
-    for cnode in router.program_channeler().cnodes.vals() {
-        if cnode_embeddings.find_key(&cnode.p_this_cnode).is_none() {
+    for cnode in router.program_channeler.cnodes.vals() {
+        if router
+            .embeddings
+            .find_key(&EmbeddingKind::Node(cnode.p_this_cnode))
+            .is_none()
+        {
             // all CNodes that weren't embedded in guaranteed places are now embedded in the
             // root level target node
-            cnode_embeddings.insert(cnode.p_this_cnode, root_level_target_cnode);
+            let _ = router.embeddings.insert(
+                EmbeddingKind::Node(cnode.p_this_cnode),
+                Embedding::cnode(root_level_target_cnode),
+            );
+        }
+    }
+    // same for edges
+    // TODO support custom absolute `CEdge` mappings
+    for p_cedge in router.program_channeler.cedges.ptrs() {
+        if router
+            .embeddings
+            .find_key(&EmbeddingKind::Edge(p_cedge))
+            .is_none()
+        {
+            let _ = router.embeddings.insert(
+                EmbeddingKind::Edge(p_cedge),
+                Embedding::cnode(root_level_target_cnode),
+            );
         }
     }
 
@@ -223,5 +285,64 @@ fn route(router: &mut Router) -> Result<(), Error> {
     // CEdge must be compatible with their embedded incidents in the target.
     // Then the edge is embedded.
 
+    // current idea: orient around embedding the CEdges first. The CEdges enforce
+    // CNode embeddings except around permutability. We should focus on the
+    // parts that introduce the most constraints first, otherwise conflicts will
+    // be too great
+
+    let mut gas = 100u64;
+    loop {
+        if route_step(router)? {
+            break
+        }
+        gas = gas.saturating_sub(1);
+        if gas == 0 {
+            return Err(Error::OtherStr("ran out of gas while routing"));
+        }
+    }
+
+    Ok(())
+}
+
+fn route_step(router: &mut Router) -> Result<bool, Error> {
+    // look at all CEdges that aren't embedded to the base level
+    let mut adv = router.embeddings.advancer();
+    while let Some(p_embedding) = adv.advance(&router.embeddings) {
+        let (embedded, embedding) = router.embeddings.get(p_embedding).unwrap();
+        match *embedded {
+            EmbeddingKind::Edge(p_cedge) => {
+                if embedding.absolute {
+                    continue
+                }
+            }
+            EmbeddingKind::Node(_) => (),
+        }
+    }
+    Ok(false)
+}
+
+/// Given a CEdge that has been embedded, this updates all the embeddings that
+/// are implied, also checking for absolute conflicts
+fn update_implied_embeddings(router: &mut Router, p_cedge: PCEdge) -> Result<(), Error> {
+    let p_embedding = router
+        .embeddings
+        .find_key(&EmbeddingKind::Edge(p_cedge))
+        .unwrap();
+    let embedding = router.embeddings.get_val(p_embedding).unwrap();
+    match embedding.target {
+        EmbeddingKind::Edge(p_cedge) => {
+            let cedge = router.target_channeler.cedges.get(p_cedge).unwrap();
+            //let p_sink_embedding =
+            // router.embeddings.find_key(&EmbeddingKind::Node(cedge.sink())).unwrap();
+
+            if cedge.is_base() {
+                // upgraded strictness
+                //
+            } else {
+                todo!()
+            }
+        }
+        EmbeddingKind::Node(p_cnode) => (),
+    }
     Ok(())
 }

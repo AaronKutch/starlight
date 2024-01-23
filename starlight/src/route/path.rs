@@ -1,38 +1,37 @@
-use crate::{
-    route::{PBack, PCEdge},
-    triple_arena::ptr_struct,
-};
+use awint::awint_dag::triple_arena::Ptr;
+
+use crate::triple_arena::ptr_struct;
 
 ptr_struct!(PHyperPath);
 
 #[derive(Debug, Clone)]
-pub enum Edge {
+pub enum Edge<QBack: Ptr, QCEdge: Ptr> {
     /// Points to a `CEdge`
-    Transverse(PCEdge),
+    Transverse(QCEdge),
     /// Points to a `Referent::SuperNode`
-    Concentrate(PBack),
+    Concentrate(QBack),
     /// Points to a `Referent::SubNode`
-    Dilute(PBack),
+    Dilute(QBack),
 }
 
 /// A single path from a source to sink across multiple `CEdge`s
 #[derive(Debug, Clone)]
-pub struct Path {
-    sink: PBack,
-    edges: Vec<Edge>,
+pub struct Path<QBack: Ptr, QCEdge: Ptr> {
+    sink: QBack,
+    edges: Vec<Edge<QBack, QCEdge>>,
     //critical_multiplier: u64,
 }
 
 /// Represents the "hyperpath" that a logical bit will take from a `source` node
 /// to one ore more `sink` nodes. Sinks can have different priorities.
 #[derive(Debug, Clone)]
-pub struct HyperPath {
-    source: PBack,
-    paths: Vec<Path>,
+pub struct HyperPath<QBack: Ptr, QCEdge: Ptr> {
+    source: QBack,
+    paths: Vec<Path<QBack, QCEdge>>,
 }
 
-impl HyperPath {
-    pub fn new(source: PBack) -> Self {
+impl<QBack: Ptr, QCEdge: Ptr> HyperPath<QBack, QCEdge> {
+    pub fn new(source: QBack) -> Self {
         Self {
             source,
             paths: vec![],

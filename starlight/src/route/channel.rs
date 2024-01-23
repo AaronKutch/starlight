@@ -1,20 +1,20 @@
-use awint::awint_dag::triple_arena::{Advancer, Arena, OrdArena, SurjectArena};
+use awint::awint_dag::triple_arena::{Advancer, Arena, OrdArena, Ptr, SurjectArena};
 
 use crate::{
     ensemble,
-    route::{CEdge, CNode, PCEdge, Programmability},
+    route::{CEdge, CNode, Programmability},
     triple_arena::ptr_struct,
     Error,
 };
 
-ptr_struct!(P0; PTopLevel; PBack);
+ptr_struct!(P0; PTopLevel);
 
 // TODO Mapping nodes, Divergence edges, and Convergence edges? Or are we only
 // going to end up with Convergence edges and the hyperpath claws work from the
 // sink perspectives?
 
 #[derive(Debug, Clone, Copy)]
-pub enum Referent {
+pub enum Referent<PBack: Ptr, PCEdge: Ptr> {
     ThisCNode,
     SubNode(PBack),
     SuperNode(PBack),
@@ -26,9 +26,9 @@ pub enum Referent {
 }
 
 #[derive(Debug, Clone)]
-pub struct Channeler {
-    pub cnodes: SurjectArena<PBack, Referent, CNode>,
-    pub cedges: Arena<PCEdge, CEdge>,
+pub struct Channeler<PBack: Ptr, PCEdge: Ptr> {
+    pub cnodes: SurjectArena<PBack, Referent<PBack, PCEdge>, CNode<PBack>>,
+    pub cedges: Arena<PCEdge, CEdge<PBack>>,
     /// The plan is that this always ends up with a single top level node, with
     /// all unconnected graphs being connected with `Behavior::Noop` so that the
     /// normal algorithm can allocate over them
@@ -37,7 +37,7 @@ pub struct Channeler {
     pub ensemble_backref_to_channeler_backref: OrdArena<P0, ensemble::PBack, PBack>,
 }
 
-impl Channeler {
+impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
     pub fn empty() -> Self {
         Self {
             cnodes: SurjectArena::new(),
@@ -115,13 +115,13 @@ impl Channeler {
             for p_cnode in cedge.sources().iter() {
                 if !self.cnodes.contains(*p_cnode) {
                     return Err(Error::OtherString(format!(
-                        "{cedge:?} source {p_cnode} is invalid",
+                        "{cedge:?} source {p_cnode:?} is invalid",
                     )))
                 }
             }
             if !self.cnodes.contains(cedge.sink()) {
                 return Err(Error::OtherString(format!(
-                    "{cedge:?} sink {} is invalid",
+                    "{cedge:?} sink {:?} is invalid",
                     cedge.sink()
                 )))
             }
@@ -129,7 +129,7 @@ impl Channeler {
         for p_cnode in self.top_level_cnodes.keys() {
             if !self.cnodes.contains(*p_cnode) {
                 return Err(Error::OtherString(format!(
-                    "top_level_cnodes {p_cnode} is invalid"
+                    "top_level_cnodes {p_cnode:?} is invalid"
                 )))
             }
         }
