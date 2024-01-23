@@ -2,7 +2,7 @@ use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
 
 use crate::{
     ensemble::{self, Ensemble, PExternal},
-    route::{Channeler, HyperPath, PHyperPath},
+    route::{Channeler, HyperPath, PBack, PCEdge, PHyperPath},
     triple_arena::Arena,
     Error, EvalAwi, LazyAwi, SuspendedEpoch,
 };
@@ -180,6 +180,15 @@ fn route(router: &mut Router) -> Result<(), Error> {
     // initialization of hyperpaths
     assert_eq!(router.target_channeler().top_level_cnodes.len(), 1);
     assert_eq!(router.program_channeler().top_level_cnodes.len(), 1);
+    ptr_struct!(P0; P1);
+    let p = router.target_channeler().top_level_cnodes.min().unwrap();
+    let root_level_target_cnode = *router
+        .target_channeler()
+        .top_level_cnodes
+        .get_key(p)
+        .unwrap();
+    let mut cnode_embeddings = OrdArena::<P0, PBack, PBack>::new();
+    let mut cedge_embeddings = OrdArena::<P1, PCEdge, PCEdge>::new();
     for (_, program_p_equiv, mapping) in &router.mappings {
         let program_p_equiv = *program_p_equiv;
         let target_p_equiv = mapping.target_p_equiv;
@@ -192,8 +201,27 @@ fn route(router: &mut Router) -> Result<(), Error> {
             .find_channeler_backref(target_p_equiv)
             .unwrap();
 
-        //let mut hyperpath =
+        let replaced = cnode_embeddings
+            .insert(program_base_cnode, target_base_cnode)
+            .1;
+        assert!(replaced.is_none());
     }
+    for cnode in router.program_channeler().cnodes.vals() {
+        if cnode_embeddings.find_key(&cnode.p_this_cnode).is_none() {
+            // all CNodes that weren't embedded in guaranteed places are now embedded in the
+            // root level target node
+            cnode_embeddings.insert(cnode.p_this_cnode, root_level_target_cnode);
+        }
+    }
+
+    // property: if a program CNode is embedded in a certain target CNode, the
+    // supernodes of the program CNode should be embedded somewhere in the
+    // supernode chain of the target CNode including itself. Embeddings should
+    // be in a ladder like ordering
+
+    // in order to program a target CEdge, the incidents of a base level program
+    // CEdge must be compatible with their embedded incidents in the target.
+    // Then the edge is embedded.
 
     Ok(())
 }

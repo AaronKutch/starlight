@@ -30,3 +30,12 @@ pub struct HyperPath {
     source: PBack,
     paths: Vec<Path>,
 }
+
+impl HyperPath {
+    pub fn new(source: PBack) -> Self {
+        Self {
+            source,
+            paths: vec![],
+        }
+    }
+}

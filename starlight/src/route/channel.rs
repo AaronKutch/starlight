@@ -9,6 +9,10 @@ use crate::{
 
 ptr_struct!(P0; PTopLevel; PBack);
 
+// TODO Mapping nodes, Divergence edges, and Convergence edges? Or are we only
+// going to end up with Convergence edges and the hyperpath claws work from the
+// sink perspectives?
+
 #[derive(Debug, Clone, Copy)]
 pub enum Referent {
     ThisCNode,
