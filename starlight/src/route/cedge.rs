@@ -14,7 +14,7 @@ use crate::{
     route::{
         channel::Referent,
         cnode::{generate_hierarchy, InternalBehavior},
-        CNode, Channeler, Configurator,
+        CNode, Channeler, Configurator, PEmbedding,
     },
     triple_arena::ptr_struct,
     Error, SuspendedEpoch,
@@ -148,6 +148,8 @@ pub struct CEdge<PBack: Ptr> {
     sink: PBack,
 
     programmability: Programmability,
+
+    pub embedding_edge: Option<PEmbedding>,
     // Ideally when `CNode`s are merged, they keep approximately the same weight distribution for
     // wide edges delay_weight: u64,
     //lagrangian_weight: u64,
@@ -239,6 +241,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
                 sources: fixed_sources,
                 sink: fixed_sink,
                 programmability,
+                embedding_edge: None,
             }
         })
     }

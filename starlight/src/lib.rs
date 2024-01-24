@@ -172,7 +172,8 @@ mod awi_structs;
 pub mod ensemble;
 /// Internal definitions used in lowering
 pub mod lower;
-mod misc;
+/// Miscellanious helpers
+pub mod misc;
 /// WIP routing functionality
 pub mod route;
 pub use awi_structs::{

@@ -16,4 +16,4 @@ pub use cnode::CNode;
 pub use config::{Config, Configurator, PConfig};
 pub use path::{HyperPath, PHyperPath, Path};
 pub use region_adv::RegionAdvancer;
-pub use router::Router;
+pub use router::{PEmbedding, Router};
