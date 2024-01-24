@@ -11,6 +11,7 @@ use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble,
     ensemble::{DynamicValue, Ensemble, LNodeKind},
+    misc::SmallSet,
     route::{
         channel::Referent,
         cnode::{generate_hierarchy, InternalBehavior},
@@ -149,7 +150,7 @@ pub struct CEdge<PBack: Ptr> {
 
     programmability: Programmability,
 
-    pub embedding_edge: Option<PEmbedding>,
+    pub embeddings: SmallSet<PEmbedding>,
     // Ideally when `CNode`s are merged, they keep approximately the same weight distribution for
     // wide edges delay_weight: u64,
     //lagrangian_weight: u64,
@@ -241,7 +242,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
                 sources: fixed_sources,
                 sink: fixed_sink,
                 programmability,
-                embedding_edge: None,
+                embeddings: SmallSet::new(),
             }
         })
     }

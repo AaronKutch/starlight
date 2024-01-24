@@ -11,8 +11,9 @@ use awint::{
 
 use crate::{
     ensemble::{DynamicValue, Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent, Value},
+    misc::SmallMap,
     triple_arena::{ptr_struct, OrdArena},
-    Error, SmallMap,
+    Error,
 };
 
 ptr_struct!(POpt);

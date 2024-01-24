@@ -92,6 +92,7 @@ pub fn binary_search_similar_by<T, F: FnMut(&T) -> Ordering>(
 
 /// Intended for very small (most of the time there should be no more than 8)
 /// hereditary maps of keys to values.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SmallMap<K, V> {
     set: SmallVec<[(K, V); 8]>,
 }
@@ -99,6 +100,14 @@ pub struct SmallMap<K, V> {
 impl<K, V> SmallMap<K, V> {
     pub fn new() -> Self {
         Self { set: smallvec![] }
+    }
+
+    pub fn len(&self) -> usize {
+        self.set.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.set.is_empty()
     }
 }
 
@@ -120,17 +129,86 @@ impl<K: Ord, V> SmallMap<K, V> {
         Ok(())
     }
 
-    /*pub fn get_mut(&mut self, k: K) -> Option<&mut V> {
-        for (k1, v1) in &mut self.set {
-            if *k1 == k {
-                return Some(v1)
-            }
+    #[must_use]
+    pub fn contains(&mut self, k: &K) -> bool {
+        binary_search_similar_by(&self.set, |(k_prime, _)| k_prime.cmp(k)).1 == Ordering::Equal
+    }
+
+    #[must_use]
+    pub fn get(&mut self, k: &K) -> Option<&V> {
+        let (i, direction) = binary_search_similar_by(&self.set, |(k_prime, _)| k_prime.cmp(k));
+        match direction {
+            Ordering::Equal => Some(&self.set.get(i).unwrap().1),
+            _ => None,
         }
-        None
-    }*/
+    }
+
+    #[must_use]
+    pub fn get_mut(&mut self, k: &K) -> Option<&mut V> {
+        let (i, direction) = binary_search_similar_by(&self.set, |(k_prime, _)| k_prime.cmp(k));
+        match direction {
+            Ordering::Equal => Some(&mut self.set.get_mut(i).unwrap().1),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn remove(&mut self, k: &K) -> Option<V> {
+        let (i, direction) = binary_search_similar_by(&self.set, |(k_prime, _)| k_prime.cmp(k));
+        match direction {
+            Ordering::Equal => Some(self.set.remove(i).1),
+            _ => None,
+        }
+    }
 }
 
 impl<K, V> Default for SmallMap<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Intended for very small (most of the time there should be no more than 8)
+/// hereditary sets of keys to values.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SmallSet<K> {
+    small_map: SmallMap<K, ()>,
+}
+
+impl<K> SmallSet<K> {
+    pub fn new() -> Self {
+        Self {
+            small_map: SmallMap::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.small_map.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.small_map.is_empty()
+    }
+}
+
+impl<K: Ord> SmallSet<K> {
+    /// Returns whether the value was newly inserted
+    pub fn insert(&mut self, k: K) -> bool {
+        self.small_map.insert(k, ()).is_ok()
+    }
+
+    #[must_use]
+    pub fn contains(&mut self, k: &K) -> bool {
+        self.small_map.contains(k)
+    }
+
+    #[must_use]
+    pub fn remove(&mut self, k: &K) -> Option<()> {
+        self.small_map.remove(k)
+    }
+}
+
+impl<K> Default for SmallSet<K> {
     fn default() -> Self {
         Self::new()
     }

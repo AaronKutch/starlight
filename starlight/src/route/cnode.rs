@@ -4,6 +4,7 @@ use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, Ptr};
 
 use crate::{
     ensemble::PBack,
+    misc::SmallSet,
     route::{channel::Referent, BulkBehavior, Channeler, PEmbedding, Programmability},
 };
 
@@ -25,7 +26,7 @@ pub struct CNode<PBack: Ptr> {
     pub lvl: u16,
     pub has_supernode: bool,
     pub internal_behavior: InternalBehavior,
-    pub embedding_edge: Option<PEmbedding>,
+    pub embeddings: SmallSet<PEmbedding>,
 }
 
 impl<PBack: Ptr> CNode<PBack> {
@@ -52,7 +53,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
                 lvl,
                 has_supernode: false,
                 internal_behavior,
-                embedding_edge: None,
+                embeddings: SmallSet::new(),
             })
         });
         for subnode in subnodes {
