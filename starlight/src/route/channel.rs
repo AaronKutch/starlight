@@ -47,13 +47,15 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
         }
     }
 
-    pub fn find_channeler_backref(&self, ensemble_backref: ensemble::PBack) -> Option<PBack> {
+    pub fn find_channeler_cnode(&self, ensemble_backref: ensemble::PBack) -> Option<PBack> {
         let p = self
             .ensemble_backref_to_channeler_backref
             .find_key(&ensemble_backref)?;
-        self.ensemble_backref_to_channeler_backref
+        let p_ref = self
+            .ensemble_backref_to_channeler_backref
             .get(p)
-            .map(|(_, q)| *q)
+            .map(|(_, q)| *q)?;
+        Some(self.cnodes.get_val(p_ref).unwrap().p_this_cnode)
     }
 
     pub fn verify_integrity(&self) -> Result<(), Error> {

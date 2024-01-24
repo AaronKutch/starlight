@@ -77,6 +77,62 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
         let _ = self.top_level_cnodes.insert(p_cnode, ());
         p_cnode
     }
+
+    /// Given two `CNode`s, this will find their lowest level common supernode
+    /// (or just return the higher level of the two if one is a supernode of the
+    /// other, or return one if they are equal). Can only return `None` if there
+    /// are disjoint `CNode` hiearchies. If this function is used in a loop with
+    /// a common accumulator, this will find the common supernode of all the
+    /// nodes.
+    pub fn find_common_supernode(&self, p_back0: PBack, p_back1: PBack) -> Option<PBack> {
+        let cnode0 = self.cnodes.get_val(p_back0).unwrap();
+        let mut lvl0 = cnode0.lvl;
+        let mut p_cnode0 = cnode0.p_this_cnode;
+        let cnode1 = self.cnodes.get_val(p_back1).unwrap();
+        let mut lvl1 = cnode1.lvl;
+        let mut p_cnode1 = cnode1.p_this_cnode;
+        // first get on same level
+        loop {
+            // have this run first for all cases
+            if p_cnode0 == p_cnode1 {
+                // case where one is the supernode of the other
+                return Some(p_cnode0)
+            }
+            if lvl0 < lvl1 {
+                if let Some(p_super_cnode) = self.get_supernode(p_cnode0) {
+                    p_cnode0 = p_super_cnode;
+                } else {
+                    return None
+                }
+                lvl0 += 1;
+            } else if lvl0 > lvl1 {
+                if let Some(p_super_cnode) = self.get_supernode(p_cnode1) {
+                    p_cnode1 = p_super_cnode;
+                } else {
+                    return None
+                }
+                lvl1 += 1;
+            } else {
+                break
+            }
+        }
+        // find common supernode
+        loop {
+            if let Some(p_super_cnode) = self.get_supernode(p_cnode0) {
+                p_cnode0 = p_super_cnode;
+            } else {
+                return None
+            }
+            if let Some(p_super_cnode) = self.get_supernode(p_cnode1) {
+                p_cnode1 = p_super_cnode;
+            } else {
+                return None
+            }
+            if p_cnode0 == p_cnode1 {
+                return Some(p_cnode0)
+            }
+        }
+    }
 }
 
 /*

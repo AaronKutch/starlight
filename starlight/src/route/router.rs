@@ -41,6 +41,14 @@ impl<PBack: Ptr, PCEdge: Ptr, QBack: Ptr, QCEdge: Ptr> Embedding<PBack, PCEdge, 
             target: EmbeddingKind::Node(target_cnode),
         }
     }
+
+    pub fn cnode(progam_cnode: PBack, target_cnode: QBack) -> Self {
+        Self {
+            absolute: false,
+            program: EmbeddingKind::Node(progam_cnode),
+            target: EmbeddingKind::Node(target_cnode),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -262,22 +270,14 @@ impl Router {
 }
 
 fn route(router: &mut Router) -> Result<(), Error> {
+    if router.mappings.is_empty() {
+        // nothing to route
+        return Ok(())
+    }
     // see cnode.rs for the overall idea
 
-    // initialization of hyperpaths
-    assert_eq!(router.target_channeler().top_level_cnodes.len(), 1);
-    assert_eq!(router.program_channeler().top_level_cnodes.len(), 1);
-    let p = router.target_channeler().top_level_cnodes.min().unwrap();
-    let root_level_program_cnode = *router
-        .program_channeler()
-        .top_level_cnodes
-        .get_key(p)
-        .unwrap();
-    let root_level_target_cnode = *router
-        .target_channeler()
-        .top_level_cnodes
-        .get_key(p)
-        .unwrap();
+    let mut root_common_program_cnode = None;
+    let mut root_common_target_cnode = None;
     let mut adv = router.mappings.advancer();
     while let Some(p_mapping) = adv.advance(&router.mappings) {
         let (program_p_equiv, mapping) = router.mappings.get(p_mapping).unwrap();
@@ -285,13 +285,33 @@ fn route(router: &mut Router) -> Result<(), Error> {
         let target_p_equiv = mapping.target_p_equiv;
         let program_base_cnode = router
             .program_channeler()
-            .find_channeler_backref(program_p_equiv)
+            .find_channeler_cnode(program_p_equiv)
             .unwrap();
         let target_base_cnode = router
             .target_channeler()
-            .find_channeler_backref(target_p_equiv)
+            .find_channeler_cnode(target_p_equiv)
             .unwrap();
 
+        if let Some(p_cnode) = root_common_program_cnode {
+            root_common_program_cnode = Some(
+                router
+                    .program_channeler()
+                    .find_common_supernode(p_cnode, program_base_cnode)
+                    .unwrap(),
+            );
+        } else {
+            root_common_program_cnode = Some(program_base_cnode);
+        }
+        if let Some(q_cnode) = root_common_target_cnode {
+            root_common_target_cnode = Some(
+                router
+                    .target_channeler()
+                    .find_common_supernode(q_cnode, target_base_cnode)
+                    .unwrap(),
+            );
+        } else {
+            root_common_target_cnode = Some(target_base_cnode);
+        }
         router
             .make_embedding(Embedding::absolute_cnode(
                 program_base_cnode,
@@ -300,11 +320,11 @@ fn route(router: &mut Router) -> Result<(), Error> {
             .unwrap();
         // TODO support custom absolute `CEdge` mappings
     }
-    // embed root node
+    // embed root common nodes
     router
-        .make_embedding(Embedding::absolute_cnode(
-            root_level_program_cnode,
-            root_level_target_cnode,
+        .make_embedding(Embedding::cnode(
+            root_common_program_cnode.unwrap(),
+            root_common_target_cnode.unwrap(),
         ))
         .unwrap();
 
@@ -340,16 +360,20 @@ fn route_step(router: &mut Router) -> Result<bool, Error> {
     // look at all CEdges that aren't embedded to the base level
     let mut adv = router.embeddings.advancer();
     while let Some(p_embedding) = adv.advance(&router.embeddings) {
-        //let (embedded, embedding) =
-        // router.embeddings.get(p_embedding).unwrap();
-        /*match *embedded {
+        let embedding = router.embeddings.get(p_embedding).unwrap();
+        if embedding.absolute {
+            continue
+        }
+        match embedding.program {
             EmbeddingKind::Edge(p_cedge) => {
-                if embedding.absolute {
+                let edge = router.program_channeler().cedges.get(p_cedge).unwrap();
+                if edge.is_base() {
                     continue
                 }
+                //edge.
             }
             EmbeddingKind::Node(_) => (),
-        }*/
+        }
     }
     Ok(false)
 }
