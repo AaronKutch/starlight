@@ -12,6 +12,6 @@ pub use lnode::{LNode, LNodeKind, PLNode};
 pub use optimize::{Optimizer, POpt};
 pub use rnode::{Notary, PExternal, PRNode, RNode};
 pub use state::{State, Stator};
-pub use tnode::{PTNode, TNode};
+pub use tnode::{Delay, PTNode, TNode};
 pub use together::{Ensemble, Equiv, PBack, Referent};
 pub use value::{BasicValue, BasicValueKind, CommonValue, DynamicValue, Evaluator, Value};

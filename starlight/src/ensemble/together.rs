@@ -11,7 +11,7 @@ use awint::{
 
 use crate::{
     ensemble::{
-        value::Evaluator, DynamicValue, LNode, LNodeKind, Notary, Optimizer, PLNode, PRNode,
+        value::Evaluator, Delay, DynamicValue, LNode, LNodeKind, Notary, Optimizer, PLNode, PRNode,
         PTNode, State, Stator, TNode, Value,
     },
     triple_arena::{ptr_struct, Arena, SurjectArena},
@@ -63,8 +63,8 @@ pub enum Referent {
     ThisStateBit(PState, usize),
     /// Referent is using this for registering an input dependency
     Input(PLNode),
-    /// Referent is using this for a loop driver
-    LoopDriver(PTNode),
+    /// Referent is using this for a driver of a `TNode`
+    Driver(PTNode),
     /// Referent is an `RNode`
     ThisRNode(PRNode),
 }
@@ -136,10 +136,10 @@ impl Ensemble {
                         )));
                     }
                 }
-                Referent::LoopDriver(p_tnode) => {
+                Referent::Driver(p_tnode) => {
                     if let Err(e) = p_tnode.recast(&p_tnode_recaster) {
                         return Err(Error::OtherString(format!(
-                            "recast error with {e} in a `Referent::LoopDriver`"
+                            "recast error with {e} in a `Referent::Driver`"
                         )));
                     }
                 }
@@ -269,7 +269,7 @@ impl Ensemble {
                 Referent::ThisTNode(_) => false,
                 Referent::ThisStateBit(..) => false,
                 Referent::Input(p_input) => !self.lnodes.contains(*p_input),
-                Referent::LoopDriver(p_driver) => !self.tnodes.contains(*p_driver),
+                Referent::Driver(p_driver) => !self.tnodes.contains(*p_driver),
                 Referent::ThisRNode(p_rnode) => !self.notary.rnodes().contains(*p_rnode),
             };
             if invalid {
@@ -305,20 +305,20 @@ impl Ensemble {
         for p_tnode in self.tnodes.ptrs() {
             let tnode = self.tnodes.get(p_tnode).unwrap();
             if let Some(referent) = self.backrefs.get_key(tnode.p_driver) {
-                if let Referent::LoopDriver(p_driver) = referent {
+                if let Referent::Driver(p_driver) = referent {
                     if !self.tnodes.contains(*p_driver) {
                         return Err(Error::OtherString(format!(
-                            "{p_tnode}: {tnode:?} loop driver referrent {p_driver} is invalid"
+                            "{p_tnode}: {tnode:?} driver referrent {p_driver} is invalid"
                         )))
                     }
                 } else {
                     return Err(Error::OtherString(format!(
-                        "{p_tnode}: {tnode:?} loop driver has incorrect referrent"
+                        "{p_tnode}: {tnode:?} driver has incorrect referrent"
                     )))
                 }
             } else {
                 return Err(Error::OtherString(format!(
-                    "{p_tnode}: {tnode:?} loop driver {} is invalid",
+                    "{p_tnode}: {tnode:?} driver {} is invalid",
                     tnode.p_driver
                 )))
             }
@@ -379,7 +379,7 @@ impl Ensemble {
                     });
                     !found
                 }
-                Referent::LoopDriver(p_tnode) => {
+                Referent::Driver(p_tnode) => {
                     let tnode = self.tnodes.get(*p_tnode).unwrap();
                     tnode.p_driver != p_back
                 }
@@ -633,17 +633,18 @@ impl Ensemble {
         p_looper: PBack,
         p_driver: PBack,
         init_val: Value,
+        delay: Delay,
     ) -> Option<PTNode> {
         let p_tnode = self.tnodes.insert_with(|p_tnode| {
             let p_driver = self
                 .backrefs
-                .insert_key(p_driver, Referent::LoopDriver(p_tnode))
+                .insert_key(p_driver, Referent::Driver(p_tnode))
                 .unwrap();
             let p_self = self
                 .backrefs
                 .insert_key(p_looper, Referent::ThisTNode(p_tnode))
                 .unwrap();
-            TNode::new(p_self, p_driver)
+            TNode::new(p_self, p_driver, delay)
         });
         // in order for the value to register correctly
         self.change_value(p_looper, init_val).unwrap();

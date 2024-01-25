@@ -133,6 +133,12 @@ impl<T> Grid<T> {
         }
     }
 
+    /// For each pair of orthogonal elements in the grid (the same element can
+    /// be an argument up to 4 times for each pairing with an orthogonal
+    /// neighbor), this calls `f` with one element, the element's index, an
+    /// element orthogonal to the first with an `ij.0 + 1` or `ij.1 + 1` offset,
+    /// and a boolean indicating offset direction with `true` being the `+ij.1`
+    /// direction.
     // TODO fix this attribute
     /// ```no_format
     /// use starlight::misc::Grid;
@@ -144,58 +150,53 @@ impl<T> Grid<T> {
     /// ]).unwrap();
     ///
     /// let expected_pairs = [
-    ///     (0, 1), (1, 2),
-    ///     (0, 3), (3, 4), (1, 4), (4, 5), (2, 5),
-    ///     (3, 6), (6, 7), (4, 7), (7, 8), (5, 8),
+    ///     (0, 1, false), (1, 2, false),
+    ///     (0, 3, true), (3, 4, false), (1, 4, true), (4, 5, false), (2, 5, true),
+    ///     (3, 6, true), (6, 7, false), (4, 7, true), (7, 8, false), (5, 8, true),
     /// ];
     /// let mut encountered = vec![];
-    /// grid.for_each_orthogonal_pair(|t0, _, t1, _| encountered.push((*t0, *t1)));
+    /// grid.for_each_orthogonal_pair(|t0, _, t1, dir| encountered.push((*t0, *t1, dir)));
     /// assert_eq!(expected_pairs.as_slice(), encountered.as_slice());
     /// ```
-    pub fn for_each_orthogonal_pair<F: FnMut(&T, (usize, usize), &T, (usize, usize))>(
-        &self,
-        mut f: F,
-    ) {
+    pub fn for_each_orthogonal_pair<F: FnMut(&T, (usize, usize), &T, bool)>(&self, mut f: F) {
         // j == 0 row
         for i in 1..self.len().0 {
             let (t0, t1) = self.get2((i - 1, 0), (i, 0)).unwrap();
-            f(t0, (i - 1, 0), t1, (i, 0));
+            f(t0, (i - 1, 0), t1, false);
         }
         for j in 1..self.len().1 {
             // i == 0 column element
             let (t0, t1) = self.get2((0, j - 1), (0, j)).unwrap();
-            f(t0, (0, j - 1), t1, (0, j));
+            f(t0, (0, j - 1), t1, true);
             // nonedge cases
             for i in 1..self.len().0 {
                 let (t0, t1) = self.get2((i - 1, j), (i, j)).unwrap();
-                f(t0, (i - 1, j), t1, (i, j));
+                f(t0, (i - 1, j), t1, false);
                 let (t0, t1) = self.get2((i, j - 1), (i, j)).unwrap();
-                f(t0, (i, j - 1), t1, (i, j));
+                f(t0, (i, j - 1), t1, true);
             }
         }
     }
 
-    pub fn for_each_orthogonal_pair_mut<
-        F: FnMut(&mut T, (usize, usize), &mut T, (usize, usize)),
-    >(
+    pub fn for_each_orthogonal_pair_mut<F: FnMut(&mut T, (usize, usize), &mut T, bool)>(
         &mut self,
         mut f: F,
     ) {
         // j == 0 row
         for i in 1..self.len().0 {
             let (t0, t1) = self.get2_mut((i - 1, 0), (i, 0)).unwrap();
-            f(t0, (i - 1, 0), t1, (i, 0));
+            f(t0, (i - 1, 0), t1, false);
         }
         for j in 1..self.len().1 {
             // i == 0 column element
             let (t0, t1) = self.get2_mut((0, j - 1), (0, j)).unwrap();
-            f(t0, (0, j - 1), t1, (0, j));
+            f(t0, (0, j - 1), t1, true);
             // nonedge cases
             for i in 1..self.len().0 {
                 let (t0, t1) = self.get2_mut((i - 1, j), (i, j)).unwrap();
-                f(t0, (i - 1, j), t1, (i, j));
+                f(t0, (i - 1, j), t1, false);
                 let (t0, t1) = self.get2_mut((i, j - 1), (i, j)).unwrap();
-                f(t0, (i, j - 1), t1, (i, j));
+                f(t0, (i, j - 1), t1, true);
             }
         }
     }

@@ -767,7 +767,7 @@ impl Ensemble {
                                 self.evaluator.insert(Eval::ChangeLNode(p_lnode));
                             }
                         }
-                        Referent::LoopDriver(p_tnode) => {
+                        Referent::Driver(p_tnode) => {
                             let tnode = self.tnodes.get(p_tnode).unwrap();
                             let p_self = tnode.p_self;
                             let equiv = self.backrefs.get_val(p_self).unwrap();
@@ -795,9 +795,7 @@ impl Ensemble {
                 }
             }
             Eval::RequestTNode(request) => {
-                if let Referent::LoopDriver(_) =
-                    self.backrefs.get_key(request.p_back_tnode).unwrap()
-                {
+                if let Referent::Driver(_) = self.backrefs.get_key(request.p_back_tnode).unwrap() {
                     let equiv = self.backrefs.get_val(request.p_back_tnode).unwrap();
                     if equiv.request_visit != self.evaluator.request_visit_gen() {
                         self.evaluator
@@ -852,7 +850,7 @@ impl Ensemble {
                     saw_state = Some(p_state);
                 }
                 Referent::Input(_) => (),
-                Referent::LoopDriver(_) => (),
+                Referent::Driver(_) => (),
                 Referent::ThisRNode(_) => (),
             }
         }

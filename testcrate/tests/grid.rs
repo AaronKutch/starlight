@@ -6,20 +6,40 @@ fn grid() {
     let grid: Grid<u64> = Grid::try_from([[0, 1, 2], [3, 4, 5], [6, 7, 8]]).unwrap();
 
     let expected_pairs = [
-        (0, 1),
-        (1, 2),
-        (0, 3),
-        (3, 4),
-        (1, 4),
-        (4, 5),
-        (2, 5),
-        (3, 6),
-        (6, 7),
-        (4, 7),
-        (7, 8),
-        (5, 8),
+        (0, 1, false),
+        (1, 2, false),
+        (0, 3, true),
+        (3, 4, false),
+        (1, 4, true),
+        (4, 5, false),
+        (2, 5, true),
+        (3, 6, true),
+        (6, 7, false),
+        (4, 7, true),
+        (7, 8, false),
+        (5, 8, true),
     ];
     let mut encountered = vec![];
-    grid.for_each_orthogonal_pair(|t0, _, t1, _| encountered.push((*t0, *t1)));
+    grid.for_each_orthogonal_pair(|t0, _, t1, dir| encountered.push((*t0, *t1, dir)));
+    assert_eq!(expected_pairs.as_slice(), encountered.as_slice());
+
+    let grid: Grid<u64> = Grid::try_from([[0, 1, 2], [3, 4, 5], [6, 7, 8]]).unwrap();
+
+    let expected_pairs = [
+        (0, 1, 0, 0, false),
+        (1, 2, 1, 0, false),
+        (0, 3, 0, 0, true),
+        (3, 4, 0, 1, false),
+        (1, 4, 1, 0, true),
+        (4, 5, 1, 1, false),
+        (2, 5, 2, 0, true),
+        (3, 6, 0, 1, true),
+        (6, 7, 0, 2, false),
+        (4, 7, 1, 1, true),
+        (7, 8, 1, 2, false),
+        (5, 8, 2, 1, true),
+    ];
+    let mut encountered = vec![];
+    grid.for_each_orthogonal_pair(|t0, (i, j), t1, dir| encountered.push((*t0, *t1, i, j, dir)));
     assert_eq!(expected_pairs.as_slice(), encountered.as_slice());
 }

@@ -50,7 +50,7 @@ pub enum Optimization {
     /// If an input was constified
     InvestigateConst(PLNode),
     /// If a driver was constified
-    InvestigateLoopDriverConst(PTNode),
+    InvestigateDriverConst(PTNode),
     /// The optimization state that equivalences are set to after the
     /// preinvestigation finds nothing
     InvestigateEquiv0(PBack),
@@ -445,12 +445,17 @@ impl Ensemble {
     /// Returns if a `Const` result was assigned.
     pub fn const_eval_tnode(&mut self, p_tnode: PTNode) -> bool {
         let tnode = self.tnodes.get(p_tnode).unwrap();
-        let p_self = tnode.p_self;
-        let p_driver = tnode.p_driver;
-        let equiv = self.backrefs.get_val(p_driver).unwrap();
-        if equiv.val.is_const() {
-            self.backrefs.get_val_mut(p_self).unwrap().val = equiv.val;
-            true
+        // TODO have another parameter to enable const through some amount of delay
+        if tnode.delay().is_zero() {
+            let p_self = tnode.p_self;
+            let p_driver = tnode.p_driver;
+            let equiv = self.backrefs.get_val(p_driver).unwrap();
+            if equiv.val.is_const() {
+                self.backrefs.get_val_mut(p_self).unwrap().val = equiv.val;
+                true
+            } else {
+                false
+            }
         } else {
             false
         }
@@ -493,17 +498,14 @@ impl Ensemble {
                     }
                 }
                 Referent::Input(_) => non_self_rc += 1,
-                Referent::LoopDriver(p_driver) => {
-                    // the way `LoopDriver` networks with no real dependencies will work, is
+                Referent::Driver(p_driver) => {
+                    // the way `Driver` networks with no real dependencies will work, is
                     // that const propogation and other simplifications will eventually result
                     // in a single node equivalence that drives itself, which we can remove
                     let p_back_driver = self.tnodes.get(p_driver).unwrap().p_self;
                     if !self.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
                         non_self_rc += 1;
                     }
-
-                    // TODO check for const through loop, but there should be a
-                    // parameter to enable
                 }
                 Referent::ThisRNode(p_rnode) => {
                     let rnode = self.notary.rnodes().get(p_rnode).unwrap().1;
@@ -678,12 +680,12 @@ impl Ensemble {
                             });
                             assert!(found);
                         }
-                        Referent::LoopDriver(p_driver) => {
+                        Referent::Driver(p_driver) => {
                             let tnode = self.tnodes.get_mut(p_driver).unwrap();
                             debug_assert_eq!(tnode.p_driver, p_back);
                             let p_back_new = self
                                 .backrefs
-                                .insert_key(p_source, Referent::LoopDriver(p_driver))
+                                .insert_key(p_source, Referent::Driver(p_driver))
                                 .unwrap();
                             tnode.p_driver = p_back_new;
                         }
@@ -737,9 +739,9 @@ impl Ensemble {
                             self.optimizer
                                 .insert(Optimization::InvestigateConst(*p_inp));
                         }
-                        Referent::LoopDriver(p_driver) => {
+                        Referent::Driver(p_driver) => {
                             self.optimizer
-                                .insert(Optimization::InvestigateLoopDriverConst(*p_driver));
+                                .insert(Optimization::InvestigateDriverConst(*p_driver));
                         }
                         Referent::ThisRNode(_) => (),
                     }
@@ -778,7 +780,7 @@ impl Ensemble {
                             found_use = true;
                             break
                         }
-                        Referent::LoopDriver(p_driver) => {
+                        Referent::Driver(p_driver) => {
                             let p_back_driver = self.tnodes.get(p_driver).unwrap().p_self;
                             if !self.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
                                 found_use = true;
@@ -805,7 +807,7 @@ impl Ensemble {
                     ));
                 }
             }
-            Optimization::InvestigateLoopDriverConst(p_tnode) => {
+            Optimization::InvestigateDriverConst(p_tnode) => {
                 if !self.tnodes.contains(p_tnode) {
                     return Ok(())
                 };

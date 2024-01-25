@@ -12,7 +12,7 @@ use crate::{
     awi,
     ensemble::{
         value::{Change, Eval},
-        DynamicValue, Ensemble, PBack, Value,
+        Delay, DynamicValue, Ensemble, PBack, Value,
     },
     epoch::EpochShared,
     Error,
@@ -528,7 +528,7 @@ fn lower_elementary_to_lnodes_intermediate(
                 for i in 0..w {
                     let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
                     let p_driver = this.stator.states[p_driver_state].p_self_bits[i].unwrap();
-                    this.make_loop(p_looper, p_driver, Value::Dynam(false))
+                    this.make_loop(p_looper, p_driver, Value::Dynam(false), Delay::zero())
                         .unwrap();
                 }
             } else if let Some(name) = name {
