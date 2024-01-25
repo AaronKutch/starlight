@@ -1,7 +1,7 @@
 use std::{fmt, num::NonZeroUsize, thread::panicking};
 
 use awint::{
-    awint_dag::{dag, Lineage, PState},
+    awint_dag::{dag, triple_arena::Ptr, Lineage, PState},
     awint_internals::{forward_debug_fmt, BITS},
 };
 
@@ -35,19 +35,7 @@ impl Drop for EvalAwi {
     fn drop(&mut self) {
         // prevent invoking recursive panics and a buffer overrun
         if !panicking() {
-            if let Some(epoch) = get_current_epoch() {
-                let mut lock = epoch.epoch_data.borrow_mut();
-                let res = lock.ensemble.remove_rnode(self.p_external);
-                if res.is_err() {
-                    panic!(
-                        "most likely, an `EvalAwi` created in one `Epoch` was dropped in another"
-                    )
-                }
-                if let Some(state) = lock.ensemble.stator.states.get_mut(self.p_state) {
-                    state.dec_extern_rc();
-                }
-            }
-            // else the epoch has been dropped
+            self.drop_internal();
         }
     }
 }
@@ -128,6 +116,20 @@ impl EvalAwi {
         eval_isize isize to_isize BITS;
     );
 
+    fn drop_internal(&self) {
+        if let Some(epoch) = get_current_epoch() {
+            let mut lock = epoch.epoch_data.borrow_mut();
+            let res = lock.ensemble.remove_rnode(self.p_external);
+            if res.is_err() {
+                panic!("most likely, an `EvalAwi` created in one `Epoch` was dropped in another")
+            }
+            if let Some(state) = lock.ensemble.stator.states.get_mut(self.p_state) {
+                state.dec_extern_rc();
+            }
+        }
+        // else the epoch has been dropped, do nothing
+    }
+
     pub fn p_external(&self) -> PExternal {
         self.p_external
     }
@@ -145,13 +147,9 @@ impl EvalAwi {
         self.nzbw().get()
     }
 
-    /// Used internally to create `EvalAwi`s
-    ///
-    /// # Panics
-    ///
-    /// If an `Epoch` does not exist or the `PState` was pruned
-    #[track_caller]
-    pub fn from_state(p_state: PState) -> Self {
+    /// Sets up `PExternal`s and other things, requires that this be a new
+    /// `EvalAwi` or that `drop_internal` has been called on the old value
+    fn set_internal(&mut self, p_state: PState) -> Result<(), Error> {
         if let Some(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
             match lock.ensemble.make_rnode_for_pstate(p_state, true, true) {
@@ -162,21 +160,37 @@ impl EvalAwi {
                         .get_mut(p_state)
                         .unwrap()
                         .inc_extern_rc();
-                    Self {
-                        p_state,
-                        p_external,
-                    }
+                    self.p_state = p_state;
+                    self.p_external = p_external;
+                    Ok(())
                 }
-                None => {
-                    panic!(
-                        "could not create an `EvalAwi` from the given mimicking state, probably \
-                         because the state was pruned or came from a different `Epoch`"
-                    )
-                }
+                None => Err(Error::OtherStr(
+                    "could not create or `future_*` an `EvalAwi` from the given mimicking state, \
+                     probably because the state was pruned or came from a different `Epoch`",
+                )),
             }
         } else {
-            panic!("attempted to create an `EvalAwi` when no live `Epoch` exists")
+            Err(Error::OtherStr(
+                "attempted to create or `future_*` an `EvalAwi` when no live `Epoch` exists",
+            ))
         }
+    }
+
+    /// Used internally to create `EvalAwi`s
+    ///
+    /// # Panics
+    ///
+    /// If an `Epoch` does not exist or the `PState` was pruned
+    #[track_caller]
+    pub fn from_state(p_state: PState) -> Self {
+        let mut res = Self {
+            p_state: PState::invalid(),
+            p_external: PExternal::invalid(),
+        };
+        if let Err(e) = res.set_internal(p_state) {
+            panic!("{e:?}")
+        }
+        res
     }
 
     /// Can panic if the state has been pruned
@@ -226,6 +240,23 @@ impl EvalAwi {
     pub fn uone(w: NonZeroUsize) -> Self {
         Self::from_bits(&dag::Awi::uone(w))
     }
+
+    // TODO not sure if we want this
+    /*
+    /// Assigns to `self` the state that will be evaluated in future calls to
+    /// `eval_*`, overriding what `self` was initially constructed from or other
+    /// calls to `future_*`.
+    #[track_caller]
+    pub fn future_(&mut self, rhs: &dag::Bits) -> Result<(), Error> {
+        let nzbw = self.try_get_nzbw()?;
+        if nzbw != rhs.nzbw() {
+            return Err(Error::WrongBitwidth)
+        }
+        self.drop_internal();
+        self.set_internal(rhs.state())?;
+        Ok(())
+    }
+    */
 }
 
 impl fmt::Debug for EvalAwi {
