@@ -36,7 +36,7 @@ fn stats_different_prunings() {
 
     let num_ports = 2;
     let w = bw(1);
-    let mut net = Net::zero(w);
+    let mut net = Net::opaque(w);
     for i in 0..num_ports {
         let mut port = awi!(0u1);
         port.usize_(i);
@@ -51,7 +51,7 @@ fn stats_different_prunings() {
 
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
-            assert_eq!(ensemble.stator.states.len(), 14);
+            assert_eq!(ensemble.stator.states.len(), 15);
             assert_eq!(ensemble.backrefs.len_keys(), 0);
             assert_eq!(ensemble.backrefs.len_vals(), 0);
         });
@@ -60,17 +60,17 @@ fn stats_different_prunings() {
         epoch.verify_integrity().unwrap();
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
-            assert_eq!(ensemble.stator.states.len(), 11);
-            assert_eq!(ensemble.backrefs.len_keys(), 15);
-            assert_eq!(ensemble.backrefs.len_vals(), 4);
+            assert_eq!(ensemble.stator.states.len(), 12);
+            assert_eq!(ensemble.backrefs.len_keys(), 17);
+            assert_eq!(ensemble.backrefs.len_vals(), 5);
         });
         epoch.lower_and_prune().unwrap();
         epoch.verify_integrity().unwrap();
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
             assert_eq!(ensemble.stator.states.len(), 0);
-            assert_eq!(ensemble.backrefs.len_keys(), 11);
-            assert_eq!(ensemble.backrefs.len_vals(), 4);
+            assert_eq!(ensemble.backrefs.len_keys(), 12);
+            assert_eq!(ensemble.backrefs.len_vals(), 5);
         });
         epoch.optimize().unwrap();
         epoch.verify_integrity().unwrap();

@@ -50,7 +50,15 @@ impl State {
     /// Returns if pruning this state is allowed. Internal or external
     /// references prevent pruning. Custom `Opaque`s prevent pruning.
     pub fn pruning_allowed(&self) -> bool {
-        (self.rc == 0) && (self.extern_rc == 0) && !matches!(self.op, Opaque(_, Some(_)))
+        (self.rc == 0)
+            && (self.extern_rc == 0)
+            && match self.op {
+                Opaque(_, Some(name)) => match name {
+                    "LoopSource" | "LazyOpaque" => true,
+                    _ => false,
+                },
+                _ => true,
+            }
     }
 
     pub fn inc_rc(&mut self) {
@@ -242,15 +250,20 @@ impl Ensemble {
                     }
                     Opaque(_, name) => {
                         if let Some(name) = name {
-                            if name == "LoopSource" {
-                                return Err(Error::OtherStr(
-                                    "cannot lower LoopSource opaque with no driver, most likely \
-                                     some `Loop` or `Net` has been left undriven",
-                                ))
+                            match name {
+                                "LazyOpaque" => (),
+                                "LoopSource" => {
+                                    return Err(Error::OtherStr(
+                                        "cannot lower LoopSource opaque with no initial value, \
+                                         some variant was violated",
+                                    ))
+                                }
+                                name => {
+                                    return Err(Error::OtherString(format!(
+                                        "cannot lower root opaque with name {name}"
+                                    )))
+                                }
                             }
-                            return Err(Error::OtherString(format!(
-                                "cannot lower root opaque with name {name}"
-                            )))
                         }
                         self.initialize_state_bits_if_needed(p_state).unwrap();
                     }
@@ -515,11 +528,17 @@ fn lower_elementary_to_lnodes_intermediate(
         }
         Opaque(ref v, name) => {
             if name == Some("LoopSource") {
-                if v.len() != 1 {
+                if v.len() != 2 {
                     return Err(Error::OtherStr("cannot lower an undriven `Loop`"))
                 }
-                let p_driver_state = v[0];
                 let w = this.stator.states[p_state].p_self_bits.len();
+                let p_initial_state = v[0];
+                let p_driver_state = v[1];
+                if w != this.stator.states[p_initial_state].p_self_bits.len() {
+                    return Err(Error::OtherStr(
+                        "`Loop` has a bitwidth mismatch of looper and initial state",
+                    ))
+                }
                 if w != this.stator.states[p_driver_state].p_self_bits.len() {
                     return Err(Error::OtherStr(
                         "`Loop` has a bitwidth mismatch of looper and driver",
@@ -527,9 +546,28 @@ fn lower_elementary_to_lnodes_intermediate(
                 }
                 for i in 0..w {
                     let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
+                    let p_initial = this.stator.states[p_initial_state].p_self_bits[i].unwrap();
                     let p_driver = this.stator.states[p_driver_state].p_self_bits[i].unwrap();
-                    this.make_loop(p_looper, p_driver, Value::Dynam(false), Delay::zero())
-                        .unwrap();
+                    let init_val = this.backrefs.get_val(p_initial).unwrap().val;
+                    // an interesting thing that falls out is that a const value downcasts to a
+                    // dynamic value, perhaps there should be an integer level of constness?
+                    match init_val {
+                        Value::ConstUnknown => {
+                            this.make_loop(p_looper, p_driver, Value::Unknown, Delay::zero())
+                                .unwrap();
+                        }
+                        Value::Const(b) => {
+                            this.make_loop(p_looper, p_driver, Value::Dynam(b), Delay::zero())
+                                .unwrap();
+                        }
+                        Value::Unknown | Value::Dynam(_) => {
+                            return Err(Error::OtherStr(
+                                "A `Loop`'s initial value could not be calculated as a constant \
+                                 known or constant unknown in lowering, the argument to \
+                                 `Loop::from_*` needs to evaluate to a constant",
+                            ))
+                        }
+                    }
                 }
             } else if let Some(name) = name {
                 return Err(Error::OtherString(format!(

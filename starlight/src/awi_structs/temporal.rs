@@ -1,11 +1,11 @@
 use std::{borrow::Borrow, num::NonZeroUsize, ops::Deref};
 
 use awint::{
-    awint_dag::{smallvec::smallvec, Lineage, Op},
+    awint_dag::{smallvec::smallvec, Lineage, Op, PState},
     dag::{self, awi, Awi, Bits, InlAwi},
 };
 
-use crate::{epoch::get_current_epoch, lower::meta::general_mux};
+use crate::{epoch::get_current_epoch, lower::meta::general_mux, Error};
 
 /// Provides a way to temporally wrap around a combinatorial circuit.
 ///
@@ -48,16 +48,66 @@ pub struct Loop {
     source: Awi,
 }
 
+macro_rules! loop_basic_value {
+    ($($fn:ident)*) => {
+        $(
+            /// Creates a `Loop` with the intial temporal value and bitwidth `w`
+            pub fn $fn(w: NonZeroUsize) -> Self {
+                Self::from_state(Awi::$fn(w).state())
+            }
+        )*
+    }
+}
+
+macro_rules! loop_from_impl {
+    ($($fn:ident $t:ident);*;) => {
+        $(
+            pub fn $fn(x: dag::$t) -> Self {
+                Self::from_state(x.state())
+            }
+        )*
+    }
+}
+
+/// Functions for creating a `Loop` with the intial temporal value of `x`. The
+/// value must evaluate to a constant.
 impl Loop {
-    /// Creates a `Loop` with an intial temporal value of zero and bitwidth `w`
-    pub fn zero(w: NonZeroUsize) -> Self {
-        let source = Awi::new(w, Op::Opaque(smallvec![], Some("LoopSource")));
+    loop_from_impl!(
+        from_bool bool;
+        from_u8 u8;
+        from_i8 i8;
+        from_u16 u16;
+        from_i16 i16;
+        from_u32 u32;
+        from_i32 i32;
+        from_u64 u64;
+        from_i64 i64;
+        from_u128 u128;
+        from_i128 i128;
+        from_usize usize;
+        from_isize isize;
+    );
+}
+
+impl Loop {
+    loop_basic_value!(opaque zero umax imax imin uone);
+
+    /// Used internally to create `Loop`s
+    ///
+    /// # Panics
+    ///
+    /// If an `Epoch` does not exist or the `PState` was pruned
+    pub fn from_state(p_state: PState) -> Self {
+        let w = p_state.get_nzbw();
+        let source = Awi::new(w, Op::Opaque(smallvec![p_state], Some("LoopSource")));
         Self { source }
     }
 
-    // TODO pub fn opaque(), umax(), From<&Bits>, etc. What we could do is have an
-    // extra input to "LoopSource" that designates the initial value, but there are
-    // many questions to be resolved
+    /// Creates a `Loop` with the intial temporal value of `bits`. The value
+    /// must evaluate to a constant.
+    pub fn from_bits(bits: &dag::Bits) -> Self {
+        Self::from_state(bits.state())
+    }
 
     /// Returns the bitwidth of `self` as a `NonZeroUsize`
     #[must_use]
@@ -73,20 +123,28 @@ impl Loop {
 
     /// Consumes `self`, looping back with the value of `driver` to change the
     /// `Loop`s temporal value in a iterative temporal evaluation. Returns
-    /// `None` if `self.bw() != driver.bw()`.
-    #[must_use]
-    pub fn drive(self, driver: &Bits) -> Option<()> {
+    /// an error if `self.bw() != driver.bw()`.
+    pub fn drive(self, driver: &Bits) -> Result<(), Error> {
         if self.source.bw() != driver.bw() {
-            None
+            Err(Error::WrongBitwidth)
         } else {
             let epoch = get_current_epoch().unwrap();
             let mut lock = epoch.epoch_data.borrow_mut();
-            lock.ensemble
+            // add the driver to the loop source
+            let op = &mut lock
+                .ensemble
                 .stator
                 .states
                 .get_mut(self.source.state())
                 .unwrap()
-                .op = Op::Opaque(smallvec![driver.state()], Some("LoopSource"));
+                .op;
+            if let Op::Opaque(v, Some("LoopSource")) = op {
+                assert_eq!(v.len(), 1);
+                v.push(driver.state());
+            } else {
+                unreachable!()
+            }
+            // increment the reference count on the driver
             lock.ensemble
                 .stator
                 .states
@@ -94,14 +152,23 @@ impl Loop {
                 .unwrap()
                 .inc_rc();
             // in order for loop driving to always work we need to do this (otherwise
-            // `drive_loops` would have to search all states)
+            // `drive_loops` would have to search all states, or we would need the old loop
+            // handle strategy which was horrible to use)
             lock.ensemble
                 .stator
                 .states_to_lower
                 .push(self.source.state());
-            Some(())
+            Ok(())
         }
     }
+
+    // TODO FP<B> is violating the Hash, Eq, Ord requirements of `Borrow`, but
+    // `AsRef` does not have the reflexive blanket impl, perhaps we need a
+    // `BorrowBits` trait that also handles the primitives, and several signatures
+    // like this `drive` could be written with <B: BorrowBits>. We also need to find
+    // a way around the movement problem, possibly by requiring `&B` always or maybe
+    // inventing some other kind of trait, there are also cases where we do want to
+    // move.
 }
 
 impl Deref for Loop {
@@ -131,28 +198,107 @@ impl AsRef<Bits> for Loop {
 /// ports. Third, [Net::drive] takes a possibly dynamic index that multiplexes
 /// one of the values of the ports to drive the temporal value across
 /// [crate::Epoch::drive_loops] calls.
+///
+/// Note: In most HDL oriented cases, you will want to create `Net`s with
+/// `Net::opaque` to simulate a net starting with an undefined value that must
+/// be driven with a definite value from outside.
 #[derive(Debug)]
 pub struct Net {
     source: Loop,
     ports: Vec<Awi>,
 }
 
+macro_rules! net_basic_value {
+    ($($fn:ident)*) => {
+        $(
+            /// Creates a `Net` with the intial temporal value and port bitwidth `w`
+            pub fn $fn(w: NonZeroUsize) -> Self {
+                Self::from_state(Awi::$fn(w).state())
+            }
+        )*
+    }
+}
+
+macro_rules! net_from_impl {
+    ($($fn:ident $t:ident);*;) => {
+        $(
+            pub fn $fn(x: dag::$t) -> Self {
+                Self::from_state(x.state())
+            }
+        )*
+    }
+}
+
+macro_rules! net_push_impl {
+    ($($fn:ident $t:ident);*;) => {
+        $(
+            #[must_use]
+            pub fn $fn(&mut self, port: dag::$t) -> Option<()> {
+                self.push_state(port.state())
+            }
+        )*
+    }
+}
+
+/// Functions for creating a `Net` with the intial temporal value of `x`. The
+/// value must evaluate to a constant.
 impl Net {
-    /// Create a `Net` with an initial temporal value of zero and bitwidth `w`
-    pub fn zero(w: NonZeroUsize) -> Self {
+    net_from_impl!(
+        from_bool bool;
+        from_u8 u8;
+        from_i8 i8;
+        from_u16 u16;
+        from_i16 i16;
+        from_u32 u32;
+        from_i32 i32;
+        from_u64 u64;
+        from_i64 i64;
+        from_u128 u128;
+        from_i128 i128;
+        from_usize usize;
+        from_isize isize;
+    );
+}
+
+/// Pushes on a new port. Returns `None` if the bitwidth mismatches the
+/// width that this `Net` was created with.
+impl Net {
+    net_push_impl!(
+        push_bool bool;
+        push_u8 u8;
+        push_i8 i8;
+        push_u16 u16;
+        push_i16 i16;
+        push_u32 u32;
+        push_i32 i32;
+        push_u64 u64;
+        push_i64 i64;
+        push_u128 u128;
+        push_i128 i128;
+        push_usize usize;
+        push_isize isize;
+    );
+}
+
+impl Net {
+    net_basic_value!(opaque zero umax imax imin uone);
+
+    /// Used internally to create `Net`s
+    ///
+    /// # Panics
+    ///
+    /// If an `Epoch` does not exist or the `PState` was pruned
+    pub fn from_state(p_state: PState) -> Self {
         Self {
-            source: Loop::zero(w),
+            source: Loop::from_state(p_state),
             ports: vec![],
         }
     }
 
-    /// Creates a `Net` with [Net::zero] and pushes on `num_ports` ports
-    /// initialized to zero.
-    pub fn zero_with_ports(w: NonZeroUsize, num_ports: usize) -> Self {
-        Self {
-            source: Loop::zero(w),
-            ports: vec![Awi::zero(w); num_ports],
-        }
+    /// Creates a `Net` with the intial temporal value of `bits`. The value
+    /// must evaluate to a constant.
+    pub fn from_bits(bits: &dag::Bits) -> Self {
+        Self::from_state(bits.state())
     }
 
     /// Returns the current number of ports
@@ -179,16 +325,23 @@ impl Net {
         self.source.bw()
     }
 
-    /// Pushes on a new port. Returns `None` if the bitwidth mismatches the
-    /// width that this `Net` was created with
+    /// Internal function for pushing on a new port. Returns `None` if the
+    /// bitwidth mismatches the width that this `Net` was created with.
     #[must_use]
-    pub fn push(&mut self, port: &Bits) -> Option<()> {
-        if port.bw() != self.bw() {
+    pub fn push_state(&mut self, port: PState) -> Option<()> {
+        if port.get_nzbw() != self.nzbw() {
             None
         } else {
-            self.ports.push(Awi::from(port));
+            self.ports.push(Awi::from_state(port));
             Some(())
         }
+    }
+
+    /// Pushes on a new port. Returns `None` if the bitwidth mismatches the
+    /// width that this `Net` was created with.
+    #[must_use]
+    pub fn push(&mut self, port: &Bits) -> Option<()> {
+        self.push_state(port.state())
     }
 
     /// Gets a mutable reference to the port at index `i`. Returns `None` if `i

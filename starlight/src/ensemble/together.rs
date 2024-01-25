@@ -495,6 +495,14 @@ impl Ensemble {
                     Referent::ThisEquiv,
                     Equiv::new(p_self_equiv, match state.op {
                         Op::Literal(ref awi) => Value::Const(awi.get(i).unwrap()),
+                        Op::Opaque(ref v, name) => {
+                            if name.is_none() {
+                                assert!(v.is_empty());
+                                Value::ConstUnknown
+                            } else {
+                                Value::Unknown
+                            }
+                        }
                         _ => Value::Unknown,
                     }),
                 )

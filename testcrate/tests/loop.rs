@@ -49,7 +49,7 @@ fn loop_incrementer() {
 #[test]
 fn loop_net4() {
     let epoch = Epoch::new();
-    let mut net = Net::zero(bw(4));
+    let mut net = Net::opaque(bw(4));
     net.push(&awi!(0xa_u4)).unwrap();
     net.push(&awi!(0xb_u4)).unwrap();
     net.push(&awi!(0xc_u4)).unwrap();
@@ -80,7 +80,7 @@ fn loop_net4() {
 }
 
 fn exhaustive_net_test(epoch: &Epoch, num_ports: awi::usize, diff: awi::isize) {
-    let mut net = Net::zero(bw(5));
+    let mut net = Net::opaque(bw(5));
     for i in 0..num_ports {
         let mut port = awi!(0u5);
         port.usize_(i);
@@ -113,7 +113,7 @@ fn loop_net_no_ports() {
     let epoch = Epoch::new();
     // done separately because it results in an undriven `Loop`
     {
-        let net = Net::zero(bw(5));
+        let net = Net::opaque(bw(5));
         let res = net.drive(&awi!(0));
         {
             use awi::assert;
@@ -129,7 +129,7 @@ fn loop_net() {
     let epoch = Epoch::new();
     // one port
     {
-        let mut net = Net::zero(bw(5));
+        let mut net = Net::opaque(bw(5));
         net.push(&awi!(0xa_u5)).unwrap();
         let lazy = LazyAwi::opaque(bw(1));
         let eval_net = EvalAwi::from(&net);

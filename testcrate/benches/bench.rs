@@ -39,7 +39,7 @@ fn loop_net(bencher: &mut Bencher) {
     let epoch = Epoch::new();
 
     let num_ports = 16;
-    let mut net = Net::zero(bw(5));
+    let mut net = Net::opaque(bw(5));
     for i in 0..num_ports {
         let mut port = awi!(0u5);
         port.usize_(i);

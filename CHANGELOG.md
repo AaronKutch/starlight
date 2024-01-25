@@ -1,6 +1,13 @@
 # Changelog
 
-## [0.3.0] - TODO
+## [0.4.0] - TODO
+### Changes
+- Removed `LazyInlAwi`
+
+### Additions
+- `Loop`s and `Net`s can now have an arbitrary initial value
+
+## [0.3.0] - 2024-01-22
 ### Fixes
 - Fixed a off-by-one issue with `StarRng::out_of_*`
 

@@ -15,9 +15,9 @@
  optimize, evaluate, and retroactively change values in the `DAG` for various
  purposes.
 
- ```
+ ```rust
  use std::num::NonZeroUsize;
- use starlight::{awi, dag, lazy_inlawi_ty, Epoch, EvalAwi, LazyInlAwi};
+ use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi};
 
  // in the scope where this is glob imported, all arbitrary width types, some primitives, and
  // the mechanisms in the macros will use mimicking types and be lazily evaluated in general.
@@ -38,7 +38,7 @@
          }
      }
 
-     pub fn update(&mut self, input: inlawi_ty!(4)) -> Option<()> {
+     pub fn update(&mut self, input: &Bits) -> Option<()> {
          self.counter.inc_(true);
 
          let mut s0 = inlawi!(0u4);
@@ -65,16 +65,17 @@
  let mut m = StateMachine::new(bw(4));
 
  // this is initially an opaque value that cannot be eagerly evaluated
- let input: lazy_inlawi_ty!(4) = LazyInlAwi::opaque();
+ let input = LazyAwi::opaque(bw(4));
+
  // if we later retroactively assign this to an unequal value, the
  // `assert_assertions_strict` call will error and show the location of the
  // assertion that errored
- dag::assert_eq!(*input, inlawi!(0101));
+ dag::assert_eq!(Awi::from(&input), awi!(0101));
 
  // step the state machine forward
- m.update(*input).unwrap();
- m.update(inlawi!(0110)).unwrap();
- m.update(inlawi!(0110)).unwrap();
+ m.update(&input).unwrap();
+ m.update(&awi!(0110)).unwrap();
+ m.update(&awi!(0110)).unwrap();
 
  // use `EvalAwi`s to evaluate the resulting values
  let output_counter = EvalAwi::from(m.counter);
@@ -120,7 +121,7 @@
  drop(epoch);
  ```
 
- ```
+ ```rust
  use starlight::{dag, awi, Epoch, EvalAwi};
  use dag::*;
 
