@@ -48,17 +48,9 @@ pub struct State {
 
 impl State {
     /// Returns if pruning this state is allowed. Internal or external
-    /// references prevent pruning. Custom `Opaque`s prevent pruning.
+    /// references prevent pruning.
     pub fn pruning_allowed(&self) -> bool {
-        (self.rc == 0)
-            && (self.extern_rc == 0)
-            && match self.op {
-                Opaque(_, Some(name)) => match name {
-                    "LoopSource" | "LazyOpaque" => true,
-                    _ => false,
-                },
-                _ => true,
-            }
+        (self.rc == 0) && (self.extern_rc == 0)
     }
 
     pub fn inc_rc(&mut self) {

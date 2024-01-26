@@ -95,6 +95,8 @@ fn const_assertion_fail() {
     drop(epoch);
 }
 
+// make sure that the `opaque` that is masked off does not cause downstream
+// `Unknown`s when the field does not actually use it
 #[test]
 fn unknown_masking() {
     use dag::*;
