@@ -8,7 +8,7 @@ use awint::awint_dag::{
 
 use crate::{
     awi::*,
-    ensemble::{CommonValue, Ensemble, PBack, Referent, Value},
+    ensemble::{CommonValue, Delay, Ensemble, PBack, Referent, Value},
     epoch::get_current_epoch,
     Error,
 };
@@ -279,7 +279,9 @@ impl Ensemble {
         }
         let p_back = if let Some((_, rnode)) = ensemble.notary.get_rnode(p_external) {
             if bit_i >= rnode.bits.len() {
-                return Err(Error::OtherStr("something went wrong with rnode bitwidth"));
+                return Err(Error::OtherStr(
+                    "something went wrong with an rnode bitwidth",
+                ));
             }
             if let Some(p_back) = rnode.bits[bit_i] {
                 p_back
@@ -301,6 +303,68 @@ impl Ensemble {
             drop(lock);
             Ensemble::calculate_value_with_lower_capability(&epoch_shared, p_back)
         }
+    }
+
+    pub fn tnode_drive_thread_local_rnode(
+        p_source: PExternal,
+        source_bit_i: usize,
+        p_driver: PExternal,
+        driver_bit_i: usize,
+    ) -> Result<(), Error> {
+        let epoch_shared = get_current_epoch().unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+        if let Some((p_rnode, _)) = ensemble.notary.get_rnode(p_source) {
+            ensemble.initialize_rnode_if_needed(p_rnode, false)?;
+        }
+        if let Some((p_rnode, _)) = ensemble.notary.get_rnode(p_driver) {
+            ensemble.initialize_rnode_if_needed(p_rnode, false)?;
+        }
+        if let Some((_, source_rnode)) = ensemble.notary.get_rnode(p_source) {
+            if source_bit_i >= source_rnode.bits.len() {
+                return Err(Error::OtherStr(
+                    "something went wrong with an rnode bitwidth",
+                ));
+            }
+            let source_p_back = if let Some(p_back) = source_rnode.bits[source_bit_i] {
+                p_back
+            } else {
+                return Err(Error::OtherStr(
+                    "something went wrong, found `RNode` for `TNode` driving but a bit was pruned",
+                ))
+            };
+            if let Some((_, driver_rnode)) = ensemble.notary.get_rnode(p_driver) {
+                if driver_bit_i >= driver_rnode.bits.len() {
+                    return Err(Error::OtherStr(
+                        "something went wrong with an rnode bitwidth",
+                    ));
+                }
+                let driver_p_back = if let Some(p_back) = driver_rnode.bits[driver_bit_i] {
+                    p_back
+                } else {
+                    return Err(Error::OtherStr(
+                        "something went wrong, found `RNode` for `TNode` driving but a bit was \
+                         pruned",
+                    ))
+                };
+
+                // now connect with `TNode`
+                ensemble
+                    .make_tnode(source_p_back, driver_p_back, None, Delay::zero())
+                    .unwrap();
+            } else {
+                return Err(Error::OtherStr(
+                    "could not find thread local `RNode`, probably an `EvalAwi` was used outside \
+                     of the `Epoch` it was created in",
+                ))
+            }
+        } else {
+            return Err(Error::OtherStr(
+                "could not find thread local `RNode`, probably an `EvalAwi` was used outside of \
+                 the `Epoch` it was created in",
+            ))
+        }
+        Ok(())
     }
 }
 

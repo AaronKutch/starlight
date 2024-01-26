@@ -15,7 +15,7 @@ use crate::{
     awi,
     ensemble::{BasicValue, BasicValueKind, CommonValue, Ensemble, PExternal},
     epoch::get_current_epoch,
-    Error,
+    Error, EvalAwi,
 };
 
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
@@ -196,9 +196,18 @@ impl LazyAwi {
         Ensemble::change_thread_local_rnode_value(self.p_external, CommonValue::Bits(rhs), true)
     }
 
-    //pub fn drive(self, rhs: &EvalAwi) -> Result<(), Error> {
-    //    Ok(())
-    //}
+    /// Temporally drives `self` with the value of an `EvalAwi`. Note that
+    /// `Loop` and `Net` implicitly warn if they are undriven, you may want to
+    /// use them instead. Returns `None` if bitwidths mismatch.
+    pub fn drive(self, rhs: &EvalAwi) -> Result<(), Error> {
+        if self.bw() != rhs.bw() {
+            return Err(Error::WrongBitwidth)
+        }
+        for i in 0..self.bw() {
+            Ensemble::tnode_drive_thread_local_rnode(self.p_external, i, rhs.p_external(), i)?
+        }
+        Ok(())
+    }
 }
 
 impl Deref for LazyAwi {

@@ -545,12 +545,22 @@ fn lower_elementary_to_lnodes_intermediate(
                     // dynamic value, perhaps there should be an integer level of constness?
                     match init_val {
                         Value::ConstUnknown => {
-                            this.make_loop(p_looper, p_driver, Value::Unknown, Delay::zero())
-                                .unwrap();
+                            this.make_tnode(
+                                p_looper,
+                                p_driver,
+                                Some(Value::Unknown),
+                                Delay::zero(),
+                            )
+                            .unwrap();
                         }
                         Value::Const(b) => {
-                            this.make_loop(p_looper, p_driver, Value::Dynam(b), Delay::zero())
-                                .unwrap();
+                            this.make_tnode(
+                                p_looper,
+                                p_driver,
+                                Some(Value::Dynam(b)),
+                                Delay::zero(),
+                            )
+                            .unwrap();
                         }
                         Value::Unknown | Value::Dynam(_) => {
                             return Err(Error::OtherStr(

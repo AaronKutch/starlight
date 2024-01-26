@@ -634,13 +634,13 @@ impl Ensemble {
         Some(p_equiv)
     }
 
-    /// Sets up a loop from the loop source `p_looper` and driver `p_driver`
+    /// Sets up a `TNode` source driven by a driver
     #[must_use]
-    pub fn make_loop(
+    pub fn make_tnode(
         &mut self,
-        p_looper: PBack,
+        p_source: PBack,
         p_driver: PBack,
-        init_val: Value,
+        init_val: Option<Value>,
         delay: Delay,
     ) -> Option<PTNode> {
         let p_tnode = self.tnodes.insert_with(|p_tnode| {
@@ -650,12 +650,14 @@ impl Ensemble {
                 .unwrap();
             let p_self = self
                 .backrefs
-                .insert_key(p_looper, Referent::ThisTNode(p_tnode))
+                .insert_key(p_source, Referent::ThisTNode(p_tnode))
                 .unwrap();
             TNode::new(p_self, p_driver, delay)
         });
-        // in order for the value to register correctly
-        self.change_value(p_looper, init_val).unwrap();
+        if let Some(init_val) = init_val {
+            // in order for the value to register correctly
+            self.change_value(p_source, init_val).unwrap();
+        }
         Some(p_tnode)
     }
 
