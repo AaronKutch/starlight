@@ -1,18 +1,14 @@
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::NonZeroU64;
 
-use awint::{
-    awint_dag::{
-        smallvec::{smallvec, SmallVec},
-        triple_arena::{Recast, Recaster},
-        Location, Op, PState,
-    },
-    Awi, Bits,
+use awint::awint_dag::{
+    triple_arena::{Recast, Recaster},
+    PState,
 };
 
 use crate::{
     ensemble::{
-        value::Evaluator, Delay, DynamicValue, LNode, LNodeKind, Notary, Optimizer, PLNode, PRNode,
-        PTNode, State, Stator, TNode, Value,
+        value::Evaluator, LNode, LNodeKind, Notary, Optimizer, PLNode, PRNode, PTNode, Stator,
+        TNode, Value,
     },
     triple_arena::{ptr_struct, Arena, SurjectArena},
     Error,
@@ -99,82 +95,6 @@ impl Ensemble {
             optimizer: Optimizer::new(),
             debug_counter: 0,
         }
-    }
-
-    /// Compresses and shrinks all internal `Ptr`s. Returns an error if the
-    /// optimizer, evaluator, or stator are not empty.
-    pub fn recast_all_internal_ptrs(&mut self) -> Result<(), Error> {
-        self.optimizer.check_clear()?;
-        self.evaluator.check_clear()?;
-        self.stator.check_clear()?;
-
-        let p_lnode_recaster = self.lnodes.compress_and_shrink_recaster();
-        let p_tnode_recaster = self.tnodes.compress_and_shrink_recaster();
-        let p_rnode_recaster = self.notary.recast_p_rnode();
-        for referent in self.backrefs.keys_mut() {
-            match referent {
-                Referent::ThisEquiv => (),
-                Referent::ThisLNode(p_lnode) => {
-                    if let Err(e) = p_lnode.recast(&p_lnode_recaster) {
-                        return Err(Error::OtherString(format!(
-                            "recast error with {e} in a `Referent::ThisLNode`"
-                        )));
-                    }
-                }
-                Referent::ThisTNode(p_tnode) => {
-                    if let Err(e) = p_tnode.recast(&p_tnode_recaster) {
-                        return Err(Error::OtherString(format!(
-                            "recast error with {e} in a `Referent::ThisTNode`"
-                        )));
-                    }
-                }
-                Referent::ThisStateBit(..) => unreachable!(),
-                Referent::Input(p_lnode) => {
-                    if let Err(e) = p_lnode.recast(&p_lnode_recaster) {
-                        return Err(Error::OtherString(format!(
-                            "recast error with {e} in a `Referent::Input`"
-                        )));
-                    }
-                }
-                Referent::Driver(p_tnode) => {
-                    if let Err(e) = p_tnode.recast(&p_tnode_recaster) {
-                        return Err(Error::OtherString(format!(
-                            "recast error with {e} in a `Referent::Driver`"
-                        )));
-                    }
-                }
-                Referent::ThisRNode(p_rnode) => {
-                    if let Err(e) = p_rnode.recast(&p_rnode_recaster) {
-                        return Err(Error::OtherString(format!(
-                            "recast error with {e} in a `Referent::ThisRNode`"
-                        )));
-                    }
-                }
-            }
-        }
-
-        let p_back_recaster = self.backrefs.compress_and_shrink_recaster();
-        if let Err(e) = self.backrefs.recast(&p_back_recaster) {
-            return Err(Error::OtherString(format!(
-                "recast error with {e} in the backrefs"
-            )));
-        }
-        if let Err(e) = self.notary.recast(&p_back_recaster) {
-            return Err(Error::OtherString(format!(
-                "recast error with {e} in the notary"
-            )));
-        }
-        if let Err(e) = self.lnodes.recast(&p_back_recaster) {
-            return Err(Error::OtherString(format!(
-                "recast error with {e} in the lnodes"
-            )));
-        }
-        if let Err(e) = self.tnodes.recast(&p_back_recaster) {
-            return Err(Error::OtherString(format!(
-                "recast error with {e} in the tnodes"
-            )));
-        }
-        Ok(())
     }
 
     pub fn verify_integrity(&self) -> Result<(), Error> {
@@ -456,66 +376,80 @@ impl Ensemble {
         Ok(())
     }
 
-    pub fn make_state(
-        &mut self,
-        nzbw: NonZeroUsize,
-        op: Op<PState>,
-        location: Option<Location>,
-    ) -> PState {
-        for operand in op.operands() {
-            let state = self.stator.states.get_mut(*operand).unwrap();
-            state.rc = state.rc.checked_add(1).unwrap();
-        }
-        self.stator.states.insert(State {
-            nzbw,
-            p_self_bits: SmallVec::new(),
-            op,
-            location,
-            err: None,
-            rc: 0,
-            extern_rc: 0,
-            lowered_to_elementary: false,
-            lowered_to_lnodes: false,
-        })
-    }
+    /// Compresses and shrinks all internal `Ptr`s. Returns an error if the
+    /// optimizer, evaluator, or stator are not empty.
+    pub fn recast_all_internal_ptrs(&mut self) -> Result<(), Error> {
+        self.optimizer.check_clear()?;
+        self.evaluator.check_clear()?;
+        self.stator.check_clear()?;
 
-    /// If `p_state_bits.is_empty`, this will create new equivalences and
-    /// `Referent::ThisStateBits`s needed for every self bit. Sets the values to
-    /// a constant if the `Op` is a `Literal`, otherwise sets to unknown.
-    #[must_use]
-    pub fn initialize_state_bits_if_needed(&mut self, p_state: PState) -> Option<()> {
-        let state = self.stator.states.get(p_state)?;
-        if !state.p_self_bits.is_empty() {
-            return Some(())
+        let p_lnode_recaster = self.lnodes.compress_and_shrink_recaster();
+        let p_tnode_recaster = self.tnodes.compress_and_shrink_recaster();
+        let p_rnode_recaster = self.notary.recast_p_rnode();
+        for referent in self.backrefs.keys_mut() {
+            match referent {
+                Referent::ThisEquiv => (),
+                Referent::ThisLNode(p_lnode) => {
+                    if let Err(e) = p_lnode.recast(&p_lnode_recaster) {
+                        return Err(Error::OtherString(format!(
+                            "recast error with {e} in a `Referent::ThisLNode`"
+                        )));
+                    }
+                }
+                Referent::ThisTNode(p_tnode) => {
+                    if let Err(e) = p_tnode.recast(&p_tnode_recaster) {
+                        return Err(Error::OtherString(format!(
+                            "recast error with {e} in a `Referent::ThisTNode`"
+                        )));
+                    }
+                }
+                Referent::ThisStateBit(..) => unreachable!(),
+                Referent::Input(p_lnode) => {
+                    if let Err(e) = p_lnode.recast(&p_lnode_recaster) {
+                        return Err(Error::OtherString(format!(
+                            "recast error with {e} in a `Referent::Input`"
+                        )));
+                    }
+                }
+                Referent::Driver(p_tnode) => {
+                    if let Err(e) = p_tnode.recast(&p_tnode_recaster) {
+                        return Err(Error::OtherString(format!(
+                            "recast error with {e} in a `Referent::Driver`"
+                        )));
+                    }
+                }
+                Referent::ThisRNode(p_rnode) => {
+                    if let Err(e) = p_rnode.recast(&p_rnode_recaster) {
+                        return Err(Error::OtherString(format!(
+                            "recast error with {e} in a `Referent::ThisRNode`"
+                        )));
+                    }
+                }
+            }
         }
-        let mut bits = smallvec![];
-        for i in 0..state.nzbw.get() {
-            let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
-                (
-                    Referent::ThisEquiv,
-                    Equiv::new(p_self_equiv, match state.op {
-                        Op::Literal(ref awi) => Value::Const(awi.get(i).unwrap()),
-                        Op::Opaque(ref v, name) => {
-                            if name.is_none() {
-                                assert!(v.is_empty());
-                                Value::ConstUnknown
-                            } else {
-                                Value::Unknown
-                            }
-                        }
-                        _ => Value::Unknown,
-                    }),
-                )
-            });
-            bits.push(Some(
-                self.backrefs
-                    .insert_key(p_equiv, Referent::ThisStateBit(p_state, i))
-                    .unwrap(),
-            ));
+
+        let p_back_recaster = self.backrefs.compress_and_shrink_recaster();
+        if let Err(e) = self.backrefs.recast(&p_back_recaster) {
+            return Err(Error::OtherString(format!(
+                "recast error with {e} in the backrefs"
+            )));
         }
-        let state = self.stator.states.get_mut(p_state).unwrap();
-        state.p_self_bits = bits;
-        Some(())
+        if let Err(e) = self.notary.recast(&p_back_recaster) {
+            return Err(Error::OtherString(format!(
+                "recast error with {e} in the notary"
+            )));
+        }
+        if let Err(e) = self.lnodes.recast(&p_back_recaster) {
+            return Err(Error::OtherString(format!(
+                "recast error with {e} in the lnodes"
+            )));
+        }
+        if let Err(e) = self.tnodes.recast(&p_back_recaster) {
+            return Err(Error::OtherString(format!(
+                "recast error with {e} in the tnodes"
+            )));
+        }
+        Ok(())
     }
 
     /// Inserts a `LNode` with `lit` value and returns a `PBack` to it
@@ -532,133 +466,6 @@ impl Ensemble {
                 }),
             )
         })
-    }
-
-    /// Makes a single output bit lookup table `LNode` and returns a `PBack` to
-    /// it. Returns `None` if the table length is incorrect or any of the
-    /// `p_inxs` are invalid.
-    #[must_use]
-    pub fn make_lut(
-        &mut self,
-        p_inxs: &[Option<PBack>],
-        lut: &Bits,
-        lowered_from: Option<PState>,
-    ) -> Option<PBack> {
-        let num_entries = 1 << p_inxs.len();
-        if lut.bw() != num_entries {
-            return None
-        }
-        for p_inx in p_inxs {
-            if let Some(p_inx) = p_inx {
-                if !self.backrefs.contains(*p_inx) {
-                    return None
-                }
-            }
-        }
-        let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
-            (
-                Referent::ThisEquiv,
-                Equiv::new(p_self_equiv, Value::Unknown),
-            )
-        });
-        self.lnodes.insert_with(|p_lnode| {
-            let p_self = self
-                .backrefs
-                .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
-                .unwrap();
-            let mut inp = smallvec![];
-            for p_inx in p_inxs {
-                let p_back = self
-                    .backrefs
-                    .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
-                    .unwrap();
-                inp.push(p_back);
-            }
-            LNode::new(p_self, LNodeKind::Lut(inp, Awi::from(lut)), lowered_from)
-        });
-        Some(p_equiv)
-    }
-
-    /// Creates separate unique `Referent::Input`s as necessary
-    #[must_use]
-    pub fn make_dynamic_lut(
-        &mut self,
-        p_inxs: &[Option<PBack>],
-        p_lut_bits: &[DynamicValue],
-        lowered_from: Option<PState>,
-    ) -> Option<PBack> {
-        let num_entries = 1 << p_inxs.len();
-        if p_lut_bits.len() != num_entries {
-            return None
-        }
-        for p_inx in p_inxs {
-            if let Some(p_inx) = p_inx {
-                if !self.backrefs.contains(*p_inx) {
-                    return None
-                }
-            }
-        }
-        let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
-            (
-                Referent::ThisEquiv,
-                Equiv::new(p_self_equiv, Value::Unknown),
-            )
-        });
-        self.lnodes.insert_with(|p_lnode| {
-            let p_self = self
-                .backrefs
-                .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
-                .unwrap();
-            let mut inp = smallvec![];
-            for p_inx in p_inxs {
-                let p_back = self
-                    .backrefs
-                    .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
-                    .unwrap();
-                inp.push(p_back);
-            }
-            let mut lut = vec![];
-            for p_lut_bit in p_lut_bits {
-                if let DynamicValue::Dynam(p_lut_bit) = p_lut_bit {
-                    let p_back = self
-                        .backrefs
-                        .insert_key(*p_lut_bit, Referent::Input(p_lnode))
-                        .unwrap();
-                    lut.push(DynamicValue::Dynam(p_back));
-                } else {
-                    lut.push(*p_lut_bit);
-                }
-            }
-            LNode::new(p_self, LNodeKind::DynamicLut(inp, lut), lowered_from)
-        });
-        Some(p_equiv)
-    }
-
-    /// Sets up a `TNode` source driven by a driver
-    #[must_use]
-    pub fn make_tnode(
-        &mut self,
-        p_source: PBack,
-        p_driver: PBack,
-        init_val: Option<Value>,
-        delay: Delay,
-    ) -> Option<PTNode> {
-        let p_tnode = self.tnodes.insert_with(|p_tnode| {
-            let p_driver = self
-                .backrefs
-                .insert_key(p_driver, Referent::Driver(p_tnode))
-                .unwrap();
-            let p_self = self
-                .backrefs
-                .insert_key(p_source, Referent::ThisTNode(p_tnode))
-                .unwrap();
-            TNode::new(p_self, p_driver, delay)
-        });
-        if let Some(init_val) = init_val {
-            // in order for the value to register correctly
-            self.change_value(p_source, init_val).unwrap();
-        }
-        Some(p_tnode)
     }
 
     pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), Error> {
@@ -698,50 +505,6 @@ impl Ensemble {
         self.backrefs
             .remove_key(removed_equiv.p_self_equiv)
             .unwrap();
-        Ok(())
-    }
-
-    /// Triggers a cascade of state removals if `pruning_allowed()` and
-    /// their reference counts are zero
-    pub fn remove_state(&mut self, p_state: PState) -> Result<(), Error> {
-        if !self.stator.states.contains(p_state) {
-            return Err(Error::InvalidPtr);
-        }
-        let mut pstate_stack = vec![p_state];
-        while let Some(p) = pstate_stack.pop() {
-            let mut delete = false;
-            if let Some(state) = self.stator.states.get(p) {
-                if state.pruning_allowed() {
-                    delete = true;
-                }
-            }
-            if delete {
-                for i in 0..self.stator.states[p].op.operands_len() {
-                    let op = self.stator.states[p].op.operands()[i];
-                    if self.stator.states[op].dec_rc().is_none() {
-                        return Err(Error::OtherStr("tried to subtract a 0 reference count"))
-                    };
-                    pstate_stack.push(op);
-                }
-                let mut state = self.stator.states.remove(p).unwrap();
-                for p_self_state in state.p_self_bits.drain(..) {
-                    if let Some(p_self_state) = p_self_state {
-                        self.backrefs.remove_key(p_self_state).unwrap();
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub fn force_remove_all_states(&mut self) -> Result<(), Error> {
-        for (_, mut state) in self.stator.states.drain() {
-            for p_self_state in state.p_self_bits.drain(..) {
-                if let Some(p_self_state) = p_self_state {
-                    self.backrefs.remove_key(p_self_state).unwrap();
-                }
-            }
-        }
         Ok(())
     }
 

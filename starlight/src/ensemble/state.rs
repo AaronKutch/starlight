@@ -12,7 +12,7 @@ use crate::{
     awi,
     ensemble::{
         value::{Change, Eval},
-        Delay, DynamicValue, Ensemble, PBack, Value,
+        Delay, DynamicValue, Ensemble, Equiv, PBack, Referent, Value,
     },
     epoch::EpochShared,
     Error,
@@ -98,6 +98,112 @@ impl Stator {
 }
 
 impl Ensemble {
+    pub fn make_state(
+        &mut self,
+        nzbw: NonZeroUsize,
+        op: Op<PState>,
+        location: Option<Location>,
+    ) -> PState {
+        for operand in op.operands() {
+            let state = self.stator.states.get_mut(*operand).unwrap();
+            state.rc = state.rc.checked_add(1).unwrap();
+        }
+        self.stator.states.insert(State {
+            nzbw,
+            p_self_bits: SmallVec::new(),
+            op,
+            location,
+            err: None,
+            rc: 0,
+            extern_rc: 0,
+            lowered_to_elementary: false,
+            lowered_to_lnodes: false,
+        })
+    }
+
+    /// If `p_state_bits.is_empty`, this will create new equivalences and
+    /// `Referent::ThisStateBits`s needed for every self bit. Sets the values to
+    /// a constant if the `Op` is a `Literal`, otherwise sets to unknown.
+    #[must_use]
+    pub fn initialize_state_bits_if_needed(&mut self, p_state: PState) -> Option<()> {
+        let state = self.stator.states.get(p_state)?;
+        if !state.p_self_bits.is_empty() {
+            return Some(())
+        }
+        let mut bits = smallvec![];
+        for i in 0..state.nzbw.get() {
+            let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
+                (
+                    Referent::ThisEquiv,
+                    Equiv::new(p_self_equiv, match state.op {
+                        Op::Literal(ref awi) => Value::Const(awi.get(i).unwrap()),
+                        Op::Opaque(ref v, name) => {
+                            if name.is_none() {
+                                assert!(v.is_empty());
+                                Value::ConstUnknown
+                            } else {
+                                Value::Unknown
+                            }
+                        }
+                        _ => Value::Unknown,
+                    }),
+                )
+            });
+            bits.push(Some(
+                self.backrefs
+                    .insert_key(p_equiv, Referent::ThisStateBit(p_state, i))
+                    .unwrap(),
+            ));
+        }
+        let state = self.stator.states.get_mut(p_state).unwrap();
+        state.p_self_bits = bits;
+        Some(())
+    }
+
+    /// Triggers a cascade of state removals if `pruning_allowed()` and
+    /// their reference counts are zero
+    pub fn remove_state(&mut self, p_state: PState) -> Result<(), Error> {
+        if !self.stator.states.contains(p_state) {
+            return Err(Error::InvalidPtr);
+        }
+        let mut pstate_stack = vec![p_state];
+        while let Some(p) = pstate_stack.pop() {
+            let mut delete = false;
+            if let Some(state) = self.stator.states.get(p) {
+                if state.pruning_allowed() {
+                    delete = true;
+                }
+            }
+            if delete {
+                for i in 0..self.stator.states[p].op.operands_len() {
+                    let op = self.stator.states[p].op.operands()[i];
+                    if self.stator.states[op].dec_rc().is_none() {
+                        return Err(Error::OtherStr("tried to subtract a 0 reference count"))
+                    };
+                    pstate_stack.push(op);
+                }
+                let mut state = self.stator.states.remove(p).unwrap();
+                for p_self_state in state.p_self_bits.drain(..) {
+                    if let Some(p_self_state) = p_self_state {
+                        self.backrefs.remove_key(p_self_state).unwrap();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn force_remove_all_states(&mut self) -> Result<(), Error> {
+        for (_, mut state) in self.stator.states.drain() {
+            for p_self_state in state.p_self_bits.drain(..) {
+                if let Some(p_self_state) = p_self_state {
+                    self.backrefs.remove_key(p_self_state).unwrap();
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn get_state_debug(&self, p_state: PState) -> Option<String> {
         self.stator
             .states

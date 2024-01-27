@@ -22,7 +22,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{Ensemble, Value},
+    ensemble::{Delay, Ensemble, Value},
     Error, EvalAwi,
 };
 
@@ -432,6 +432,13 @@ impl EpochShared {
             ensemble.change_value(p_self, val).unwrap();
         }
         Ok(())
+    }
+
+    fn internal_run(&self, time: Delay) -> Result<(), Error> {
+        // first evaluate all loop drivers
+        let mut lock = self.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+        ensemble.run(time)
     }
 }
 
@@ -857,4 +864,25 @@ impl Epoch {
             epoch_shared.internal_drive_loops_with_lower_capability()
         }
     }
+
+    /// Evaluates temporal nodes according to their delays until `time` has
+    /// passed. Requires that `self` be the current `Epoch`.
+    pub fn run(&self, time: Delay) -> Result<(), Error> {
+        let epoch_shared = self.check_current()?;
+        if epoch_shared
+            .epoch_data
+            .borrow()
+            .ensemble
+            .stator
+            .states
+            .is_empty()
+        {
+            epoch_shared.internal_run(time)
+        } else {
+            todo!()
+            //epoch_shared.internal_run_with_lower_capability(time)
+        }
+    }
+
+    //pub fn run_to_quiessence(&self, max_time: Delay) -> Result<(), Error> {}
 }
