@@ -196,6 +196,21 @@ impl LazyAwi {
         Ensemble::change_thread_local_rnode_value(self.p_external, CommonValue::Bits(rhs), true)
     }
 
+    /// Retroactively-constant-unknown-assigns by `rhs`, the same as
+    /// `retro_unknown_` except it adds the guarantee that the value will
+    /// never be changed again (or else it will result in errors if you try
+    /// another `retro_*` function on `self`)
+    pub fn retro_const_unknown_(&self) -> Result<(), Error> {
+        Ensemble::change_thread_local_rnode_value(
+            self.p_external,
+            CommonValue::Basic(BasicValue {
+                kind: BasicValueKind::Opaque,
+                nzbw: self.nzbw(),
+            }),
+            true,
+        )
+    }
+
     /// Temporally drives `self` with the value of an `EvalAwi`. Note that
     /// `Loop` and `Net` implicitly warn if they are undriven, you may want to
     /// use them instead. Returns `None` if bitwidths mismatch.

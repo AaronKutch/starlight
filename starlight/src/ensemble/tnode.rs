@@ -69,6 +69,25 @@ impl TNode {
     }
 }
 
+// We have separated the `Evaluator` from what we call the `Delayer` which
+// manages the actual temporal functionality. The evaluator and `LNode`s are
+// only made to handle a DAG ordering, while the delayer and `TNode`s bridge
+// different DAGs to each other and themselves. The idea is that we call the
+// evaluator to `calculate_value`s of the drivers, and then `change_value`s
+// according to scheduling done by the `Delayer`
+
+// The other thing to understand is that there are target descriptions that
+// practically need `TNode` based `Net` structures to avoid blowups even if only
+// combinational programs are being routed. Consider an island-style FPGA. If we
+// want to be able to route any input to any output on the outside edges, and be
+// able to do it in a fractal way for subsets of sufficient size, then `Net`s
+// are the only way that avoid full trees for every output from every input. The
+// setup can produce cycles in general and must be combinational according to
+// the configuration in order to be well defined if there are no delays. There
+// are many cases where we want no delays. So, we need special handling around
+// zero delay edges that cause a region of `LNode`s and `TNode`s to act as
+// combinational, and detect when they are not.
+
 #[derive(Debug, Clone)]
 pub struct Delayer {}
 
@@ -82,6 +101,11 @@ impl Ensemble {
         init_val: Option<Value>,
         delay: Delay,
     ) -> Option<PTNode> {
+        let partial_ord_num = self
+            .backrefs
+            .get_val(p_driver)
+            .unwrap()
+            .evaluator_partial_order;
         let p_tnode = self.tnodes.insert_with(|p_tnode| {
             let p_driver = self
                 .backrefs
@@ -95,7 +119,8 @@ impl Ensemble {
         });
         if let Some(init_val) = init_val {
             // in order for the value to register correctly
-            self.change_value(p_source, init_val).unwrap();
+            self.change_value(p_source, init_val, partial_ord_num.checked_add(1).unwrap())
+                .unwrap();
         }
         Some(p_tnode)
     }
@@ -105,16 +130,17 @@ impl Ensemble {
         while let Some(p_tnode) = adv.advance(&self.tnodes) {
             let tnode = self.tnodes.get(p_tnode).unwrap();
             let p_driver = tnode.p_driver;
-            self.calculate_value(p_driver)?;
+            self.request_value(p_driver)?;
         }
         // second do all loopback changes
-        let mut adv = self.tnodes.advancer();
+        // TODO
+        /*let mut adv = self.tnodes.advancer();
         while let Some(p_tnode) = adv.advance(&self.tnodes) {
             let tnode = self.tnodes.get(p_tnode).unwrap();
             let val = self.backrefs.get_val(tnode.p_driver).unwrap().val;
             let p_self = tnode.p_self;
             self.change_value(p_self, val).unwrap();
-        }
+        }*/
         Ok(())
     }
 }

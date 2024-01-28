@@ -1,4 +1,7 @@
-use std::{fmt::Write, num::NonZeroUsize};
+use std::{
+    fmt::Write,
+    num::{NonZeroU64, NonZeroUsize},
+};
 
 use awint::awint_dag::{
     smallvec::{smallvec, SmallVec},
@@ -10,10 +13,7 @@ use awint::awint_dag::{
 
 use crate::{
     awi,
-    ensemble::{
-        value::{Change, Eval},
-        Delay, DynamicValue, Ensemble, Equiv, PBack, Referent, Value,
-    },
+    ensemble::{Delay, DynamicValue, Ensemble, Equiv, PBack, Referent, Value},
     epoch::EpochShared,
     Error,
 };
@@ -262,17 +262,17 @@ impl Ensemble {
                 // if the `op` is manually replaced outside of the specially handled lowering
                 // `Copy` replacements, we need to check the values or else this change could be
                 // lost if this was done after initializing `p_self_bits`
-                let state = &mut self.stator.states[p_state];
-                if !state.p_self_bits.is_empty() {
-                    debug_assert_eq!(state.p_self_bits.len(), x.bw());
+                if !self.stator.states[p_state].p_self_bits.is_empty() {
+                    debug_assert_eq!(self.stator.states[p_state].p_self_bits.len(), x.bw());
                     for i in 0..x.bw() {
-                        if let Some(p_bit) = state.p_self_bits[i] {
+                        if let Some(p_bit) = self.stator.states[p_state].p_self_bits[i] {
                             let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
-                            self.evaluator.insert(Eval::Change(Change {
-                                depth: 0,
+                            self.change_value(
                                 p_equiv,
-                                value: Value::Const(x.get(i).unwrap()),
-                            }));
+                                Value::Const(x.get(i).unwrap()),
+                                NonZeroU64::new(1).unwrap(),
+                            )
+                            .unwrap();
                         }
                     }
                 }
@@ -415,31 +415,42 @@ impl Ensemble {
         let mut adv = lock.ensemble.notary.rnodes().advancer();
         drop(lock);
         loop {
-            let lock = epoch_shared.epoch_data.borrow();
+            let mut lock = epoch_shared.epoch_data.borrow_mut();
             if let Some(p_rnode) = adv.advance(lock.ensemble.notary.rnodes()) {
                 // only lower state trees attached to rnodes that need lowering
                 let rnode = &lock.ensemble.notary.rnodes()[p_rnode];
                 if rnode.lower_before_pruning {
-                    let p_state = rnode.associated_state.unwrap();
-                    if lock.ensemble.stator.states.contains(p_state) {
-                        drop(lock);
-                        Ensemble::dfs_lower(epoch_shared, p_state)?;
-                    } else {
-                        drop(lock);
-                    }
+                    drop(lock);
+                    Ensemble::initialize_rnode_if_needed(epoch_shared, p_rnode, true)?;
                 } else {
+                    lock.ensemble
+                        .initialize_rnode_if_needed_no_lowering(p_rnode, true)?;
                     drop(lock);
                 }
-                // tricky: need to be initialized
-                let mut lock = epoch_shared.epoch_data.borrow_mut();
-                lock.ensemble
-                    .initialize_rnode_if_needed(p_rnode, true)
-                    .unwrap();
             } else {
                 break
             }
         }
 
+        Ok(())
+    }
+
+    pub fn handle_states_to_lower(epoch_shared: &EpochShared) -> Result<(), Error> {
+        // empty `states_to_lower`
+        loop {
+            let mut lock = epoch_shared.epoch_data.borrow_mut();
+            if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
+                if let Some(state) = lock.ensemble.stator.states.get(p_state) {
+                    // first check that it has not already been lowered
+                    if !state.lowered_to_lnodes {
+                        drop(lock);
+                        Ensemble::dfs_lower(epoch_shared, p_state)?;
+                    }
+                }
+            } else {
+                break
+            }
+        }
         Ok(())
     }
 }

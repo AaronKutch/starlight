@@ -208,7 +208,7 @@ impl EvalAwi {
         let nzbw = self.try_get_nzbw()?;
         let mut res = awi::Awi::zero(nzbw);
         for bit_i in 0..res.bw() {
-            let val = Ensemble::calculate_thread_local_rnode_value(self.p_external, bit_i)?;
+            let val = Ensemble::request_thread_local_rnode_value(self.p_external, bit_i)?;
             if let Some(val) = val.known_value() {
                 res.set(bit_i, val).unwrap();
             } else {

@@ -1,4 +1,8 @@
-use std::{cmp::max, mem, num::NonZeroUsize};
+use std::{
+    cmp::max,
+    mem,
+    num::{NonZeroU64, NonZeroUsize},
+};
 
 use awint::{
     awi,
@@ -14,6 +18,7 @@ use smallvec::{smallvec, SmallVec};
 use crate::{
     ensemble::{DynamicValue, Ensemble, Equiv, PBack, Referent, Value},
     triple_arena::ptr_struct,
+    Error,
 };
 
 // We use this because our algorithms depend on generation counters
@@ -428,6 +433,110 @@ impl LNode {
 }
 
 impl Ensemble {
+    /// Given the current values of the input equivalences to the `LNode` at
+    /// `p_lnode`, computes a known lookup value if possible, or returns an
+    /// unknown value. Also returns the partial order number for the evaluator
+    /// to use.
+    pub fn calculate_lnode_value(&mut self, p_lnode: PLNode) -> Result<(Value, NonZeroU64), Error> {
+        // read current inputs
+        let lnode = self.lnodes.get(p_lnode).unwrap();
+        Ok(match &lnode.kind {
+            LNodeKind::Copy(p_inp) => {
+                let inp_equiv = self.backrefs.get_val(*p_inp).unwrap();
+                let inp_partial_ord_num = inp_equiv.evaluator_partial_order;
+                let inp_val = inp_equiv.val;
+                (inp_val, inp_partial_ord_num)
+            }
+            LNodeKind::Lut(inp, original_lut) => {
+                let len = inp.len();
+                let mut lut = original_lut.clone();
+                let mut max_partial_ord_num = NonZeroU64::new(1).unwrap();
+                for i in (0..len).rev() {
+                    let p_inp = inp[i];
+                    let equiv = self.backrefs.get_val(p_inp).unwrap();
+                    max_partial_ord_num = max(max_partial_ord_num, equiv.evaluator_partial_order);
+                    if let Some(b) = equiv.val.known_value() {
+                        LNode::reduce_lut(&mut lut, i, b);
+                    }
+                }
+
+                // if the reduced LUT is all ones or all zeros, we can know that any unknown
+                // changes will be unable to affect the output
+                if lut.is_zero() {
+                    (Value::Dynam(false), max_partial_ord_num)
+                } else if lut.is_umax() {
+                    (Value::Dynam(true), max_partial_ord_num)
+                } else {
+                    (Value::Unknown, max_partial_ord_num)
+                }
+            }
+            LNodeKind::DynamicLut(inp, original_lut) => {
+                let inp_len = NonZeroUsize::new(inp.len()).unwrap();
+                let mut inp_val = Awi::zero(inp_len);
+                let mut inp_known = Awi::zero(inp_len);
+                let mut inp_len = inp_len.get();
+                let mut max_partial_ord_num = NonZeroU64::new(1).unwrap();
+                for i in 0..inp_len {
+                    let p_inp = inp[i];
+                    let equiv = self.backrefs.get_val(p_inp).unwrap();
+                    max_partial_ord_num = max(max_partial_ord_num, equiv.evaluator_partial_order);
+                    if let Some(b) = equiv.val.known_value() {
+                        inp_val.set(i, b).unwrap();
+                        inp_known.set(i, true).unwrap();
+                    }
+                }
+                let lut_w = NonZeroUsize::new(original_lut.len()).unwrap();
+                let mut lut = Awi::zero(lut_w);
+                let mut lut_known = Awi::zero(lut_w);
+                for (i, value) in original_lut.iter().enumerate() {
+                    match value {
+                        DynamicValue::ConstUnknown => (),
+                        DynamicValue::Const(b) => {
+                            lut_known.set(i, true).unwrap();
+                            lut.set(i, *b).unwrap()
+                        }
+                        DynamicValue::Dynam(p) => {
+                            let equiv = self.backrefs.get_val(*p).unwrap();
+                            if let Some(b) = equiv.val.known_value() {
+                                lut_known.set(i, true).unwrap();
+                                lut.set(i, b).unwrap();
+                            }
+                        }
+                    }
+                }
+                // TODO do this more efficiently
+                let mut reduced_lut = original_lut.clone();
+                // reduce the LUT based on fixed and known bits
+                for i in (0..inp_len).rev() {
+                    if inp_known.get(i).unwrap() {
+                        let bit = inp_val.get(i).unwrap();
+                        LNode::reduce_lut(&mut lut, i, bit);
+                        LNode::reduce_lut(&mut lut_known, i, bit);
+                        reduced_lut = LNode::reduce_dynamic_lut(&reduced_lut, i, bit).0;
+                        // remove the input bits virtually
+                        inp_len = inp_len.checked_sub(1).unwrap();
+                    }
+                }
+                if inp_len == 0 {
+                    // only one LUT bit left, no inputs
+                    if lut_known.get(0).unwrap() {
+                        return Ok((Value::Dynam(lut.get(0).unwrap()), max_partial_ord_num))
+                    } else {
+                        return Ok((Value::Unknown, max_partial_ord_num))
+                    }
+                }
+                if lut_known.is_umax() {
+                    if lut.is_zero() {
+                        return Ok((Value::Dynam(false), max_partial_ord_num))
+                    } else if lut.is_umax() {
+                        return Ok((Value::Dynam(true), max_partial_ord_num))
+                    }
+                }
+                (Value::Unknown, max_partial_ord_num)
+            }
+        })
+    }
+
     /// Makes a single output bit lookup table `LNode` and returns a `PBack` to
     /// it. Returns `None` if the table length is incorrect or any of the
     /// `p_inxs` are invalid.
@@ -455,7 +564,7 @@ impl Ensemble {
                 Equiv::new(p_self_equiv, Value::Unknown),
             )
         });
-        self.lnodes.insert_with(|p_lnode| {
+        let p_lnode = self.lnodes.insert_with(|p_lnode| {
             let p_self = self
                 .backrefs
                 .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
@@ -470,6 +579,14 @@ impl Ensemble {
             }
             LNode::new(p_self, LNodeKind::Lut(inp, Awi::from(lut)), lowered_from)
         });
+        // For DFS lowering, we want to calculate the current `Lut` value and set it to
+        // prevent issues about change events that would happen if we didn't simply
+        // calculate now. This is also where partial ordering is initialized in a way
+        // that should preclude initial inefficiency in most cases
+        let (init_val, source_partial_ordering) = self.calculate_lnode_value(p_lnode).unwrap();
+        let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
+        equiv.val = init_val;
+        equiv.evaluator_partial_order = source_partial_ordering.checked_add(1).unwrap();
         Some(p_equiv)
     }
 
@@ -498,7 +615,7 @@ impl Ensemble {
                 Equiv::new(p_self_equiv, Value::Unknown),
             )
         });
-        self.lnodes.insert_with(|p_lnode| {
+        let p_lnode = self.lnodes.insert_with(|p_lnode| {
             let p_self = self
                 .backrefs
                 .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
@@ -525,6 +642,11 @@ impl Ensemble {
             }
             LNode::new(p_self, LNodeKind::DynamicLut(inp, lut), lowered_from)
         });
+        // same as in the static LUT case
+        let (init_val, source_partial_ordering) = self.calculate_lnode_value(p_lnode).unwrap();
+        let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
+        equiv.val = init_val;
+        equiv.evaluator_partial_order = source_partial_ordering.checked_add(1).unwrap();
         Some(p_equiv)
     }
 }

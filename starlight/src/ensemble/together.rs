@@ -23,8 +23,8 @@ pub struct Equiv {
     pub p_self_equiv: PBack,
     /// Output of the equivalence surject
     pub val: Value,
-    pub change_visit: NonZeroU64,
-    pub request_visit: NonZeroU64,
+    /// Used by the evaluator
+    pub evaluator_partial_order: NonZeroU64,
 }
 
 impl Recast<PBack> for Equiv {
@@ -41,8 +41,7 @@ impl Equiv {
         Self {
             p_self_equiv,
             val,
-            change_visit: NonZeroU64::new(1).unwrap(),
-            request_visit: NonZeroU64::new(1).unwrap(),
+            evaluator_partial_order: NonZeroU64::new(1).unwrap(),
         }
     }
 }
@@ -473,23 +472,7 @@ impl Ensemble {
         if (equiv0.val.is_const() && equiv1.val.is_const()) && (equiv0.val != equiv1.val) {
             panic!("tried to merge two const equivalences with differing values");
         }
-        // TODO, not sure about these cases
-        if equiv0.change_visit == self.evaluator.change_visit_gen() {
-            if equiv1.change_visit == self.evaluator.change_visit_gen() {
-                if equiv0.val != equiv1.val {
-                    // prevent what is probably some bug
-                    panic!();
-                }
-            } else {
-                equiv1.val = equiv0.val;
-                equiv1.change_visit = equiv0.change_visit;
-                equiv1.val = equiv0.val;
-            }
-        } else if equiv1.change_visit == self.evaluator.change_visit_gen() {
-            equiv0.val = equiv1.val;
-            equiv0.change_visit = equiv1.change_visit;
-            equiv0.val = equiv1.val;
-        } else if equiv0.val != equiv1.val {
+        if equiv0.val != equiv1.val {
             if !equiv0.val.is_known() {
                 equiv0.val = equiv1.val;
             } else if !equiv1.val.is_known() {

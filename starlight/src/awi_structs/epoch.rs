@@ -320,7 +320,7 @@ impl EpochShared {
             let p_state = eval_awi.state();
             let p_external = eval_awi.p_external();
             drop(epoch_data);
-            let val = Ensemble::calculate_thread_local_rnode_value(p_external, 0)?;
+            let val = Ensemble::request_thread_local_rnode_value(p_external, 0)?;
             if let Some(val) = val.known_value() {
                 if !val {
                     let epoch_data = self.epoch_data.borrow();
@@ -384,30 +384,26 @@ impl EpochShared {
 
     fn internal_drive_loops_with_lower_capability(&self) -> Result<(), Error> {
         // `Loop`s register states to lower so that the below loops can find them
-        Ensemble::handle_requests_with_lower_capability(self)?;
+        Ensemble::handle_states_to_lower(self)?;
         // first evaluate all loop drivers
-        let lock = self.epoch_data.borrow();
-        let mut adv = lock.ensemble.tnodes.advancer();
-        drop(lock);
-        loop {
-            let lock = self.epoch_data.borrow();
-            if let Some(p_tnode) = adv.advance(&lock.ensemble.tnodes) {
-                let tnode = lock.ensemble.tnodes.get(p_tnode).unwrap();
-                let p_driver = tnode.p_driver;
-                drop(lock);
-                Ensemble::calculate_value_with_lower_capability(self, p_driver)?;
-            } else {
-                break
-            }
-        }
-        // second do all loopback changes
         let mut lock = self.epoch_data.borrow_mut();
         let mut adv = lock.ensemble.tnodes.advancer();
         while let Some(p_tnode) = adv.advance(&lock.ensemble.tnodes) {
             let tnode = lock.ensemble.tnodes.get(p_tnode).unwrap();
-            let val = lock.ensemble.backrefs.get_val(tnode.p_driver).unwrap().val;
+            let p_driver = tnode.p_driver;
+            lock.ensemble.request_value(p_driver)?;
+        }
+        // second do all loopback changes
+        let mut adv = lock.ensemble.tnodes.advancer();
+        while let Some(p_tnode) = adv.advance(&lock.ensemble.tnodes) {
+            let tnode = lock.ensemble.tnodes.get(p_tnode).unwrap();
+            let equiv = lock.ensemble.backrefs.get_val(tnode.p_driver).unwrap();
+            let val = equiv.val;
+            let partial_ord_num = equiv.evaluator_partial_order;
             let p_self = tnode.p_self;
-            lock.ensemble.change_value(p_self, val).unwrap();
+            lock.ensemble
+                .change_value(p_self, val, partial_ord_num)
+                .unwrap();
         }
         Ok(())
     }
@@ -421,15 +417,17 @@ impl EpochShared {
         while let Some(p_tnode) = adv.advance(&ensemble.tnodes) {
             let tnode = ensemble.tnodes.get(p_tnode).unwrap();
             let p_driver = tnode.p_driver;
-            ensemble.calculate_value(p_driver)?;
+            ensemble.request_value(p_driver)?;
         }
         // second do all loopback changes
         let mut adv = ensemble.tnodes.advancer();
         while let Some(p_tnode) = adv.advance(&ensemble.tnodes) {
             let tnode = ensemble.tnodes.get(p_tnode).unwrap();
-            let val = ensemble.backrefs.get_val(tnode.p_driver).unwrap().val;
+            let equiv = ensemble.backrefs.get_val(tnode.p_driver).unwrap();
+            let val = equiv.val;
+            let partial_ord_num = equiv.evaluator_partial_order;
             let p_self = tnode.p_self;
-            ensemble.change_value(p_self, val).unwrap();
+            ensemble.change_value(p_self, val, partial_ord_num).unwrap();
         }
         Ok(())
     }
