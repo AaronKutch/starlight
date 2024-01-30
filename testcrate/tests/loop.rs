@@ -2,6 +2,9 @@ use std::num::NonZeroUsize;
 
 use starlight::{awi, dag::*, ensemble::Delay, Epoch, EvalAwi, LazyAwi, Loop};
 
+// be careful not to change existing tests too much, these test a lot of
+// ordering and nonoptimization cases
+
 #[test]
 fn loop_zero_delay() {
     let epoch = Epoch::new();
@@ -149,19 +152,15 @@ fn loop_net4() {
     {
         use awi::{assert_eq, *};
         inx.retro_(&awi!(0_u2)).unwrap();
-        epoch.run(Delay::from(1)).unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xa_u4));
 
         inx.retro_(&awi!(2_u2)).unwrap();
-        epoch.run(Delay::from(1)).unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xc_u4));
 
         inx.retro_(&awi!(1_u2)).unwrap();
-        epoch.run(Delay::from(1)).unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xb_u4));
 
         inx.retro_(&awi!(3_u2)).unwrap();
-        epoch.run(Delay::from(1)).unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xd_u4));
     }
     drop(epoch);
@@ -187,7 +186,6 @@ fn exhaustive_net_test(epoch: &Epoch, num_ports: awi::usize, diff: awi::isize) {
             let mut inx = Awi::zero(w);
             inx.usize_(i);
             lazy.retro_(&inx).unwrap();
-            epoch.run(Delay::from(1)).unwrap();
             awi::assert_eq!(eval_res.eval().unwrap().to_bool(), i >= num_ports);
             if i < num_ports {
                 awi::assert_eq!(eval_net.eval().unwrap().to_usize(), i);
@@ -226,12 +224,10 @@ fn loop_net() {
         {
             use awi::{assert_eq, *};
             lazy.retro_bool_(false).unwrap();
-            epoch.run(Delay::from(1)).unwrap();
             assert_eq!(eval_res.eval().unwrap(), awi!(0));
             assert_eq!(eval_net.eval().unwrap(), awi!(0xa_u5));
             // any nonzero index always returns a `None` from the function
             lazy.retro_bool_(true).unwrap();
-            epoch.run(Delay::from(1)).unwrap();
             assert_eq!(eval_res.eval().unwrap(), awi!(1));
         }
     }

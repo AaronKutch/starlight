@@ -25,8 +25,9 @@ use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Erro
 /// let val = EvalAwi::from(&looper);
 /// let mut tmp = awi!(looper);
 /// tmp.inc_(true);
-/// // drive the `Loop` with itself incremented
-/// looper.drive(&tmp).unwrap();
+/// // drive the `Loop` with itself incremented, and
+/// // with a delay to prevent an instant infinite loop
+/// looper.drive_with_delay(&tmp, 1).unwrap();
 ///
 /// {
 ///     use awi::*;
@@ -34,9 +35,8 @@ use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Erro
 ///         // check that the evaluated value is equal to
 ///         // this loop iteration number
 ///         awi::assert_eq!(i, val.eval().unwrap().to_usize());
-///         // every time `drive_loops` is called,
-///         // the evaluated value increases by one
-///         epoch.drive_loops().unwrap();
+///         // run simulation for 1 delay step
+///         epoch.run(1).unwrap();
 ///     }
 /// }
 /// drop(epoch);

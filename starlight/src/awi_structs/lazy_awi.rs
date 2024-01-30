@@ -15,7 +15,7 @@ use crate::{
     awi,
     ensemble::{BasicValue, BasicValueKind, CommonValue, Ensemble, PExternal},
     epoch::get_current_epoch,
-    Error, EvalAwi,
+    Delay, Error, EvalAwi,
 };
 
 // do not implement `Clone` for this, we would need a separate `LazyCellAwi`
@@ -215,11 +215,25 @@ impl LazyAwi {
     /// `Loop` and `Net` implicitly warn if they are undriven, you may want to
     /// use them instead. Returns `None` if bitwidths mismatch.
     pub fn drive(self, rhs: &EvalAwi) -> Result<(), Error> {
+        self.drive_with_delay(rhs, Delay::zero())
+    }
+
+    /// Temporally drives `self` with the value of an `EvalAwi`, with a delay.
+    /// Note that `Loop` and `Net` implicitly warn if they are undriven, you
+    /// may want to use them instead. Returns `None` if bitwidths mismatch.
+    pub fn drive_with_delay<D: Into<Delay>>(self, rhs: &EvalAwi, delay: D) -> Result<(), Error> {
         if self.bw() != rhs.bw() {
             return Err(Error::WrongBitwidth)
         }
+        let delay = delay.into();
         for i in 0..self.bw() {
-            Ensemble::tnode_drive_thread_local_rnode(self.p_external, i, rhs.p_external(), i)?
+            Ensemble::tnode_drive_thread_local_rnode(
+                self.p_external,
+                i,
+                rhs.p_external(),
+                i,
+                delay,
+            )?
         }
         Ok(())
     }

@@ -34,10 +34,9 @@ fn tnode_loop() {
     let x2 = LazyAwi::opaque(bw(1));
     let x3 = EvalAwi::from(&x2);
     x2.drive(&x1).unwrap();
-    x0.drive(&x3).unwrap();
+    x0.drive_with_delay(&x3, 1).unwrap();
     {
         use awi::{assert_eq, *};
-        epoch.run(Delay::from(1)).unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(1));
         epoch.run(Delay::from(1)).unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(0));

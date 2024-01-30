@@ -164,11 +164,12 @@ impl Ensemble {
         }
     }
 
+    /// Returns if anything was actually initialized
     pub fn initialize_rnode_if_needed_no_lowering(
         &mut self,
         p_rnode: PRNode,
         allow_pruned: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let rnode = &self.notary.rnodes()[p_rnode];
         if rnode.bits.is_empty() {
             if let Some(p_state) = rnode.associated_state {
@@ -187,20 +188,25 @@ impl Ensemble {
                         self.notary.rnodes[p_rnode].bits.push(None);
                     }
                 }
+                Ok(true)
             } else if !allow_pruned {
-                return Err(Error::OtherStr("failed to initialize `RNode`"))
+                Err(Error::OtherStr("failed to initialize `RNode`"))
+            } else {
+                Ok(false)
             }
+        } else {
+            Ok(false)
         }
-        Ok(())
     }
 
     /// If the state is allowed to be pruned, `allow_pruned` can be set. This
-    /// also runs DFS state lowering.
+    /// also runs DFS state lowering. Returns if anything was actually
+    /// initialized
     pub fn initialize_rnode_if_needed(
         epoch_shared: &EpochShared,
         p_rnode: PRNode,
         allow_pruned: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let lock = epoch_shared.epoch_data.borrow();
         let rnode = &lock.ensemble.notary.rnodes()[p_rnode];
         if rnode.lower_before_pruning {
@@ -260,6 +266,8 @@ impl Ensemble {
         let ensemble = &mut lock.ensemble;
         if let Some(p_rnode) = ensemble.notary.rnodes.find_key(&p_external) {
             drop(lock);
+            // `restart_request` not needed if an initialization happens here, because we
+            // are in change phase and any change later will fix the process
             Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, true)?;
             let mut lock = epoch_shared.epoch_data.borrow_mut();
             let ensemble = &mut lock.ensemble;
@@ -304,13 +312,19 @@ impl Ensemble {
     ) -> Result<Value, Error> {
         let epoch_shared = get_current_epoch().unwrap();
         let lock = epoch_shared.epoch_data.borrow();
-        if let Some((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_external) {
+        let init = if let Some((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_external) {
             drop(lock);
-            Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, false)?;
+            Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, false)?
         } else {
             drop(lock);
-        }
+            false
+        };
         let mut lock = epoch_shared.epoch_data.borrow_mut();
+        if init {
+            // if anything was initialized and we are already in request phase, there are
+            // cases where we need to do this to clear events before the value is requested
+            lock.ensemble.restart_request_phase()?;
+        }
         let p_back = if let Some((_, rnode)) = lock.ensemble.notary.get_rnode(p_external) {
             if bit_i >= rnode.bits.len() {
                 return Err(Error::OtherStr(
@@ -338,23 +352,29 @@ impl Ensemble {
         source_bit_i: usize,
         p_driver: PExternal,
         driver_bit_i: usize,
+        delay: Delay,
     ) -> Result<(), Error> {
         let epoch_shared = get_current_epoch().unwrap();
         let lock = epoch_shared.epoch_data.borrow_mut();
-        if let Some((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_source) {
+        let mut init = if let Some((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_source) {
             drop(lock);
-            Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, false)?;
+            Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, false)?
         } else {
             drop(lock);
-        }
+            false
+        };
         let lock = epoch_shared.epoch_data.borrow_mut();
-        if let Some((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_driver) {
+        init |= if let Some((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_driver) {
             drop(lock);
-            Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, false)?;
+            Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, false)?
         } else {
             drop(lock);
-        }
+            false
+        };
         let mut lock = epoch_shared.epoch_data.borrow_mut();
+        if init {
+            lock.ensemble.restart_request_phase()?;
+        }
         if let Some((_, source_rnode)) = lock.ensemble.notary.get_rnode(p_source) {
             if source_bit_i >= source_rnode.bits.len() {
                 return Err(Error::OtherStr(
@@ -386,7 +406,7 @@ impl Ensemble {
                 // now connect with `TNode`
                 let p_tnode = lock
                     .ensemble
-                    .make_tnode(source_p_back, driver_p_back, Delay::zero())
+                    .make_tnode(source_p_back, driver_p_back, delay)
                     .unwrap();
                 // initial drive
                 lock.ensemble.eval_tnode(p_tnode).unwrap();

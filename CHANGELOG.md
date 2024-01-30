@@ -2,6 +2,8 @@
 
 ## [0.4.0] - TODO
 ### Changes
+- Reworked the evaluation system to be event based, now there are `drive_with_delay` functions and
+  `Epoch::run*` functions with precise semantics
 - Removed `LazyInlAwi`
 
 ### Additions

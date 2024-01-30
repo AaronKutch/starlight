@@ -712,7 +712,17 @@ fn lower_elementary_to_lnodes_intermediate(
                             // ourselves while `make_tnode` initiates the delayed tnode
                             // drive
 
-                            this.make_tnode(p_looper, p_driver, Delay::zero()).unwrap();
+                            let p_tnode =
+                                this.make_tnode(p_looper, p_driver, Delay::zero()).unwrap();
+
+                            // In most cases, the initial loop value ends up looping around to
+                            // overwrite whatever the source was, however if it does not do so for
+                            // zero delay nodes, we need to have a backup event with the lowest
+                            // priority
+                            this.evaluator.push_event(Event {
+                                partial_ord_num: NonZeroU64::MAX,
+                                change_kind: ChangeKind::TNode(p_tnode),
+                            });
 
                             // an interesting thing that falls out is that a const value downcasts
                             // to a dynamic value, perhaps there should
@@ -786,6 +796,11 @@ fn lower_elementary_to_lnodes_intermediate(
                             let p_tnode = this.make_tnode(p_looper, p_driver, delay).unwrap();
                             if !delay.is_zero() {
                                 this.eval_tnode(p_tnode).unwrap();
+                            } else {
+                                this.evaluator.push_event(Event {
+                                    partial_ord_num: NonZeroU64::MAX,
+                                    change_kind: ChangeKind::TNode(p_tnode),
+                                });
                             }
 
                             let init_val = match init_val {
