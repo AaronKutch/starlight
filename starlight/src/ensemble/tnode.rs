@@ -1,16 +1,18 @@
-use awint::awint_dag::triple_arena::{ptr_struct, Advancer, Recast, Recaster};
+use std::num::NonZeroU64;
+
+use awint::awint_dag::triple_arena::{ptr_struct, OrdArena, Recast, Recaster};
 
 use crate::{
-    ensemble::{Ensemble, PBack, Referent, Value},
+    ensemble::{Ensemble, PBack, Referent},
     Error,
 };
 
 // We use this because our algorithms depend on generation counters
-ptr_struct!(PTNode);
+ptr_struct!(PTNode; PSimEvent);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Delay {
-    pub amount: u128,
+    amount: u128,
 }
 
 impl Delay {
@@ -22,12 +24,16 @@ impl Delay {
         Self { amount }
     }
 
-    pub fn is_zero(&self) -> bool {
+    pub fn is_zero(self) -> bool {
         self.amount == 0
     }
 
-    pub fn amount(&self) -> u128 {
+    pub fn amount(self) -> u128 {
         self.amount
+    }
+
+    pub fn checked_add(self, rhs: Self) -> Option<Self> {
+        self.amount.checked_add(rhs.amount).map(Delay::from_amount)
     }
 }
 
@@ -64,8 +70,8 @@ impl TNode {
         }
     }
 
-    pub fn delay(&self) -> &Delay {
-        &self.delay
+    pub fn delay(&self) -> Delay {
+        self.delay
     }
 }
 
@@ -88,24 +94,79 @@ impl TNode {
 // zero delay edges that cause a region of `LNode`s and `TNode`s to act as
 // combinational, and detect when they are not.
 
+// Consider a zero delay `TNode` driving itself through a sequence of two
+// inverters, so that the same value should be stored.
+
 #[derive(Debug, Clone)]
-pub struct Delayer {}
+pub struct SimultaneousEvents {
+    pub tnode_drives: Vec<PTNode>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Delayer {
+    /// Current time as measured by the delay between `Delayer` creation and now
+    pub current_time: Delay,
+    pub delayed_events: OrdArena<PSimEvent, Delay, SimultaneousEvents>,
+}
+
+impl Delayer {
+    pub fn new() -> Self {
+        Self {
+            current_time: Delay::zero(),
+            delayed_events: OrdArena::new(),
+        }
+    }
+
+    pub fn compress(&mut self) {
+        self.delayed_events.compress_and_shrink();
+    }
+
+    /// Inserts an event that will be delayed by `delay` from the current time
+    pub fn insert_delayed_tnode_event(&mut self, p_tnode: PTNode, delay: Delay) {
+        let future_time = self.current_time.checked_add(delay).unwrap();
+        if let Some((p, order)) = self.delayed_events.find_similar_key(&future_time) {
+            if order.is_eq() {
+                self.delayed_events
+                    .get_val_mut(p)
+                    .unwrap()
+                    .tnode_drives
+                    .push(p_tnode);
+            } else {
+                let _ = self
+                    .delayed_events
+                    .insert_linear(p, 2, future_time, SimultaneousEvents {
+                        tnode_drives: vec![p_tnode],
+                    });
+            }
+        } else {
+            self.delayed_events
+                .insert_empty(future_time, SimultaneousEvents {
+                    tnode_drives: vec![p_tnode],
+                })
+                .unwrap();
+        }
+    }
+
+    pub fn are_delayed_events_empty(&self) -> bool {
+        self.delayed_events.is_empty()
+    }
+
+    pub fn peek_next_event_time(&self) -> Option<Delay> {
+        let p_min = self.delayed_events.min()?;
+        self.delayed_events.get_key(p_min).copied()
+    }
+
+    pub fn pop_next_simultaneous_events(&mut self) -> Option<(Delay, SimultaneousEvents)> {
+        let p_min = self.delayed_events.min()?;
+        self.delayed_events.remove(p_min)
+    }
+}
 
 impl Ensemble {
-    /// Sets up a `TNode` source driven by a driver
+    /// Sets up a `TNode` source driven by a driver. The initial driving event
+    /// is set to happen after `delay`.
     #[must_use]
-    pub fn make_tnode(
-        &mut self,
-        p_source: PBack,
-        p_driver: PBack,
-        init_val: Option<Value>,
-        delay: Delay,
-    ) -> Option<PTNode> {
-        let partial_ord_num = self
-            .backrefs
-            .get_val(p_driver)
-            .unwrap()
-            .evaluator_partial_order;
+    pub fn make_tnode(&mut self, p_source: PBack, p_driver: PBack, delay: Delay) -> Option<PTNode> {
         let p_tnode = self.tnodes.insert_with(|p_tnode| {
             let p_driver = self
                 .backrefs
@@ -117,30 +178,42 @@ impl Ensemble {
                 .unwrap();
             TNode::new(p_self, p_driver, delay)
         });
-        if let Some(init_val) = init_val {
-            // in order for the value to register correctly
-            self.change_value(p_source, init_val, partial_ord_num.checked_add(1).unwrap())
-                .unwrap();
-        }
+        self.eval_tnode(p_tnode).unwrap();
         Some(p_tnode)
     }
 
+    /// Runs temporal evaluation until `time`
     pub fn run(&mut self, time: Delay) -> Result<(), Error> {
-        let mut adv = self.tnodes.advancer();
-        while let Some(p_tnode) = adv.advance(&self.tnodes) {
-            let tnode = self.tnodes.get(p_tnode).unwrap();
-            let p_driver = tnode.p_driver;
-            self.request_value(p_driver)?;
+        while let Some(next_time) = self.delayer.peek_next_event_time() {
+            if next_time > time {
+                break
+            }
+
+            let (time, events) = self.delayer.pop_next_simultaneous_events().unwrap();
+            self.delayer.current_time = time;
+            for p_tnode in &events.tnode_drives {
+                let tnode = self.tnodes.get(*p_tnode).unwrap();
+                let p_driver = tnode.p_driver;
+                self.request_value(p_driver)?;
+            }
+            for p_tnode in &events.tnode_drives {
+                let tnode = self.tnodes.get(*p_tnode).unwrap();
+                let val = self.backrefs.get_val(tnode.p_driver).unwrap().val;
+                let p_self = tnode.p_self;
+                // TODO if we don't unwrap, we need to reregister events
+                self.change_value(p_self, val, NonZeroU64::new(1).unwrap())
+                    .unwrap();
+            }
         }
-        // second do all loopback changes
-        // TODO
-        /*let mut adv = self.tnodes.advancer();
-        while let Some(p_tnode) = adv.advance(&self.tnodes) {
-            let tnode = self.tnodes.get(p_tnode).unwrap();
-            let val = self.backrefs.get_val(tnode.p_driver).unwrap().val;
-            let p_self = tnode.p_self;
-            self.change_value(p_self, val).unwrap();
-        }*/
-        Ok(())
+        // this needs to be done in case the last events would lead to infinite loops,
+        // it is `restart_request_phase` instead of `switch_to_request_phase` to handle
+        // any order of infinite loop detection
+        self.restart_request_phase()
+    }
+}
+
+impl Default for Delayer {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -247,6 +247,10 @@ impl Evaluator {
         Ok(())
     }
 
+    pub fn are_events_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
     pub fn push_event(&mut self, event: Event) {
         self.events.push(Reverse(event))
     }
@@ -264,28 +268,46 @@ impl Ensemble {
         }
     }
 
+    /// `switch_to_request_phase` will do nothing if the phase is already
+    /// `Request`, this will always run the event clearing
+    pub fn restart_request_phase(&mut self) -> Result<(), Error> {
+        // TODO think more about this, handle redundant change cases
+        let mut event_gas = self.backrefs.len_keys();
+        while let Some(event) = self.evaluator.pop_event() {
+            let res = self.handle_event(event);
+            if res.is_err() {
+                // need to reinsert
+                self.evaluator.push_event(event)
+            }
+            res?;
+            if let Some(x) = event_gas.checked_sub(1) {
+                event_gas = x;
+            } else {
+                return Err(Error::OtherStr("ran out of event gas"));
+            }
+        }
+
+        // handle_event will keep in change phase, only afterwards do we switch
+        self.evaluator.phase = EvalPhase::Request;
+        Ok(())
+    }
+
     /// Switches to request phase if not already in that phase, clears events
     pub fn switch_to_request_phase(&mut self) -> Result<(), Error> {
         if self.evaluator.phase != EvalPhase::Request {
-            // TODO think more about this, handle redundant change cases
-            let mut event_gas = self.backrefs.len_keys();
-            while let Some(event) = self.evaluator.pop_event() {
-                if let Some(x) = event_gas.checked_sub(1) {
-                    event_gas = x;
-                } else {
-                    return Err(Error::OtherStr("ran out of event gas"));
-                }
-                self.handle_event(event).unwrap();
-            }
-
-            // change_value will keep in change phase, only afterwards do we switch
-            self.evaluator.phase = EvalPhase::Request;
+            self.restart_request_phase()
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     /// If the new `value` would actually change the existing value at `p_back`,
     /// this will change it and push new events for dependent equivalences.
+    ///
+    /// # Errors
+    ///
+    /// If an error is returned, no events have been created and any events that
+    /// caused `change_value` need to be reinserted
     pub fn change_value(
         &mut self,
         p_back: PBack,
@@ -341,6 +363,7 @@ impl Ensemble {
         }
     }
 
+    /// Note that if an error is returned, the event needs to be reinserted.
     fn handle_event(&mut self, event: Event) -> Result<(), Error> {
         match event.change_kind {
             ChangeKind::LNode(p_lnode) => self.eval_lnode(p_lnode),
@@ -348,23 +371,29 @@ impl Ensemble {
         }
     }
 
-    /// Evaluates the `LNode` and pushes new events as needed
+    /// Evaluates the `LNode` and pushes new events as needed. Note that any
+    /// events that cause this need to be reinserted if this returns an error.
     pub fn eval_lnode(&mut self, p_lnode: PLNode) -> Result<(), Error> {
         let p_back = self.lnodes.get(p_lnode).unwrap().p_self;
         let (val, partial_ord_num) = self.calculate_lnode_value(p_lnode)?;
         self.change_value(p_back, val, partial_ord_num)
     }
 
-    /// If the returned vector is empty, evaluation was successful, otherwise
-    /// what is needed for evaluation is returned
+    /// Evaluates the `TNode` and pushes new events or delayed events as needed.
+    /// Note that any events that cause this need to be reinserted if this
+    /// returns an error.
     pub fn eval_tnode(&mut self, p_tnode: PTNode) -> Result<(), Error> {
-        // FIXME
-        /*let tnode = self.tnodes.get(p_tnode).unwrap();
-        let p_driver = tnode.p_driver;
-        let equiv = self.backrefs.get_val(p_driver).unwrap();
-        let partial_ord_num = equiv.evaluator_partial_order;
-        self.change_value(tnode.p_self, equiv.val, partial_ord_num)*/
-        Ok(())
+        let tnode = self.tnodes.get(p_tnode).unwrap();
+        if tnode.delay().is_zero() {
+            let p_driver = tnode.p_driver;
+            let equiv = self.backrefs.get_val(p_driver).unwrap();
+            let partial_ord_num = equiv.evaluator_partial_order;
+            self.change_value(tnode.p_self, equiv.val, partial_ord_num)
+        } else {
+            self.delayer
+                .insert_delayed_tnode_event(p_tnode, tnode.delay());
+            Ok(())
+        }
     }
 
     pub fn request_value(&mut self, p_back: PBack) -> Result<Value, Error> {

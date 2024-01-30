@@ -153,7 +153,7 @@ impl EvalAwi {
         if let Some(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
             match lock.ensemble.make_rnode_for_pstate(p_state, true, true) {
-                Some(p_external) => {
+                Ok(p_external) => {
                     lock.ensemble
                         .stator
                         .states
@@ -164,10 +164,10 @@ impl EvalAwi {
                     self.p_external = p_external;
                     Ok(())
                 }
-                None => Err(Error::OtherStr(
-                    "could not create or `future_*` an `EvalAwi` from the given mimicking state, \
-                     probably because the state was pruned or came from a different `Epoch`",
-                )),
+                Err(e) => Err(Error::OtherString(format!(
+                    "could not create or `future_*` an `EvalAwi` from the given mimicking state: \
+                     {e}"
+                ))),
             }
         } else {
             Err(Error::OtherStr(
@@ -219,6 +219,19 @@ impl EvalAwi {
             }
         }
         Ok(res)
+    }
+
+    /// Like `EvalAwi::eval`, except it returns if the values are all unknowns
+    pub fn eval_is_all_unknown(&self) -> Result<bool, Error> {
+        let nzbw = self.try_get_nzbw()?;
+        let mut all_unknown = true;
+        for bit_i in 0..nzbw.get() {
+            let val = Ensemble::request_thread_local_rnode_value(self.p_external, bit_i)?;
+            if val.is_known() {
+                all_unknown = false;
+            }
+        }
+        Ok(all_unknown)
     }
 
     pub fn zero(w: NonZeroUsize) -> Self {

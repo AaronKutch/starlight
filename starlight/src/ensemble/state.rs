@@ -3,12 +3,15 @@ use std::{
     num::{NonZeroU64, NonZeroUsize},
 };
 
-use awint::awint_dag::{
-    smallvec::{smallvec, SmallVec},
-    triple_arena::{Advancer, Arena},
-    EAwi, EvalResult, Location,
-    Op::{self, *},
-    PState,
+use awint::{
+    awint_dag::{
+        smallvec::{smallvec, SmallVec},
+        triple_arena::{Advancer, Arena},
+        EAwi, EvalResult, Location,
+        Op::{self, *},
+        PState,
+    },
+    Awi,
 };
 
 use crate::{
@@ -124,29 +127,110 @@ impl Ensemble {
     /// If `p_state_bits.is_empty`, this will create new equivalences and
     /// `Referent::ThisStateBits`s needed for every self bit. Sets the values to
     /// a constant if the `Op` is a `Literal`, otherwise sets to unknown.
-    #[must_use]
-    pub fn initialize_state_bits_if_needed(&mut self, p_state: PState) -> Option<()> {
-        let state = self.stator.states.get(p_state)?;
+    #[allow(clippy::single_match)]
+    pub fn initialize_state_bits_if_needed(&mut self, p_state: PState) -> Result<(), Error> {
+        let state = if let Some(state) = self.stator.states.get(p_state) {
+            state
+        } else {
+            return Err(Error::InvalidPtr);
+        };
         if !state.p_self_bits.is_empty() {
-            return Some(())
+            return Ok(())
+        }
+        let w = state.nzbw;
+        // if the corresponding bits are known
+        let mut known = Awi::zero(w);
+        // the corresponding bit values
+        let mut vals = Awi::zero(w);
+        // if the whole thing is const
+        let mut is_const = false;
+        match state.op {
+            Op::Literal(ref awi) => {
+                vals.copy_(awi).unwrap();
+                known.umax_();
+                is_const = true;
+            }
+            Op::Opaque(ref v, name) => {
+                if let Some(name) = name {
+                    match name {
+                        "LoopSource" => {
+                            // in order for zero delay loops to have a well defined
+                            // starting value (conflicting `Unknown` and known events
+                            // could outcompete each other unless we guarantee the
+                            // initial value at `initialize_state_bits_if_needed` time),
+                            // we set the value here so subsequent steps use it
+
+                            // we need to duplicate some checking in a roundabout way
+                            // because of borrowing issues
+                            if v.len() != 2 {
+                                return Err(Error::OtherStr("cannot lower an undriven `Loop`"));
+                            } else {
+                                let p_initial_state = v[0];
+                                if w.get() != self.stator.states[p_initial_state].p_self_bits.len()
+                                {
+                                    return Err(Error::OtherStr(
+                                        "`Loop` has a bitwidth mismatch of looper and initial \
+                                         state",
+                                    ))
+                                }
+                                // don't check driver, it may not be initialized
+                                // because of loops
+                            }
+                            let p_initial_state = v[0];
+                            for i in 0..w.get() {
+                                let p_initial =
+                                    self.stator.states[p_initial_state].p_self_bits[i].unwrap();
+                                let init_val = self.backrefs.get_val(p_initial).unwrap().val;
+
+                                match init_val {
+                                    Value::ConstUnknown => (),
+                                    Value::Const(b) => {
+                                        vals.set(i, b).unwrap();
+                                        known.set(i, true).unwrap();
+                                    }
+                                    Value::Unknown | Value::Dynam(_) => {
+                                        return Err(Error::OtherStr(
+                                            "A `Loop`'s initial value could not be calculated as \
+                                             a constant known or constant unknown in lowering, \
+                                             the argument to `Loop::from_*` needs to evaluate to \
+                                             a constant",
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        _ => (),
+                    }
+                } else {
+                    assert!(v.is_empty());
+                    is_const = true;
+                }
+            }
+            // note for zero delay loops to be well defined, the default unknown value _must_ be
+            // overwritten without initial event production, this happens in the
+            // elementary lowering where `make_lnode` and the like actively set the
+            // value
+            _ => (),
         }
         let mut bits = smallvec![];
         for i in 0..state.nzbw.get() {
             let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
                 (
                     Referent::ThisEquiv,
-                    Equiv::new(p_self_equiv, match state.op {
-                        Op::Literal(ref awi) => Value::Const(awi.get(i).unwrap()),
-                        Op::Opaque(ref v, name) => {
-                            if name.is_none() {
-                                assert!(v.is_empty());
-                                Value::ConstUnknown
+                    Equiv::new(
+                        p_self_equiv,
+                        if is_const {
+                            if known.get(i).unwrap() {
+                                Value::Const(vals.get(i).unwrap())
                             } else {
-                                Value::Unknown
+                                Value::ConstUnknown
                             }
-                        }
-                        _ => Value::Unknown,
-                    }),
+                        } else if known.get(i).unwrap() {
+                            Value::Dynam(vals.get(i).unwrap())
+                        } else {
+                            Value::Unknown
+                        },
+                    ),
                 )
             });
             bits.push(Some(
@@ -157,7 +241,7 @@ impl Ensemble {
         }
         let state = self.stator.states.get_mut(p_state).unwrap();
         state.p_self_bits = bits;
-        Some(())
+        Ok(())
     }
 
     /// Triggers a cascade of state removals if `pruning_allowed()` and
@@ -267,6 +351,8 @@ impl Ensemble {
                     for i in 0..x.bw() {
                         if let Some(p_bit) = self.stator.states[p_state].p_self_bits[i] {
                             let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
+                            // unwrap because this should never fail, events would process
+                            // incorrectly
                             self.change_value(
                                 p_equiv,
                                 Value::Const(x.get(i).unwrap()),
@@ -344,7 +430,7 @@ impl Ensemble {
                 match self.stator.states[p_state].op {
                     Literal(ref lit) => {
                         debug_assert_eq!(lit.nzbw(), nzbw);
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
+                        self.initialize_state_bits_if_needed(p_state)?;
                     }
                     Opaque(_, name) => {
                         if let Some(name) = name {
@@ -363,7 +449,7 @@ impl Ensemble {
                                 }
                             }
                         }
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
+                        self.initialize_state_bits_if_needed(p_state)?;
                     }
                     ref op => return Err(Error::OtherString(format!("cannot lower {op:?}"))),
                 }
@@ -385,7 +471,7 @@ impl Ensemble {
                     // in the case of circular cases with `Loop`s, if the DFS goes around and does
                     // not encounter a root, the argument needs to be initialized or else any branch
                     // of `lower_elementary_to_lnodes_intermediate` could fail
-                    self.initialize_state_bits_if_needed(p_next).unwrap();
+                    self.initialize_state_bits_if_needed(p_next)?;
                     // do not visit
                     path.last_mut().unwrap().0 += 1;
                 } else {
@@ -403,10 +489,10 @@ impl Ensemble {
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         // the state can get removed by the above step
         if lock.ensemble.stator.states.contains(p_state) {
-            let res = lock.ensemble.dfs_lower_elementary_to_lnodes(p_state);
-            res.unwrap();
+            lock.ensemble.dfs_lower_elementary_to_lnodes(p_state)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     /// Lowers `RNode`s with the `lower_before_pruning` flag
@@ -459,7 +545,7 @@ fn lower_elementary_to_lnodes_intermediate(
     this: &mut Ensemble,
     p_state: PState,
 ) -> Result<(), Error> {
-    this.initialize_state_bits_if_needed(p_state).unwrap();
+    this.initialize_state_bits_if_needed(p_state)?;
     match this.stator.states[p_state].op {
         Assert([x]) => {
             // this is the only foolproof way of doing this, at least without more
@@ -655,38 +741,15 @@ fn lower_elementary_to_lnodes_intermediate(
                 }
                 for i in 0..w {
                     let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
-                    let p_initial = this.stator.states[p_initial_state].p_self_bits[i].unwrap();
                     let p_driver = this.stator.states[p_driver_state].p_self_bits[i].unwrap();
-                    let init_val = this.backrefs.get_val(p_initial).unwrap().val;
+                    // the loop source is an internal `Opaque` root at this point, we initiate the
+                    // initial event chain ourselves while `make_tnode` initiates the delayed tnode
+                    // drive
+
                     // an interesting thing that falls out is that a const value downcasts to a
                     // dynamic value, perhaps there should be an integer level of constness?
-                    match init_val {
-                        Value::ConstUnknown => {
-                            this.make_tnode(
-                                p_looper,
-                                p_driver,
-                                Some(Value::Unknown),
-                                Delay::zero(),
-                            )
-                            .unwrap();
-                        }
-                        Value::Const(b) => {
-                            this.make_tnode(
-                                p_looper,
-                                p_driver,
-                                Some(Value::Dynam(b)),
-                                Delay::zero(),
-                            )
-                            .unwrap();
-                        }
-                        Value::Unknown | Value::Dynam(_) => {
-                            return Err(Error::OtherStr(
-                                "A `Loop`'s initial value could not be calculated as a constant \
-                                 known or constant unknown in lowering, the argument to \
-                                 `Loop::from_*` needs to evaluate to a constant",
-                            ))
-                        }
-                    }
+
+                    let p_tnode = this.make_tnode(p_looper, p_driver, Delay::zero()).unwrap();
                 }
             } else if let Some(name) = name {
                 return Err(Error::OtherString(format!(

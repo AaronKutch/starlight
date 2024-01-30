@@ -181,6 +181,7 @@ pub use awi_structs::{epoch, Assertions, Epoch, EvalAwi, LazyAwi, Loop, Net, Sus
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
 pub use awint::{self, awint_dag, awint_dag::triple_arena};
+pub use ensemble::Delay;
 pub use misc::{Error, StarRng};
 
 /// Reexports all the regular arbitrary width integer structs, macros, common

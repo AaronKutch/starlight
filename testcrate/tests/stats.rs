@@ -1,4 +1,4 @@
-use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi};
+use starlight::{awi, dag::*, Delay, Epoch, EvalAwi, LazyAwi};
 
 // this is done separately from the benchmarks because getting the `ensemble` is
 // expensive
@@ -85,7 +85,7 @@ fn stats_different_prunings() {
             let mut inx = Awi::zero(w);
             inx.usize_(i);
             lazy.retro_(&inx).unwrap();
-            epoch.drive_loops().unwrap();
+            epoch.run(Delay::from(1)).unwrap();
             awi::assert_eq!(eval_res.eval_bool().unwrap(), i >= num_ports);
             if i < num_ports {
                 awi::assert_eq!(eval_net.eval().unwrap().to_usize(), i);

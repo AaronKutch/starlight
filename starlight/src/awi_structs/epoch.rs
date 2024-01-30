@@ -15,7 +15,7 @@ use std::{
 use awint::{
     awint_dag::{
         epoch::{EpochCallback, EpochKey},
-        triple_arena::{ptr_struct, Advancer, Arena},
+        triple_arena::{ptr_struct, Arena},
         Lineage, Location, Op, PState,
     },
     bw, dag,
@@ -382,54 +382,13 @@ impl EpochShared {
         Ok(())
     }
 
-    fn internal_drive_loops_with_lower_capability(&self) -> Result<(), Error> {
-        // `Loop`s register states to lower so that the below loops can find them
+    fn internal_run_with_lower_capability(&self, time: Delay) -> Result<(), Error> {
+        // `Loop`s register states to lower so that the old handle process is not needed
         Ensemble::handle_states_to_lower(self)?;
         // first evaluate all loop drivers
         let mut lock = self.epoch_data.borrow_mut();
-        let mut adv = lock.ensemble.tnodes.advancer();
-        while let Some(p_tnode) = adv.advance(&lock.ensemble.tnodes) {
-            let tnode = lock.ensemble.tnodes.get(p_tnode).unwrap();
-            let p_driver = tnode.p_driver;
-            lock.ensemble.request_value(p_driver)?;
-        }
-        // second do all loopback changes
-        let mut adv = lock.ensemble.tnodes.advancer();
-        while let Some(p_tnode) = adv.advance(&lock.ensemble.tnodes) {
-            let tnode = lock.ensemble.tnodes.get(p_tnode).unwrap();
-            let equiv = lock.ensemble.backrefs.get_val(tnode.p_driver).unwrap();
-            let val = equiv.val;
-            let partial_ord_num = equiv.evaluator_partial_order;
-            let p_self = tnode.p_self;
-            lock.ensemble
-                .change_value(p_self, val, partial_ord_num)
-                .unwrap();
-        }
-        Ok(())
-    }
-
-    fn internal_drive_loops(&self) -> Result<(), Error> {
-        // first evaluate all loop drivers
-        let mut lock = self.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
-
-        let mut adv = ensemble.tnodes.advancer();
-        while let Some(p_tnode) = adv.advance(&ensemble.tnodes) {
-            let tnode = ensemble.tnodes.get(p_tnode).unwrap();
-            let p_driver = tnode.p_driver;
-            ensemble.request_value(p_driver)?;
-        }
-        // second do all loopback changes
-        let mut adv = ensemble.tnodes.advancer();
-        while let Some(p_tnode) = adv.advance(&ensemble.tnodes) {
-            let tnode = ensemble.tnodes.get(p_tnode).unwrap();
-            let equiv = ensemble.backrefs.get_val(tnode.p_driver).unwrap();
-            let val = equiv.val;
-            let partial_ord_num = equiv.evaluator_partial_order;
-            let p_self = tnode.p_self;
-            ensemble.change_value(p_self, val, partial_ord_num).unwrap();
-        }
-        Ok(())
+        ensemble.run(time)
     }
 
     fn internal_run(&self, time: Delay) -> Result<(), Error> {
@@ -842,27 +801,6 @@ impl Epoch {
         Ok(())
     }
 
-    // TODO this only requires the current `Epoch` for the general case, may need a
-    // second function
-
-    /// This evaluates all loop drivers, and then registers loopback changes.
-    /// Requires that `self` be the current `Epoch`.
-    pub fn drive_loops(&self) -> Result<(), Error> {
-        let epoch_shared = self.check_current()?;
-        if epoch_shared
-            .epoch_data
-            .borrow()
-            .ensemble
-            .stator
-            .states
-            .is_empty()
-        {
-            epoch_shared.internal_drive_loops()
-        } else {
-            epoch_shared.internal_drive_loops_with_lower_capability()
-        }
-    }
-
     /// Evaluates temporal nodes according to their delays until `time` has
     /// passed. Requires that `self` be the current `Epoch`.
     pub fn run(&self, time: Delay) -> Result<(), Error> {
@@ -877,8 +815,7 @@ impl Epoch {
         {
             epoch_shared.internal_run(time)
         } else {
-            todo!()
-            //epoch_shared.internal_run_with_lower_capability(time)
+            epoch_shared.internal_run_with_lower_capability(time)
         }
     }
 

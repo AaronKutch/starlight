@@ -1,4 +1,4 @@
-use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi};
+use starlight::{awi, dag, Delay, Epoch, EvalAwi, LazyAwi};
 
 #[test]
 fn tnode_simple() {
@@ -11,17 +11,13 @@ fn tnode_simple() {
     x2.drive(&x1).unwrap();
     {
         use awi::{assert_eq, *};
-        epoch.drive_loops().unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(0));
         x0.retro_umax_().unwrap();
-        epoch.drive_loops().unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(1));
         epoch.optimize().unwrap();
         x0.retro_zero_().unwrap();
-        epoch.drive_loops().unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(0));
         x0.retro_umax_().unwrap();
-        epoch.drive_loops().unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(1));
     }
     drop(epoch);
@@ -41,14 +37,14 @@ fn tnode_loop() {
     x0.drive(&x3).unwrap();
     {
         use awi::{assert_eq, *};
-        epoch.drive_loops().unwrap();
+        epoch.run(Delay::from(1)).unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(1));
-        epoch.drive_loops().unwrap();
+        epoch.run(Delay::from(1)).unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(0));
         epoch.optimize().unwrap();
-        epoch.drive_loops().unwrap();
+        epoch.run(Delay::from(1)).unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(1));
-        epoch.drive_loops().unwrap();
+        epoch.run(Delay::from(1)).unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(0));
     }
     drop(epoch);

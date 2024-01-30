@@ -5,6 +5,7 @@ use awint::awint_dag::{
     PState,
 };
 
+use super::Delayer;
 use crate::{
     ensemble::{
         value::Evaluator, LNode, LNodeKind, Notary, Optimizer, PLNode, PRNode, PTNode, Stator,
@@ -78,6 +79,7 @@ pub struct Ensemble {
     pub lnodes: Arena<PLNode, LNode>,
     pub tnodes: Arena<PTNode, TNode>,
     pub evaluator: Evaluator,
+    pub delayer: Delayer,
     pub optimizer: Optimizer,
     pub debug_counter: u64,
 }
@@ -91,6 +93,7 @@ impl Ensemble {
             lnodes: Arena::new(),
             tnodes: Arena::new(),
             evaluator: Evaluator::new(),
+            delayer: Delayer::new(),
             optimizer: Optimizer::new(),
             debug_counter: 0,
         }
@@ -381,6 +384,8 @@ impl Ensemble {
         self.optimizer.check_clear()?;
         self.evaluator.check_clear()?;
         self.stator.check_clear()?;
+
+        self.delayer.compress();
 
         let p_lnode_recaster = self.lnodes.compress_and_shrink_recaster();
         let p_tnode_recaster = self.tnodes.compress_and_shrink_recaster();

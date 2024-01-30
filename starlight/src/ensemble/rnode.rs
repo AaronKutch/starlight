@@ -142,21 +142,26 @@ impl Notary {
 }
 
 impl Ensemble {
-    #[must_use]
     pub fn make_rnode_for_pstate(
         &mut self,
         p_state: PState,
         read_only: bool,
         lower_before_pruning: bool,
-    ) -> Option<PExternal> {
-        let nzbw = self.stator.states[p_state].nzbw;
-        let (_, p_external) = self.notary.insert_rnode(RNode::new(
-            nzbw,
-            read_only,
-            Some(p_state),
-            lower_before_pruning,
-        ));
-        Some(p_external)
+    ) -> Result<PExternal, Error> {
+        if let Some(state) = self.stator.states.get(p_state) {
+            let nzbw = state.nzbw;
+            let (_, p_external) = self.notary.insert_rnode(RNode::new(
+                nzbw,
+                read_only,
+                Some(p_state),
+                lower_before_pruning,
+            ));
+            Ok(p_external)
+        } else {
+            Err(Error::OtherString(format!(
+                "state {p_state} has been pruned or is from a different epoch"
+            )))
+        }
     }
 
     pub fn initialize_rnode_if_needed_no_lowering(
@@ -167,25 +172,22 @@ impl Ensemble {
         let rnode = &self.notary.rnodes()[p_rnode];
         if rnode.bits.is_empty() {
             if let Some(p_state) = rnode.associated_state {
-                if self.initialize_state_bits_if_needed(p_state).is_some() {
-                    let len = self.stator.states[p_state].p_self_bits.len();
-                    for i in 0..len {
-                        let p_bit = self.stator.states[p_state].p_self_bits[i];
-                        if let Some(p_bit) = p_bit {
-                            let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
-                            let p_back_new = self
-                                .backrefs
-                                .insert_key(p_equiv, Referent::ThisRNode(p_rnode))
-                                .unwrap();
-                            self.notary.rnodes[p_rnode].bits.push(Some(p_back_new));
-                        } else {
-                            self.notary.rnodes[p_rnode].bits.push(None);
-                        }
+                self.initialize_state_bits_if_needed(p_state)?;
+                let len = self.stator.states[p_state].p_self_bits.len();
+                for i in 0..len {
+                    let p_bit = self.stator.states[p_state].p_self_bits[i];
+                    if let Some(p_bit) = p_bit {
+                        let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
+                        let p_back_new = self
+                            .backrefs
+                            .insert_key(p_equiv, Referent::ThisRNode(p_rnode))
+                            .unwrap();
+                        self.notary.rnodes[p_rnode].bits.push(Some(p_back_new));
+                    } else {
+                        self.notary.rnodes[p_rnode].bits.push(None);
                     }
-                    return Ok(())
                 }
-            }
-            if !allow_pruned {
+            } else if !allow_pruned {
                 return Err(Error::OtherStr("failed to initialize `RNode`"))
             }
         }
@@ -280,6 +282,8 @@ impl Ensemble {
                         } else {
                             Value::Unknown
                         };
+                        // if an error occurs, no event is inserted and we do not insert anything
+                        // here, the change is treated as having never occured
                         ensemble.change_value(p_back, bit, NonZeroU64::new(1).unwrap())?;
                     }
                 }
@@ -381,7 +385,7 @@ impl Ensemble {
 
                 // now connect with `TNode`
                 lock.ensemble
-                    .make_tnode(source_p_back, driver_p_back, None, Delay::zero())
+                    .make_tnode(source_p_back, driver_p_back, Delay::zero())
                     .unwrap();
             } else {
                 return Err(Error::OtherStr(
