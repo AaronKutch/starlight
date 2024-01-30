@@ -102,11 +102,29 @@ pub struct SimultaneousEvents {
     pub tnode_drives: Vec<PTNode>,
 }
 
+impl Recast<PTNode> for SimultaneousEvents {
+    fn recast<R: Recaster<Item = PTNode>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.tnode_drives.recast(recaster)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Delayer {
     /// Current time as measured by the delay between `Delayer` creation and now
     pub current_time: Delay,
     pub delayed_events: OrdArena<PSimEvent, Delay, SimultaneousEvents>,
+}
+
+impl Recast<PTNode> for Delayer {
+    fn recast<R: Recaster<Item = PTNode>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.delayed_events.recast(recaster)
+    }
 }
 
 impl Delayer {

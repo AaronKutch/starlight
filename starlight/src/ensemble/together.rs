@@ -386,10 +386,16 @@ impl Ensemble {
         self.stator.check_clear()?;
 
         self.delayer.compress();
+        let p_tnode_recaster = self.tnodes.compress_and_shrink_recaster();
+        if let Err(e) = self.delayer.recast(&p_tnode_recaster) {
+            return Err(Error::OtherString(format!(
+                "recast error with {e} in the `Delayer`"
+            )));
+        }
 
         let p_lnode_recaster = self.lnodes.compress_and_shrink_recaster();
-        let p_tnode_recaster = self.tnodes.compress_and_shrink_recaster();
         let p_rnode_recaster = self.notary.recast_p_rnode();
+
         for referent in self.backrefs.keys_mut() {
             match referent {
                 Referent::ThisEquiv => (),

@@ -575,7 +575,7 @@ impl Ensemble {
 
     /// Removes all states, optimizes, and shrinks allocations
     pub fn optimize_all(&mut self) -> Result<(), Error> {
-        // empty current events so compression can work
+        // empty current events because they will be invalidated and shrunk
         self.restart_request_phase()?;
         self.force_remove_all_states().unwrap();
         // need to preinvestigate everything before starting a priority loop
