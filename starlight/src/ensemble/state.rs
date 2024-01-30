@@ -11,12 +11,12 @@ use awint::{
         Op::{self, *},
         PState,
     },
-    Awi,
+    bw, Awi,
 };
 
 use crate::{
     awi,
-    ensemble::{Delay, DynamicValue, Ensemble, Equiv, PBack, Referent, Value},
+    ensemble::{ChangeKind, Delay, DynamicValue, Ensemble, Equiv, Event, PBack, Referent, Value},
     epoch::EpochShared,
     Error,
 };
@@ -138,78 +138,24 @@ impl Ensemble {
             return Ok(())
         }
         let w = state.nzbw;
-        // if the corresponding bits are known
-        let mut known = Awi::zero(w);
         // the corresponding bit values
         let mut vals = Awi::zero(w);
-        // if the whole thing is const
+        // if known
+        let mut known = false;
+        // if const
         let mut is_const = false;
         match state.op {
             Op::Literal(ref awi) => {
                 vals.copy_(awi).unwrap();
-                known.umax_();
+                known = true;
                 is_const = true;
             }
             Op::Opaque(ref v, name) => {
-                if let Some(name) = name {
-                    match name {
-                        "LoopSource" => {
-                            // in order for zero delay loops to have a well defined
-                            // starting value (conflicting `Unknown` and known events
-                            // could outcompete each other unless we guarantee the
-                            // initial value at `initialize_state_bits_if_needed` time),
-                            // we set the value here so subsequent steps use it
-
-                            // we need to duplicate some checking in a roundabout way
-                            // because of borrowing issues
-                            if v.len() != 2 {
-                                return Err(Error::OtherStr("cannot lower an undriven `Loop`"));
-                            } else {
-                                let p_initial_state = v[0];
-                                if w.get() != self.stator.states[p_initial_state].p_self_bits.len()
-                                {
-                                    return Err(Error::OtherStr(
-                                        "`Loop` has a bitwidth mismatch of looper and initial \
-                                         state",
-                                    ))
-                                }
-                                // don't check driver, it may not be initialized
-                                // because of loops
-                            }
-                            let p_initial_state = v[0];
-                            for i in 0..w.get() {
-                                let p_initial =
-                                    self.stator.states[p_initial_state].p_self_bits[i].unwrap();
-                                let init_val = self.backrefs.get_val(p_initial).unwrap().val;
-
-                                match init_val {
-                                    Value::ConstUnknown => (),
-                                    Value::Const(b) => {
-                                        vals.set(i, b).unwrap();
-                                        known.set(i, true).unwrap();
-                                    }
-                                    Value::Unknown | Value::Dynam(_) => {
-                                        return Err(Error::OtherStr(
-                                            "A `Loop`'s initial value could not be calculated as \
-                                             a constant known or constant unknown in lowering, \
-                                             the argument to `Loop::from_*` needs to evaluate to \
-                                             a constant",
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                        _ => (),
-                    }
-                } else {
+                if name.is_none() {
                     assert!(v.is_empty());
                     is_const = true;
                 }
             }
-            // note for zero delay loops to be well defined, the default unknown value _must_ be
-            // overwritten without initial event production, this happens in the
-            // elementary lowering where `make_lnode` and the like actively set the
-            // value
             _ => (),
         }
         let mut bits = smallvec![];
@@ -220,12 +166,12 @@ impl Ensemble {
                     Equiv::new(
                         p_self_equiv,
                         if is_const {
-                            if known.get(i).unwrap() {
+                            if known {
                                 Value::Const(vals.get(i).unwrap())
                             } else {
                                 Value::ConstUnknown
                             }
-                        } else if known.get(i).unwrap() {
+                        } else if known {
                             Value::Dynam(vals.get(i).unwrap())
                         } else {
                             Value::Unknown
@@ -436,9 +382,9 @@ impl Ensemble {
                         if let Some(name) = name {
                             match name {
                                 "LazyOpaque" => (),
-                                "LoopSource" => {
+                                "UndrivenLoopSource" | "LoopSource" | "DelayedLoopSource" => {
                                     return Err(Error::OtherStr(
-                                        "cannot lower LoopSource opaque with no initial value, \
+                                        "cannot lower loop source opaque with no initial value, \
                                          some variant was violated",
                                     ))
                                 }
@@ -722,41 +668,159 @@ fn lower_elementary_to_lnodes_intermediate(
             }
         }
         Opaque(ref v, name) => {
-            if name == Some("LoopSource") {
-                if v.len() != 2 {
-                    return Err(Error::OtherStr("cannot lower an undriven `Loop`"))
-                }
-                let w = this.stator.states[p_state].p_self_bits.len();
-                let p_initial_state = v[0];
-                let p_driver_state = v[1];
-                if w != this.stator.states[p_initial_state].p_self_bits.len() {
-                    return Err(Error::OtherStr(
-                        "`Loop` has a bitwidth mismatch of looper and initial state",
-                    ))
-                }
-                if w != this.stator.states[p_driver_state].p_self_bits.len() {
-                    return Err(Error::OtherStr(
-                        "`Loop` has a bitwidth mismatch of looper and driver",
-                    ))
-                }
-                for i in 0..w {
-                    let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
-                    let p_driver = this.stator.states[p_driver_state].p_self_bits[i].unwrap();
-                    // the loop source is an internal `Opaque` root at this point, we initiate the
-                    // initial event chain ourselves while `make_tnode` initiates the delayed tnode
-                    // drive
+            if let Some(name) = name {
+                match name {
+                    "UndrivenLoopSource" => {
+                        if v.len() != 1 {
+                            return Err(Error::OtherStr(
+                                "`UndrivenLoopSource` has an unexpected number of arguments",
+                            ))
+                        }
+                        return Err(Error::OtherString(format!(
+                            "cannot lower an undriven `Loop` or `Net`, some `drive_*` function \
+                             has not been called on a loop source with state {p_state}"
+                        )))
+                    }
+                    "LoopSource" => {
+                        if v.len() != 2 {
+                            return Err(Error::OtherStr(
+                                "`LoopSource` has an unexpected number of arguments",
+                            ))
+                        }
+                        let w = this.stator.states[p_state].p_self_bits.len();
+                        let p_initial_state = v[0];
+                        let p_driver_state = v[1];
+                        if w != this.stator.states[p_initial_state].p_self_bits.len() {
+                            return Err(Error::OtherStr(
+                                "`Loop` has a bitwidth mismatch of looper and initial state",
+                            ))
+                        }
+                        if w != this.stator.states[p_driver_state].p_self_bits.len() {
+                            return Err(Error::OtherStr(
+                                "`Loop` has a bitwidth mismatch of looper and driver",
+                            ))
+                        }
+                        for i in 0..w {
+                            let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
+                            let p_driver =
+                                this.stator.states[p_driver_state].p_self_bits[i].unwrap();
+                            let p_initial =
+                                this.stator.states[p_initial_state].p_self_bits[i].unwrap();
+                            let init_val = this.backrefs.get_val(p_initial).unwrap().val;
+                            // the loop source is an internal `Opaque` root at this point, we
+                            // initiate the initial event chain
+                            // ourselves while `make_tnode` initiates the delayed tnode
+                            // drive
 
-                    // an interesting thing that falls out is that a const value downcasts to a
-                    // dynamic value, perhaps there should be an integer level of constness?
+                            this.make_tnode(p_looper, p_driver, Delay::zero()).unwrap();
 
-                    let p_tnode = this.make_tnode(p_looper, p_driver, Delay::zero()).unwrap();
+                            // an interesting thing that falls out is that a const value downcasts
+                            // to a dynamic value, perhaps there should
+                            // be an integer level of constness?
+
+                            let init_val = match init_val {
+                                Value::ConstUnknown => Value::Unknown,
+                                Value::Const(b) => Value::Dynam(b),
+                                Value::Unknown | Value::Dynam(_) => {
+                                    return Err(Error::OtherStr(
+                                        "A `Loop`'s initial value could not be calculated as a \
+                                         constant known or constant unknown in lowering, the \
+                                         argument to `Loop::from_*` needs to evaluate to a \
+                                         constant",
+                                    ));
+                                }
+                            };
+                            this.evaluator.push_event(Event {
+                                partial_ord_num: NonZeroU64::new(1).unwrap(),
+                                change_kind: ChangeKind::Manual(p_looper, init_val),
+                            });
+                        }
+                    }
+                    "DelayedLoopSource" => {
+                        if v.len() != 3 {
+                            return Err(Error::OtherStr(
+                                "`DelayedLoopSource` has an unexpected number of arguments",
+                            ))
+                        }
+                        let w = this.stator.states[p_state].p_self_bits.len();
+                        let p_initial_state = v[0];
+                        let p_driver_state = v[1];
+                        let p_delay_state = v[2];
+                        if w != this.stator.states[p_initial_state].p_self_bits.len() {
+                            return Err(Error::OtherStr(
+                                "`Loop` has a bitwidth mismatch of looper and initial state",
+                            ))
+                        }
+                        if w != this.stator.states[p_driver_state].p_self_bits.len() {
+                            return Err(Error::OtherStr(
+                                "`Loop` has a bitwidth mismatch of looper and driver",
+                            ))
+                        }
+                        let delay_w = this.stator.states[p_delay_state].p_self_bits.len();
+                        if delay_w > 128 {
+                            return Err(Error::OtherStr("unexpectedly large delay"))
+                        }
+                        let mut delay = Awi::zero(bw(delay_w));
+                        for i in 0..delay_w {
+                            let p_back = this.stator.states[p_delay_state].p_self_bits[i].unwrap();
+                            let bit = this
+                                .backrefs
+                                .get_val(p_back)
+                                .unwrap()
+                                .val
+                                .known_value()
+                                .unwrap();
+                            delay.set(i, bit).unwrap();
+                        }
+                        let delay = Delay::from_amount(delay.to_u128());
+                        for i in 0..w {
+                            let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
+                            let p_driver =
+                                this.stator.states[p_driver_state].p_self_bits[i].unwrap();
+                            let p_initial =
+                                this.stator.states[p_initial_state].p_self_bits[i].unwrap();
+                            let init_val = this.backrefs.get_val(p_initial).unwrap().val;
+                            // the loop source is an internal `Opaque` root at this point, we
+                            // initiate the initial event chain
+                            // ourselves while `make_tnode` initiates the delayed tnode
+                            // drive
+
+                            let p_tnode = this.make_tnode(p_looper, p_driver, delay).unwrap();
+                            if !delay.is_zero() {
+                                // this will setup the delayed drive, but we only want to do this if
+                                // the delay is actually nonzero, otherwise it conflicts with the
+                                // initial value
+                                this.eval_tnode(p_tnode).unwrap();
+                            }
+
+                            // an interesting thing that falls out is that a const value downcasts
+                            // to a dynamic value, perhaps there should
+                            // be an integer level of constness?
+
+                            let init_val = match init_val {
+                                Value::ConstUnknown => Value::Unknown,
+                                Value::Const(b) => Value::Dynam(b),
+                                Value::Unknown | Value::Dynam(_) => {
+                                    return Err(Error::OtherStr(
+                                        "A `Loop`'s initial value could not be calculated as a \
+                                         constant known or constant unknown in lowering, the \
+                                         argument to `Loop::from_*` needs to evaluate to a \
+                                         constant",
+                                    ));
+                                }
+                            };
+                            this.evaluator.push_event(Event {
+                                partial_ord_num: NonZeroU64::new(1).unwrap(),
+                                change_kind: ChangeKind::Manual(p_looper, init_val),
+                            });
+                        }
+                    }
+                    _ => {
+                        return Err(Error::OtherString(format!(
+                            "cannot lower opaque with name {name:?}"
+                        )))
+                    }
                 }
-            } else if let Some(name) = name {
-                return Err(Error::OtherString(format!(
-                    "cannot lower opaque with name \"{name}\""
-                )))
-            } else {
-                return Err(Error::OtherStr("cannot lower opaque with no name"))
             }
         }
         ref op => return Err(Error::OtherString(format!("cannot lower {op:?}"))),

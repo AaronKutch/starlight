@@ -163,8 +163,8 @@ impl Delayer {
 }
 
 impl Ensemble {
-    /// Sets up a `TNode` source driven by a driver. The initial driving event
-    /// is set to happen after `delay`.
+    /// Sets up a `TNode` source driven by a driver. Driving events need to be
+    /// handled by the caller.
     #[must_use]
     pub fn make_tnode(&mut self, p_source: PBack, p_driver: PBack, delay: Delay) -> Option<PTNode> {
         let p_tnode = self.tnodes.insert_with(|p_tnode| {
@@ -178,33 +178,36 @@ impl Ensemble {
                 .unwrap();
             TNode::new(p_self, p_driver, delay)
         });
-        self.eval_tnode(p_tnode).unwrap();
         Some(p_tnode)
     }
 
-    /// Runs temporal evaluation until `time`
-    pub fn run(&mut self, time: Delay) -> Result<(), Error> {
+    /// Runs temporal evaluation until `delay` has passed since the current time
+    pub fn run(&mut self, delay: Delay) -> Result<(), Error> {
+        let final_time = self.delayer.current_time.checked_add(delay).unwrap();
         while let Some(next_time) = self.delayer.peek_next_event_time() {
-            if next_time > time {
+            if next_time > final_time {
                 break
             }
-
             let (time, events) = self.delayer.pop_next_simultaneous_events().unwrap();
             self.delayer.current_time = time;
             for p_tnode in &events.tnode_drives {
-                let tnode = self.tnodes.get(*p_tnode).unwrap();
-                let p_driver = tnode.p_driver;
-                self.request_value(p_driver)?;
+                // this is conditional because some optimizations can remove tnodes
+                if let Some(tnode) = self.tnodes.get(*p_tnode) {
+                    let p_driver = tnode.p_driver;
+                    self.request_value(p_driver)?;
+                }
             }
             for p_tnode in &events.tnode_drives {
-                let tnode = self.tnodes.get(*p_tnode).unwrap();
-                let val = self.backrefs.get_val(tnode.p_driver).unwrap().val;
-                let p_self = tnode.p_self;
-                // TODO if we don't unwrap, we need to reregister events
-                self.change_value(p_self, val, NonZeroU64::new(1).unwrap())
-                    .unwrap();
+                if let Some(tnode) = self.tnodes.get(*p_tnode) {
+                    let val = self.backrefs.get_val(tnode.p_driver).unwrap().val;
+                    let p_self = tnode.p_self;
+                    // TODO if we don't unwrap, we need to reregister events
+                    self.change_value(p_self, val, NonZeroU64::new(1).unwrap())
+                        .unwrap();
+                }
             }
         }
+        self.delayer.current_time = final_time;
         // this needs to be done in case the last events would lead to infinite loops,
         // it is `restart_request_phase` instead of `switch_to_request_phase` to handle
         // any order of infinite loop detection

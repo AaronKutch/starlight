@@ -14,4 +14,7 @@ pub use rnode::{Notary, PExternal, PRNode, RNode};
 pub use state::{State, Stator};
 pub use tnode::{Delay, Delayer, PTNode, TNode};
 pub use together::{Ensemble, Equiv, PBack, Referent};
-pub use value::{BasicValue, BasicValueKind, CommonValue, DynamicValue, Evaluator, Value};
+pub use value::{
+    BasicValue, BasicValueKind, ChangeKind, CommonValue, DynamicValue, EvalPhase, Evaluator, Event,
+    Value,
+};

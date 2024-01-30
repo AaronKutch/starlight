@@ -191,6 +191,13 @@ pub enum EvalPhase {
 pub enum ChangeKind {
     LNode(PLNode),
     TNode(PTNode),
+    // this needs to exist to initialize loops correctly, or maybe make manual changes.
+    // `initialize_state_bits_if_needed` could use the initial value and let the values cascade in
+    // initializations rather than events, but the problem is that the DFS lowering can loop
+    // around due to the other requirement to avoid handles and start from anywhere, which leads
+    // to downstream values getting initialized as unknown rather than the correct initial value
+    // getting propogated.
+    Manual(PBack, Value),
 }
 
 /// Note that the `Eq`, `Ord`, etc traits are implemented to only order on
@@ -368,7 +375,12 @@ impl Ensemble {
         match event.change_kind {
             ChangeKind::LNode(p_lnode) => self.eval_lnode(p_lnode),
             ChangeKind::TNode(p_tnode) => self.eval_tnode(p_tnode),
+            ChangeKind::Manual(p_back, val) => self.manual_change(p_back, val),
         }
+    }
+
+    pub fn manual_change(&mut self, p_back: PBack, val: Value) -> Result<(), Error> {
+        self.change_value(p_back, val, NonZeroU64::new(1).unwrap())
     }
 
     /// Evaluates the `LNode` and pushes new events as needed. Note that any

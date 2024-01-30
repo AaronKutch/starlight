@@ -2,10 +2,11 @@ use std::{borrow::Borrow, num::NonZeroUsize, ops::Deref};
 
 use awint::{
     awint_dag::{smallvec::smallvec, Lineage, Op, PState},
+    bw,
     dag::{self, awi, Awi, Bits, InlAwi},
 };
 
-use crate::{epoch::get_current_epoch, lower::meta::general_mux, Error};
+use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Error};
 
 /// Provides a way to temporally wrap around a combinatorial circuit.
 ///
@@ -99,7 +100,10 @@ impl Loop {
     /// If an `Epoch` does not exist or the `PState` was pruned
     pub fn from_state(p_state: PState) -> Self {
         let w = p_state.get_nzbw();
-        let source = Awi::new(w, Op::Opaque(smallvec![p_state], Some("LoopSource")));
+        let source = Awi::new(
+            w,
+            Op::Opaque(smallvec![p_state], Some("UndrivenLoopSource")),
+        );
         Self { source }
     }
 
@@ -122,8 +126,9 @@ impl Loop {
     }
 
     /// Consumes `self`, looping back with the value of `driver` to change the
-    /// `Loop`s temporal value in a iterative temporal evaluation. Returns
-    /// an error if `self.bw() != driver.bw()`.
+    /// `Loop`s temporal value. There is no delay with this method, so
+    /// configuration must form a DAG overall or else a nontermination error can
+    /// be thrown later. Returns an error if `self.bw() != driver.bw()`.
     pub fn drive(self, driver: &Bits) -> Result<(), Error> {
         if self.source.bw() != driver.bw() {
             Err(Error::WrongBitwidth)
@@ -138,9 +143,11 @@ impl Loop {
                 .get_mut(self.source.state())
                 .unwrap()
                 .op;
-            if let Op::Opaque(v, Some("LoopSource")) = op {
+            if let Op::Opaque(v, name) = op {
+                assert_eq!(*name, Some("UndrivenLoopSource"));
                 assert_eq!(v.len(), 1);
                 v.push(driver.state());
+                *name = Some("LoopSource");
             } else {
                 unreachable!()
             }
@@ -162,6 +169,62 @@ impl Loop {
         }
     }
 
+    /// Consumes `self`, looping back with the value of `driver` to change the
+    /// `Loop`s temporal value in a iterative temporal evaluation. Includes a
+    /// delay `delay`. Returns an error if `self.bw() != driver.bw()`.
+    pub fn drive_with_delay<D: Into<Delay>>(self, driver: &Bits, delay: D) -> Result<(), Error> {
+        if self.source.bw() != driver.bw() {
+            Err(Error::WrongBitwidth)
+        } else {
+            // TODO perhaps just lower, but the plan is to base incremental compilation on
+            // states. Not sure if we ever want dynamic delay.
+            let mut tmp = awi::Awi::from_u128(delay.into().amount());
+            let sig = tmp.sig();
+            tmp.zero_resize(NonZeroUsize::new(sig).unwrap_or(bw(1)));
+            let delay_awi = dag::Awi::from(&tmp).state();
+
+            let epoch = get_current_epoch().unwrap();
+            let mut lock = epoch.epoch_data.borrow_mut();
+            // add the driver to the loop source
+            let op = &mut lock
+                .ensemble
+                .stator
+                .states
+                .get_mut(self.source.state())
+                .unwrap()
+                .op;
+            if let Op::Opaque(v, name) = op {
+                assert_eq!(*name, Some("UndrivenLoopSource"));
+                assert_eq!(v.len(), 1);
+                v.push(driver.state());
+                v.push(delay_awi);
+                *name = Some("DelayedLoopSource");
+            } else {
+                unreachable!()
+            }
+            // increment the reference count on the driver
+            lock.ensemble
+                .stator
+                .states
+                .get_mut(driver.state())
+                .unwrap()
+                .inc_rc();
+            lock.ensemble
+                .stator
+                .states
+                .get_mut(delay_awi)
+                .unwrap()
+                .inc_rc();
+            // in order for loop driving to always work we need to do this (otherwise
+            // `drive_loops` would have to search all states, or we would need the old loop
+            // handle strategy which was horrible to use)
+            lock.ensemble
+                .stator
+                .states_to_lower
+                .push(self.source.state());
+            Ok(())
+        }
+    }
     // TODO FP<B> is violating the Hash, Eq, Ord requirements of `Borrow`, but
     // `AsRef` does not have the reflexive blanket impl, perhaps we need a
     // `BorrowBits` trait that also handles the primitives, and several signatures

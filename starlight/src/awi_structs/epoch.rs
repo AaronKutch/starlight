@@ -803,7 +803,7 @@ impl Epoch {
 
     /// Evaluates temporal nodes according to their delays until `time` has
     /// passed. Requires that `self` be the current `Epoch`.
-    pub fn run(&self, time: Delay) -> Result<(), Error> {
+    pub fn run<D: Into<Delay>>(&self, time: D) -> Result<(), Error> {
         let epoch_shared = self.check_current()?;
         if epoch_shared
             .epoch_data
@@ -813,9 +813,9 @@ impl Epoch {
             .states
             .is_empty()
         {
-            epoch_shared.internal_run(time)
+            epoch_shared.internal_run(time.into())
         } else {
-            epoch_shared.internal_run_with_lower_capability(time)
+            epoch_shared.internal_run_with_lower_capability(time.into())
         }
     }
 

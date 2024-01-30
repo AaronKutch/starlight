@@ -384,9 +384,12 @@ impl Ensemble {
                 };
 
                 // now connect with `TNode`
-                lock.ensemble
+                let p_tnode = lock
+                    .ensemble
                     .make_tnode(source_p_back, driver_p_back, Delay::zero())
                     .unwrap();
+                // initial drive
+                lock.ensemble.eval_tnode(p_tnode).unwrap();
             } else {
                 return Err(Error::OtherStr(
                     "could not find thread local `RNode`, probably an `EvalAwi` was used outside \
