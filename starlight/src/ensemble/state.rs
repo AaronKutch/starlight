@@ -730,9 +730,11 @@ fn lower_elementary_to_lnodes_intermediate(
                                     ));
                                 }
                             };
+                            // the state bit can get optimized away
+                            let p_back = this.backrefs.get_val(p_looper).unwrap().p_self_equiv;
                             this.evaluator.push_event(Event {
                                 partial_ord_num: NonZeroU64::new(1).unwrap(),
-                                change_kind: ChangeKind::Manual(p_looper, init_val),
+                                change_kind: ChangeKind::Manual(p_back, init_val),
                             });
                         }
                     }
@@ -780,22 +782,11 @@ fn lower_elementary_to_lnodes_intermediate(
                             let p_initial =
                                 this.stator.states[p_initial_state].p_self_bits[i].unwrap();
                             let init_val = this.backrefs.get_val(p_initial).unwrap().val;
-                            // the loop source is an internal `Opaque` root at this point, we
-                            // initiate the initial event chain
-                            // ourselves while `make_tnode` initiates the delayed tnode
-                            // drive
 
                             let p_tnode = this.make_tnode(p_looper, p_driver, delay).unwrap();
                             if !delay.is_zero() {
-                                // this will setup the delayed drive, but we only want to do this if
-                                // the delay is actually nonzero, otherwise it conflicts with the
-                                // initial value
                                 this.eval_tnode(p_tnode).unwrap();
                             }
-
-                            // an interesting thing that falls out is that a const value downcasts
-                            // to a dynamic value, perhaps there should
-                            // be an integer level of constness?
 
                             let init_val = match init_val {
                                 Value::ConstUnknown => Value::Unknown,
@@ -809,9 +800,11 @@ fn lower_elementary_to_lnodes_intermediate(
                                     ));
                                 }
                             };
+                            // the state bit can get optimized away
+                            let p_back = this.backrefs.get_val(p_looper).unwrap().p_self_equiv;
                             this.evaluator.push_event(Event {
                                 partial_ord_num: NonZeroU64::new(1).unwrap(),
-                                change_kind: ChangeKind::Manual(p_looper, init_val),
+                                change_kind: ChangeKind::Manual(p_back, init_val),
                             });
                         }
                     }

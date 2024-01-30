@@ -100,7 +100,7 @@ fn loop_invert() {
     x.not_();
     let x_copy = x.clone();
     x.lut_(&inlawi!(10), &x_copy).unwrap();
-    looper.drive(&x).unwrap();
+    looper.drive_with_delay(&x, 1).unwrap();
 
     {
         use awi::{assert_eq, *};
@@ -123,7 +123,7 @@ fn loop_incrementer() {
     let val = EvalAwi::from(&looper);
     let mut tmp = awi!(looper);
     tmp.inc_(true);
-    looper.drive(&tmp).unwrap();
+    looper.drive_with_delay(&tmp, 1).unwrap();
 
     {
         for i in 0..16 {
