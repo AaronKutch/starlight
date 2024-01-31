@@ -2,6 +2,8 @@
 mod debug;
 mod lnode;
 mod optimize;
+#[cfg(feature = "debug")]
+pub mod render;
 mod rnode;
 mod state;
 mod tnode;
