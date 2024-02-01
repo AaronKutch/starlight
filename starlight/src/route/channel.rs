@@ -190,6 +190,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
             let cedge = self.cedges.get(p_cedge).unwrap();
             let sources_len = cedge.sources().len();
             let ok = match cedge.programmability() {
+                Programmability::TNode => sources_len == 1,
                 Programmability::StaticLut(lut) => {
                     // TODO find every place I did the trailing zeros thing and have a function that
                     // does the more efficient thing the core `lut_` function does

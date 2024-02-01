@@ -11,7 +11,7 @@ mod region_adv;
 mod router;
 
 pub use cedge::{BulkBehavior, CEdge, Programmability, SelectorLut, SelectorValue};
-pub use channel::Channeler;
+pub use channel::{Channeler, Referent};
 pub use cnode::CNode;
 pub use config::{Config, Configurator, PConfig};
 pub use path::{HyperPath, PHyperPath, Path};

@@ -365,7 +365,8 @@ pub fn generate_hierarchy<PBack: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PBa
                                         let p_related_subnode =
                                             *related_subnodes_set.get_key(p).unwrap();
                                         let w = match cedge.programmability() {
-                                            Programmability::StaticLut(_)
+                                            Programmability::TNode
+                                            | Programmability::StaticLut(_)
                                             | Programmability::ArbitraryLut(_)
                                             | Programmability::SelectorLut(_) => 1,
                                             Programmability::Bulk(bulk) => {
@@ -394,6 +395,7 @@ pub fn generate_hierarchy<PBack: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PBa
                                         .unwrap()
                                         .internal_behavior;
                                     let lut_bits = match cedge.programmability() {
+                                        Programmability::TNode => 0,
                                         Programmability::StaticLut(lut) => lut.bw(),
                                         Programmability::ArbitraryLut(lut) => lut.len(),
                                         Programmability::SelectorLut(_) => 0,
@@ -412,6 +414,7 @@ pub fn generate_hierarchy<PBack: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PBa
                                     }
                                     let (channel_exit_width, lut_bits) =
                                         match cedge.programmability() {
+                                            Programmability::TNode => (1, 0),
                                             Programmability::StaticLut(lut) => (1, lut.bw()),
                                             Programmability::ArbitraryLut(lut) => (1, lut.len()),
                                             Programmability::SelectorLut(_) => (1, 0),

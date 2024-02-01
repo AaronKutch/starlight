@@ -100,6 +100,8 @@ impl BulkBehavior {
 
 #[derive(Debug, Clone)]
 pub enum Programmability {
+    TNode,
+
     StaticLut(Awi),
 
     // `DynamicLut`s can go in one of two ways: the table bits directly connect with configurable
@@ -122,6 +124,7 @@ impl Programmability {
     pub fn debug_strings(&self) -> Vec<String> {
         let mut v = vec![];
         match self {
+            Programmability::TNode => v.push("tnode".to_owned()),
             Programmability::StaticLut(lut) => v.push(format!("{}", lut)),
             Programmability::ArbitraryLut(lut) => v.push(format!("ArbLut {}", lut.len())),
             Programmability::SelectorLut(selector_lut) => {
@@ -397,6 +400,16 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
                     }
                 }
             }
+        }
+
+        // add `CEdge`s according to `TNode`s
+        for tnode in ensemble.tnodes.vals() {
+            let v = [channeler.translate(ensemble, tnode.p_driver).1.unwrap()];
+            channeler.make_cedge(
+                &v,
+                channeler.translate(ensemble, tnode.p_self).1.unwrap(),
+                Programmability::TNode,
+            );
         }
 
         generate_hierarchy(&mut channeler);

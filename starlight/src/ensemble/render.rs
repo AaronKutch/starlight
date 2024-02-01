@@ -22,13 +22,15 @@ pub struct RenderNode {
     pub incidents: Vec<RenderNodeKind>,
 }
 
+pub type RenderArena = OrdArena<PRenderNode, RenderNodeKind, RenderNode>;
+
 impl Ensemble {
     /// For 2D rendering. Given a starting set of `PExternal`s, this will
     /// compute the positions of nodes in a balanced web between them.
     pub fn debug_web<I: IntoIterator<Item = (PExternal, (i32, i32))>>(
         &self,
         fixed: I,
-    ) -> OrdArena<PRenderNode, RenderNodeKind, RenderNode> {
+    ) -> RenderArena {
         // initialize map and front with the fixed nodes
         let mut map = OrdArena::new();
         // using a `VecDeque`, pushing to the back and popping to the front produces a
