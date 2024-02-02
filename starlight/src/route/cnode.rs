@@ -3,7 +3,6 @@ use std::cmp::max;
 use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, Ptr};
 
 use crate::{
-    ensemble::PBack,
     misc::SmallSet,
     route::{channel::Referent, BulkBehavior, Channeler, PEmbedding, Programmability},
 };

@@ -3,6 +3,19 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+/// Represents a direction on a grid
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Direction {
+    /// Negative .0 direction
+    Neg0,
+    /// Positive .0 direction
+    Pos0,
+    /// Negative .1 direction
+    Neg1,
+    /// Positive .1 direction
+    Pos1,
+}
+
 // we forbid zero length sides because they shouldn't occur for almost all
 // reasonable use cases, and it causes too many edge cases that cause certain
 // kinds of functions to be fallible etc
@@ -41,6 +54,7 @@ impl<T> Grid<T> {
         (self.len.0.get(), self.len.1.get())
     }
 
+    #[must_use]
     pub fn get(&self, ij: (usize, usize)) -> Option<&T> {
         let (i, j) = (ij.0, ij.1);
         let len = self.len();
@@ -51,6 +65,7 @@ impl<T> Grid<T> {
         }
     }
 
+    #[must_use]
     pub fn get_mut(&mut self, ij: (usize, usize)) -> Option<&mut T> {
         let (i, j) = (ij.0, ij.1);
         let len = self.len();
@@ -61,6 +76,7 @@ impl<T> Grid<T> {
         }
     }
 
+    #[must_use]
     pub fn get2(&self, ij0: (usize, usize), ij1: (usize, usize)) -> Option<(&T, &T)> {
         let (i0, j0) = (ij0.0, ij0.1);
         let (i1, j1) = (ij1.0, ij1.1);
@@ -82,6 +98,7 @@ impl<T> Grid<T> {
         }
     }
 
+    #[must_use]
     pub fn get2_mut(
         &mut self,
         ij0: (usize, usize),
@@ -133,6 +150,55 @@ impl<T> Grid<T> {
         }
     }
 
+    /// For each case where there is not an orthogonal element to an element,
+    /// this will call `f` with the element, its index, and direction. Corner
+    /// elements are called on twice, edges once. The order is by `Direction`
+    /// first, `for_each` ordering second.
+    // TODO fix this attribute
+    /// ```no_format
+    /// use starlight::misc::{Grid, Direction::*};
+    ///
+    /// let grid: Grid<u64> = Grid::try_from([
+    ///     [0, 1, 2, 3],
+    ///     [4, 5, 6, 7],
+    ///     [8, 9, 10, 11],
+    /// ]).unwrap();
+    ///
+    /// // note 5 and 6 are skipped entirely, and the corners
+    /// // have both edges called on separately
+    /// let expected = [
+    ///     (0, Neg0), (4, Neg0), (8, Neg0),
+    ///     (3, Pos0), (7, Pos0), (11, Pos0),
+    ///     (0, Neg1), (1, Neg1), (2, Neg1), (3, Neg1),
+    ///     (8, Pos1), (9, Pos1), (10, Pos1), (11, Pos1)
+    /// ];
+    /// let mut encountered = vec![];
+    /// grid.for_each_edge(|t, _, dir| encountered.push((*t, dir)));
+    /// assert_eq!(expected.as_slice(), encountered.as_slice());
+    /// ```
+    pub fn for_each_edge<F: FnMut(&T, (usize, usize), Direction)>(&self, mut f: F) {
+        let len = self.len();
+        let i = 0;
+        for j in 0..len.1 {
+            f(self.get((i, j)).unwrap(), (i, j), Direction::Neg0);
+        }
+        let i = len.0 - 1;
+        for j in 0..len.1 {
+            f(self.get((i, j)).unwrap(), (i, j), Direction::Pos0);
+        }
+        let j = 0;
+        for i in 0..len.0 {
+            f(self.get((i, j)).unwrap(), (i, j), Direction::Neg1);
+        }
+        let j = len.1 - 1;
+        for i in 0..len.0 {
+            f(self.get((i, j)).unwrap(), (i, j), Direction::Pos1);
+        }
+    }
+
+    // TODO need somewhat of a fuzzing routine to test these functions against edge
+    // cases
+
     /// For each pair of orthogonal elements in the grid (the same element can
     /// be an argument up to 4 times for each pairing with an orthogonal
     /// neighbor), this calls `f` with one element, the element's index, an
@@ -159,17 +225,18 @@ impl<T> Grid<T> {
     /// assert_eq!(expected_pairs.as_slice(), encountered.as_slice());
     /// ```
     pub fn for_each_orthogonal_pair<F: FnMut(&T, (usize, usize), &T, bool)>(&self, mut f: F) {
-        // j == 0 row
-        for i in 1..self.len().0 {
-            let (t0, t1) = self.get2((i - 1, 0), (i, 0)).unwrap();
-            f(t0, (i - 1, 0), t1, false);
+        let len = self.len();
+        let j = 0;
+        for i in 1..len.0 {
+            let (t0, t1) = self.get2((i - 1, j), (i, j)).unwrap();
+            f(t0, (i - 1, j), t1, false);
         }
-        for j in 1..self.len().1 {
-            // i == 0 column element
-            let (t0, t1) = self.get2((0, j - 1), (0, j)).unwrap();
-            f(t0, (0, j - 1), t1, true);
+        for j in 1..len.1 {
+            let i = 0;
+            let (t0, t1) = self.get2((i, j - 1), (i, j)).unwrap();
+            f(t0, (i, j - 1), t1, true);
             // nonedge cases
-            for i in 1..self.len().0 {
+            for i in 1..len.0 {
                 let (t0, t1) = self.get2((i - 1, j), (i, j)).unwrap();
                 f(t0, (i - 1, j), t1, false);
                 let (t0, t1) = self.get2((i, j - 1), (i, j)).unwrap();
@@ -182,17 +249,18 @@ impl<T> Grid<T> {
         &mut self,
         mut f: F,
     ) {
-        // j == 0 row
-        for i in 1..self.len().0 {
-            let (t0, t1) = self.get2_mut((i - 1, 0), (i, 0)).unwrap();
-            f(t0, (i - 1, 0), t1, false);
+        let len = self.len();
+        let j = 0;
+        for i in 1..len.0 {
+            let (t0, t1) = self.get2_mut((i - 1, j), (i, j)).unwrap();
+            f(t0, (i - 1, j), t1, false);
         }
-        for j in 1..self.len().1 {
-            // i == 0 column element
-            let (t0, t1) = self.get2_mut((0, j - 1), (0, j)).unwrap();
-            f(t0, (0, j - 1), t1, true);
+        for j in 1..len.1 {
+            let i = 0;
+            let (t0, t1) = self.get2_mut((i, j - 1), (i, j)).unwrap();
+            f(t0, (i, j - 1), t1, true);
             // nonedge cases
-            for i in 1..self.len().0 {
+            for i in 1..len.0 {
                 let (t0, t1) = self.get2_mut((i - 1, j), (i, j)).unwrap();
                 f(t0, (i - 1, j), t1, false);
                 let (t0, t1) = self.get2_mut((i, j - 1), (i, j)).unwrap();

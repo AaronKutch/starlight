@@ -65,6 +65,7 @@ impl RNode {
     }
 
     /// Returns `None` if the `RNode` has not been initialized yet
+    #[must_use]
     pub fn bits(&self) -> Option<&[Option<PBack>]> {
         if self.bits.is_empty() {
             None
@@ -73,6 +74,7 @@ impl RNode {
         }
     }
 
+    #[must_use]
     pub fn bits_mut(&mut self) -> Option<&mut [Option<PBack>]> {
         if self.bits.is_empty() {
             None
@@ -126,16 +128,19 @@ impl Notary {
         (res, p_external)
     }
 
+    #[must_use]
     pub fn get_rnode(&self, p_external: PExternal) -> Option<(PRNode, &RNode)> {
         let p_rnode = self.rnodes.find_key(&p_external)?;
         Some((p_rnode, self.rnodes.get_val(p_rnode).unwrap()))
     }
 
+    #[must_use]
     pub fn get_rnode_mut(&mut self, p_external: PExternal) -> Option<(PRNode, &mut RNode)> {
         let p_rnode = self.rnodes.find_key(&p_external)?;
         Some((p_rnode, self.rnodes.get_val_mut(p_rnode).unwrap()))
     }
 
+    #[must_use]
     pub fn get_rnode_by_p_rnode_mut(&mut self, p_rnode: PRNode) -> Option<&mut RNode> {
         self.rnodes.get_val_mut(p_rnode)
     }

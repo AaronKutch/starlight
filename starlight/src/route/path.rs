@@ -22,6 +22,19 @@ pub struct Path<QBack: Ptr, QCEdge: Ptr> {
     //critical_multiplier: u64,
 }
 
+impl<QBack: Ptr, QCEdge: Ptr> Path<QBack, QCEdge> {
+    pub fn new(sink: QBack) -> Self {
+        Self {
+            sink,
+            edges: vec![],
+        }
+    }
+
+    pub fn push(&mut self, edge: Edge<QBack, QCEdge>) {
+        self.edges.push(edge)
+    }
+}
+
 /// Represents the "hyperpath" that a logical bit will take from a `source` node
 /// to one ore more `sink` nodes. Sinks can have different priorities.
 #[derive(Debug, Clone)]

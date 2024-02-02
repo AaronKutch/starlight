@@ -38,6 +38,7 @@ impl BasicValue {
         self.nzbw().get()
     }
 
+    #[must_use]
     pub fn get(&self, inx: usize) -> Option<Option<bool>> {
         if inx >= self.bw() {
             None
@@ -262,6 +263,7 @@ impl Evaluator {
         self.events.push(Reverse(event))
     }
 
+    #[must_use]
     pub fn pop_event(&mut self) -> Option<Event> {
         self.events.pop().map(|e| e.0)
     }

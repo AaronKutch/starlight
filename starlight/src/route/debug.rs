@@ -10,7 +10,7 @@ use awint::awint_dag::{
 
 use crate::{
     ensemble,
-    route::{channel::Referent, CEdge, CNode, Channeler, Programmability},
+    route::{channel::Referent, CEdge, CNode, Channeler},
     Error,
 };
 

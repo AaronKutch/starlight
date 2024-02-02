@@ -32,6 +32,7 @@ impl Delay {
         self.amount
     }
 
+    #[must_use]
     pub fn checked_add(self, rhs: Self) -> Option<Self> {
         self.amount.checked_add(rhs.amount).map(Delay::from_amount)
     }
@@ -169,11 +170,13 @@ impl Delayer {
         self.delayed_events.is_empty()
     }
 
+    #[must_use]
     pub fn peek_next_event_time(&self) -> Option<Delay> {
         let p_min = self.delayed_events.min()?;
         self.delayed_events.get_key(p_min).copied()
     }
 
+    #[must_use]
     pub fn pop_next_simultaneous_events(&mut self) -> Option<(Delay, SimultaneousEvents)> {
         let p_min = self.delayed_events.min()?;
         self.delayed_events.remove(p_min)

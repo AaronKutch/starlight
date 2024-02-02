@@ -1,9 +1,7 @@
 use std::{fmt::Write, num::NonZeroUsize};
 
 use awint::{
-    awint_dag::triple_arena::{
-        surject_iterators::SurjectPtrAdvancer, Advancer, ArenaTrait, OrdArena, Ptr,
-    },
+    awint_dag::triple_arena::{surject_iterators::SurjectPtrAdvancer, Advancer, OrdArena, Ptr},
     Awi,
 };
 
@@ -421,7 +419,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
     /// nodes directly incident to it through edges.
     pub fn related_nodes(&self, p: PBack) -> OrdArena<PUniqueCNode, PBack, ()> {
         let mut res = OrdArena::new();
-        res.insert(p, ());
+        let _ = res.insert(p, ());
         let mut adv = self.cnodes.advancer_surject(p);
         while let Some(p_referent) = adv.advance(&self.cnodes) {
             if let Referent::CEdgeIncidence(p_cedge, _) = self.cnodes.get_key(p_referent).unwrap() {
@@ -442,6 +440,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
         }
     }
 
+    #[must_use]
     pub fn get_supernode(&self, p: PBack) -> Option<PBack> {
         let mut adv = self.cnodes.advancer_surject(p);
         while let Some(p) = adv.advance(&self.cnodes) {

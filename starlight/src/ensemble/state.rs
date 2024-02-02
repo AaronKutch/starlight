@@ -60,6 +60,7 @@ impl State {
         self.rc = self.rc.checked_add(1).unwrap()
     }
 
+    #[must_use]
     pub fn dec_rc(&mut self) -> Option<()> {
         self.rc = self.rc.checked_sub(1)?;
         Some(())
@@ -234,6 +235,7 @@ impl Ensemble {
         Ok(())
     }
 
+    #[must_use]
     pub fn get_state_debug(&self, p_state: PState) -> Option<String> {
         self.stator
             .states

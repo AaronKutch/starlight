@@ -359,6 +359,7 @@ impl LNode {
 
     /// The same as `reduce_independent_lut`, except it checks for independence
     /// regarding dynamic LUT bits with equal constants or source equivalences
+    #[must_use]
     pub fn reduce_independent_dynamic_lut(
         backrefs: &SurjectArena<PBack, Referent, Equiv>,
         lut: &[DynamicValue],
