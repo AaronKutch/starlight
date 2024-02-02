@@ -20,21 +20,21 @@ impl InternalBehavior {
 
 /// A channel node
 #[derive(Debug, Clone)]
-pub struct CNode<PBack: Ptr> {
-    pub p_this_cnode: PBack,
+pub struct CNode<PCNode: Ptr> {
+    pub p_this_cnode: PCNode,
     pub lvl: u16,
     pub has_supernode: bool,
     pub internal_behavior: InternalBehavior,
     pub embeddings: SmallSet<PEmbedding>,
 }
 
-impl<PBack: Ptr> CNode<PBack> {
+impl<PCNode: Ptr> CNode<PCNode> {
     pub fn internal_behavior(&self) -> &InternalBehavior {
         &self.internal_behavior
     }
 }
 
-impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
+impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
     /// Given the `subnodes` (which should point to unique `ThisCNode`s) for a
     /// new top level `CNode`, this will manage the backrefs
     pub fn make_top_level_cnode<I>(
@@ -42,9 +42,9 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
         subnodes: I,
         lvl: u16,
         internal_behavior: InternalBehavior,
-    ) -> PBack
+    ) -> PCNode
     where
-        I: IntoIterator<Item = PBack>,
+        I: IntoIterator<Item = PCNode>,
     {
         let p_cnode = self.cnodes.insert_with(|p_this_cnode| {
             (Referent::ThisCNode, CNode {
@@ -83,7 +83,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
     /// are disjoint `CNode` hiearchies. If this function is used in a loop with
     /// a common accumulator, this will find the common supernode of all the
     /// nodes.
-    pub fn find_common_supernode(&self, p_back0: PBack, p_back1: PBack) -> Option<PBack> {
+    pub fn find_common_supernode(&self, p_back0: PCNode, p_back1: PCNode) -> Option<PCNode> {
         let cnode0 = self.cnodes.get_val(p_back0).unwrap();
         let mut lvl0 = cnode0.lvl;
         let mut p_cnode0 = cnode0.p_this_cnode;
@@ -196,13 +196,13 @@ For one more detail, what do we do about disconnected graphs?
 ///
 /// We are currently assuming that `generate_hierarchy` is being run once on
 /// a graph of unit channel nodes and edges
-pub fn generate_hierarchy<PBack: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PBack, PCEdge>) {
+pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PCNode, PCEdge>) {
     // For each cnode on a given level, we will attempt to concentrate it and all
     // its neighbors. If any neighbor has a supernode already, it skips the cnode
 
     let mut current_lvl = 0u16;
     // TODO this is somewhat inefficient, may want to keep an array of the previous
-    // and next level `PBack`s around
+    // and next level `PCNode`s around
     loop {
         let next_lvl = current_lvl.checked_add(1).unwrap();
         let mut concentrated = false;
@@ -283,14 +283,14 @@ pub fn generate_hierarchy<PBack: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PBa
                 // to the surject value structs to avoid all these `OrdArena`s
                 ptr_struct!(P0; P1; P2; P3);
                 // first get the set of subnodes
-                let mut subnode_set = OrdArena::<P0, PBack, ()>::new();
+                let mut subnode_set = OrdArena::<P0, PCNode, ()>::new();
                 let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
                 while let Some(p_subnode) = subnode_adv.advance(channeler) {
                     let _ = subnode_set.insert(p_subnode, ());
                 }
                 // iterate through the subnodes again, but now get a set of the neighbors that
                 // aren't in the subnodes set
-                let mut related_subnodes_set = OrdArena::<P1, PBack, ()>::new();
+                let mut related_subnodes_set = OrdArena::<P1, PCNode, ()>::new();
                 let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
                 while let Some(p_subnode) = subnode_adv.advance(channeler) {
                     for p_related in channeler.related_nodes(p_subnode).keys() {
@@ -305,7 +305,7 @@ pub fn generate_hierarchy<PBack: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PBa
                 // incidents will contribute to the bulk behavior), and when the related cnode
                 // is under consideration it will handle the edge in the other direction, so we
                 // can avoid duplication.
-                let mut related_supernodes_set = OrdArena::<P2, PBack, BulkBehavior>::new();
+                let mut related_supernodes_set = OrdArena::<P2, PCNode, BulkBehavior>::new();
                 for p_related_subnode in related_subnodes_set.keys() {
                     let p_related_supernode = channeler.get_supernode(*p_related_subnode).unwrap();
                     let _ =
@@ -348,7 +348,7 @@ pub fn generate_hierarchy<PBack: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PBa
                                 let cedge = channeler.cedges.get(*p_cedge).unwrap();
                                 // this is an `OrdArena` to handle the multiple incidents from the
                                 // same set redundancy
-                                let mut bulk_info = OrdArena::<P3, PBack, usize>::new();
+                                let mut bulk_info = OrdArena::<P3, PCNode, usize>::new();
                                 for (i, p_source) in cedge.sources().iter().enumerate() {
                                     let cnode = channeler.cnodes.get_val(*p_source).unwrap();
                                     // TODO if we commit to having a single supernode, have the info

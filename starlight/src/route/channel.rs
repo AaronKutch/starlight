@@ -14,10 +14,10 @@ ptr_struct!(P0; PTopLevel);
 // sink perspectives?
 
 #[derive(Debug, Clone, Copy)]
-pub enum Referent<PBack: Ptr, PCEdge: Ptr> {
+pub enum Referent<PCNode: Ptr, PCEdge: Ptr> {
     ThisCNode,
-    SubNode(PBack),
-    SuperNode(PBack),
+    SubNode(PCNode),
+    SuperNode(PCNode),
     /// The index is `None` if it is a sink, TODO use a NonZeroInxVec if we
     /// stick with this
     CEdgeIncidence(PCEdge, Option<usize>),
@@ -26,18 +26,18 @@ pub enum Referent<PBack: Ptr, PCEdge: Ptr> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Channeler<PBack: Ptr, PCEdge: Ptr> {
-    pub cnodes: SurjectArena<PBack, Referent<PBack, PCEdge>, CNode<PBack>>,
-    pub cedges: Arena<PCEdge, CEdge<PBack>>,
+pub struct Channeler<PCNode: Ptr, PCEdge: Ptr> {
+    pub cnodes: SurjectArena<PCNode, Referent<PCNode, PCEdge>, CNode<PCNode>>,
+    pub cedges: Arena<PCEdge, CEdge<PCNode>>,
     /// The plan is that this always ends up with a single top level node, with
     /// all unconnected graphs being connected with `Behavior::Noop` so that the
     /// normal algorithm can allocate over them
-    pub top_level_cnodes: OrdArena<PTopLevel, PBack, ()>,
+    pub top_level_cnodes: OrdArena<PTopLevel, PCNode, ()>,
     // needed for the unit edges to find incidences
-    pub ensemble_backref_to_channeler_backref: OrdArena<P0, ensemble::PBack, PBack>,
+    pub ensemble_backref_to_channeler_backref: OrdArena<P0, ensemble::PBack, PCNode>,
 }
 
-impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
+impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
     pub fn empty() -> Self {
         Self {
             cnodes: SurjectArena::new(),
@@ -47,7 +47,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
         }
     }
 
-    pub fn find_channeler_cnode(&self, ensemble_backref: ensemble::PBack) -> Option<PBack> {
+    pub fn find_channeler_cnode(&self, ensemble_backref: ensemble::PBack) -> Option<PCNode> {
         let p = self
             .ensemble_backref_to_channeler_backref
             .find_key(&ensemble_backref)?;

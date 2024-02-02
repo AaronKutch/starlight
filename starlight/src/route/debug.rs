@@ -16,17 +16,17 @@ use crate::{
 
 /// For viewing everything at once
 #[derive(Debug, Clone)]
-pub enum NodeKind<PBack: Ptr, PCEdge: Ptr> {
-    CNode(CNode<PBack>),
-    SubNode(PBack, PBack),
-    SuperNode(PBack, PBack),
-    CEdgeIncidence(PBack, PCEdge, Option<usize>, CEdge<PBack>, CEdge<PBack>),
-    EnsembleBackRef(PBack, ensemble::PBack),
+pub enum NodeKind<PCNode: Ptr, PCEdge: Ptr> {
+    CNode(CNode<PCNode>),
+    SubNode(PCNode, PCNode),
+    SuperNode(PCNode, PCNode),
+    CEdgeIncidence(PCNode, PCEdge, Option<usize>, CEdge<PCNode>, CEdge<PCNode>),
+    EnsembleBackRef(PCNode, ensemble::PBack),
     Remove,
 }
 
-impl<PBack: Ptr, PCEdge: Ptr> DebugNodeTrait<PBack> for NodeKind<PBack, PCEdge> {
-    fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
+impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for NodeKind<PCNode, PCEdge> {
+    fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
         match this {
             NodeKind::CNode(cnode) => DebugNode {
                 sources: vec![],
@@ -83,14 +83,14 @@ impl<PBack: Ptr, PCEdge: Ptr> DebugNodeTrait<PBack> for NodeKind<PBack, PCEdge> 
 
 /// For viewing the cgraph at only one level
 #[derive(Debug, Clone)]
-pub enum LevelNodeKind<PBack: Ptr> {
-    CNode(CNode<PBack>),
-    CEdge(CEdge<PBack>, CEdge<PBack>),
+pub enum LevelNodeKind<PCNode: Ptr> {
+    CNode(CNode<PCNode>),
+    CEdge(CEdge<PCNode>, CEdge<PCNode>),
     Remove,
 }
 
-impl<PBack: Ptr> DebugNodeTrait<PBack> for LevelNodeKind<PBack> {
-    fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
+impl<PCNode: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode> {
+    fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
         match this {
             LevelNodeKind::CNode(cnode) => DebugNode {
                 sources: vec![],
@@ -122,15 +122,15 @@ impl<PBack: Ptr> DebugNodeTrait<PBack> for LevelNodeKind<PBack> {
 
 /// For viewing the hierarchy structure
 #[derive(Debug, Clone)]
-pub enum HierarchyNodeKind<PBack: Ptr> {
+pub enum HierarchyNodeKind<PCNode: Ptr> {
     // supernode edge is stored on the end
-    CNode(CNode<PBack>, Option<PBack>),
-    CEdge(CEdge<PBack>, CEdge<PBack>),
+    CNode(CNode<PCNode>, Option<PCNode>),
+    CEdge(CEdge<PCNode>, CEdge<PCNode>),
     Remove,
 }
 
-impl<PBack: Ptr> DebugNodeTrait<PBack> for HierarchyNodeKind<PBack> {
-    fn debug_node(_p_this: PBack, this: &Self) -> DebugNode<PBack> {
+impl<PCNode: Ptr> DebugNodeTrait<PCNode> for HierarchyNodeKind<PCNode> {
+    fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
         match this {
             HierarchyNodeKind::CNode(cnode, p_super) => DebugNode {
                 sources: if let Some(p_super) = p_super {
@@ -164,9 +164,9 @@ impl<PBack: Ptr> DebugNodeTrait<PBack> for HierarchyNodeKind<PBack> {
     }
 }
 
-impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
-    pub fn to_cnode_backrefs_debug(&self) -> Arena<PBack, NodeKind<PBack, PCEdge>> {
-        let mut arena = Arena::<PBack, NodeKind<PBack, PCEdge>>::new();
+impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
+    pub fn to_cnode_backrefs_debug(&self) -> Arena<PCNode, NodeKind<PCNode, PCEdge>> {
+        let mut arena = Arena::<PCNode, NodeKind<PCNode, PCEdge>>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 let p_cnode = self.cnodes.get_val(p_self).unwrap().clone().p_this_cnode;
@@ -202,8 +202,8 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
         arena
     }
 
-    pub fn to_cnode_level_debug(&self, lvl: usize) -> Arena<PBack, LevelNodeKind<PBack>> {
-        let mut arena = Arena::<PBack, LevelNodeKind<PBack>>::new();
+    pub fn to_cnode_level_debug(&self, lvl: usize) -> Arena<PCNode, LevelNodeKind<PCNode>> {
+        let mut arena = Arena::<PCNode, LevelNodeKind<PCNode>>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 match referent {
@@ -252,8 +252,8 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
         arena
     }
 
-    pub fn to_cnode_hierarchy_debug(&self) -> Arena<PBack, HierarchyNodeKind<PBack>> {
-        let mut arena = Arena::<PBack, HierarchyNodeKind<PBack>>::new();
+    pub fn to_cnode_hierarchy_debug(&self) -> Arena<PCNode, HierarchyNodeKind<PCNode>> {
+        let mut arena = Arena::<PCNode, HierarchyNodeKind<PCNode>>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 match referent {
@@ -326,7 +326,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
         res
     }
 
-    pub fn backrefs_to_chain_arena(&self) -> ChainArena<PBack, Referent<PBack, PCEdge>> {
+    pub fn backrefs_to_chain_arena(&self) -> ChainArena<PCNode, Referent<PCNode, PCEdge>> {
         let mut chain_arena = ChainArena::new();
         self.cnodes
             .clone_keys_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode);

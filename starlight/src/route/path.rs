@@ -5,32 +5,32 @@ use crate::triple_arena::ptr_struct;
 ptr_struct!(PHyperPath);
 
 #[derive(Debug, Clone)]
-pub enum Edge<QBack: Ptr, QCEdge: Ptr> {
+pub enum Edge<QCNode: Ptr, QCEdge: Ptr> {
     /// Points to a `CEdge`
     Transverse(QCEdge),
     /// Points to a `Referent::SuperNode`
-    Concentrate(QBack),
+    Concentrate(QCNode),
     /// Points to a `Referent::SubNode`
-    Dilute(QBack),
+    Dilute(QCNode),
 }
 
 /// A single path from a source to sink across multiple `CEdge`s
 #[derive(Debug, Clone)]
-pub struct Path<QBack: Ptr, QCEdge: Ptr> {
-    sink: QBack,
-    edges: Vec<Edge<QBack, QCEdge>>,
+pub struct Path<QCNode: Ptr, QCEdge: Ptr> {
+    sink: QCNode,
+    edges: Vec<Edge<QCNode, QCEdge>>,
     //critical_multiplier: u64,
 }
 
-impl<QBack: Ptr, QCEdge: Ptr> Path<QBack, QCEdge> {
-    pub fn new(sink: QBack) -> Self {
+impl<QCNode: Ptr, QCEdge: Ptr> Path<QCNode, QCEdge> {
+    pub fn new(sink: QCNode) -> Self {
         Self {
             sink,
             edges: vec![],
         }
     }
 
-    pub fn push(&mut self, edge: Edge<QBack, QCEdge>) {
+    pub fn push(&mut self, edge: Edge<QCNode, QCEdge>) {
         self.edges.push(edge)
     }
 }
@@ -38,13 +38,13 @@ impl<QBack: Ptr, QCEdge: Ptr> Path<QBack, QCEdge> {
 /// Represents the "hyperpath" that a logical bit will take from a `source` node
 /// to one ore more `sink` nodes. Sinks can have different priorities.
 #[derive(Debug, Clone)]
-pub struct HyperPath<QBack: Ptr, QCEdge: Ptr> {
-    source: QBack,
-    paths: Vec<Path<QBack, QCEdge>>,
+pub struct HyperPath<QCNode: Ptr, QCEdge: Ptr> {
+    source: QCNode,
+    paths: Vec<Path<QCNode, QCEdge>>,
 }
 
-impl<QBack: Ptr, QCEdge: Ptr> HyperPath<QBack, QCEdge> {
-    pub fn new(source: QBack) -> Self {
+impl<QCNode: Ptr, QCEdge: Ptr> HyperPath<QCNode, QCEdge> {
+    pub fn new(source: QCNode) -> Self {
         Self {
             source,
             paths: vec![],

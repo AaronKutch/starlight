@@ -7,7 +7,7 @@ use crate::{
     Error, EvalAwi, LazyAwi, SuspendedEpoch,
 };
 
-ptr_struct!(PBack; PCEdge; QBack; QCEdge);
+ptr_struct!(PCNode; PCEdge; QCNode; QCEdge);
 ptr_struct!(PMapping; PEmbedding);
 
 #[derive(Debug, Clone)]
@@ -20,23 +20,23 @@ pub struct Mapping {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EmbeddingKind<PBack: Ptr, PCEdge: Ptr> {
+pub enum EmbeddingKind<PCNode: Ptr, PCEdge: Ptr> {
     Edge(PCEdge),
-    Node(PBack),
+    Node(PCNode),
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Embedding<PBack: Ptr, PCEdge: Ptr, QBack: Ptr, QCEdge: Ptr> {
+pub struct Embedding<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
     /// If it is not possible for the embedding to be another way and have a
     /// valid routing
     absolute: bool,
     is_sink: bool,
-    program: EmbeddingKind<PBack, PCEdge>,
-    target: EmbeddingKind<QBack, QCEdge>,
+    program: EmbeddingKind<PCNode, PCEdge>,
+    target: EmbeddingKind<QCNode, QCEdge>,
 }
 
-impl<PBack: Ptr, PCEdge: Ptr, QBack: Ptr, QCEdge: Ptr> Embedding<PBack, PCEdge, QBack, QCEdge> {
-    pub fn absolute_cnode(progam_cnode: PBack, target_cnode: QBack, is_sink: bool) -> Self {
+impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> Embedding<PCNode, PCEdge, QCNode, QCEdge> {
+    pub fn absolute_cnode(progam_cnode: PCNode, target_cnode: QCNode, is_sink: bool) -> Self {
         Self {
             absolute: true,
             is_sink,
@@ -45,7 +45,7 @@ impl<PBack: Ptr, PCEdge: Ptr, QBack: Ptr, QCEdge: Ptr> Embedding<PBack, PCEdge, 
         }
     }
 
-    pub fn cnode(progam_cnode: PBack, target_cnode: QBack) -> Self {
+    pub fn cnode(progam_cnode: PCNode, target_cnode: QCNode) -> Self {
         Self {
             absolute: false,
             is_sink: false,
@@ -58,22 +58,22 @@ impl<PBack: Ptr, PCEdge: Ptr, QBack: Ptr, QCEdge: Ptr> Embedding<PBack, PCEdge, 
 #[derive(Debug, Clone)]
 pub struct Router {
     target_ensemble: Ensemble,
-    target_channeler: Channeler<QBack, QCEdge>,
+    target_channeler: Channeler<QCNode, QCEdge>,
     program_ensemble: Ensemble,
-    program_channeler: Channeler<PBack, PCEdge>,
+    program_channeler: Channeler<PCNode, PCEdge>,
     // `ThisEquiv` `PBack` mapping from program to target
     mappings: OrdArena<PMapping, ensemble::PBack, Mapping>,
     // routing embedding of part of the program in the target
-    embeddings: Arena<PEmbedding, Embedding<PBack, PCEdge, QBack, QCEdge>>,
-    hyperpaths: Arena<PHyperPath, HyperPath<QBack, QCEdge>>,
+    embeddings: Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>>,
+    hyperpaths: Arena<PHyperPath, HyperPath<QCNode, QCEdge>>,
 }
 
 impl Router {
     pub fn new(
         target_epoch: &SuspendedEpoch,
-        target_channeler: Channeler<QBack, QCEdge>,
+        target_channeler: Channeler<QCNode, QCEdge>,
         program_epoch: &SuspendedEpoch,
-        program_channeler: Channeler<PBack, PCEdge>,
+        program_channeler: Channeler<PCNode, PCEdge>,
     ) -> Self {
         // TODO may want the primary user function to take ownership of epoch, or maybe
         // always for memory reasons
@@ -96,11 +96,11 @@ impl Router {
         &self.program_ensemble
     }
 
-    pub fn target_channeler(&self) -> &Channeler<QBack, QCEdge> {
+    pub fn target_channeler(&self) -> &Channeler<QCNode, QCEdge> {
         &self.target_channeler
     }
 
-    pub fn program_channeler(&self) -> &Channeler<PBack, PCEdge> {
+    pub fn program_channeler(&self) -> &Channeler<PCNode, PCEdge> {
         &self.program_channeler
     }
 
@@ -108,11 +108,11 @@ impl Router {
         &self.mappings
     }
 
-    pub fn embeddings(&self) -> &Arena<PEmbedding, Embedding<PBack, PCEdge, QBack, QCEdge>> {
+    pub fn embeddings(&self) -> &Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>> {
         &self.embeddings
     }
 
-    pub fn hyperpaths(&self) -> &Arena<PHyperPath, HyperPath<QBack, QCEdge>> {
+    pub fn hyperpaths(&self) -> &Arena<PHyperPath, HyperPath<QCNode, QCEdge>> {
         &self.hyperpaths
     }
 
@@ -231,7 +231,7 @@ impl Router {
     /// Sets up the embedding edges automatically
     fn make_embedding(
         &mut self,
-        embedding: Embedding<PBack, PCEdge, QBack, QCEdge>,
+        embedding: Embedding<PCNode, PCEdge, QCNode, QCEdge>,
     ) -> Result<PEmbedding, Error> {
         let p_embedding = self.embeddings.insert(embedding);
         match embedding.program {
@@ -384,8 +384,8 @@ fn route(router: &mut Router) -> Result<(), Error> {
                 let is_sink = embedding.is_sink;
                 if is_sink {
                 } else {
-                    let mut hyperpath = HyperPath::<QBack, QCEdge>::new(q_cnode);
-                    let mut path = Path::<QBack, QCEdge>::new(QBack::invalid());
+                    let mut hyperpath = HyperPath::<QCNode, QCEdge>::new(q_cnode);
+                    let mut path = Path::<QCNode, QCEdge>::new(QCNode::invalid());
                     path.push(Edge::Concentrate(root_common_target_cnode));
                     while let Some(p_cnode) = router.program_channeler().get_supernode(p_cnode) {
                         router

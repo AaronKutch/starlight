@@ -143,11 +143,11 @@ impl Programmability {
 
 /// An edge between channels
 #[derive(Debug, Clone)]
-pub struct CEdge<PBack: Ptr> {
+pub struct CEdge<PCNode: Ptr> {
     // sources incident to nodes
-    sources: Vec<PBack>,
+    sources: Vec<PCNode>,
     // the sink incident to nodes
-    sink: PBack,
+    sink: PCNode,
 
     programmability: Programmability,
 
@@ -157,28 +157,28 @@ pub struct CEdge<PBack: Ptr> {
     //lagrangian_weight: u64,
 }
 
-impl<PBack: Ptr> CEdge<PBack> {
+impl<PCNode: Ptr> CEdge<PCNode> {
     pub fn programmability(&self) -> &Programmability {
         &self.programmability
     }
 
-    pub fn sources(&self) -> &[PBack] {
+    pub fn sources(&self) -> &[PCNode] {
         &self.sources
     }
 
-    pub fn sink(&self) -> PBack {
+    pub fn sink(&self) -> PCNode {
         self.sink
     }
 
-    pub fn sources_mut(&mut self) -> &mut [PBack] {
+    pub fn sources_mut(&mut self) -> &mut [PCNode] {
         &mut self.sources
     }
 
-    pub fn sink_mut(&mut self) -> &mut PBack {
+    pub fn sink_mut(&mut self) -> &mut PCNode {
         &mut self.sink
     }
 
-    pub fn incidents<F: FnMut(PBack)>(&self, mut f: F) {
+    pub fn incidents<F: FnMut(PCNode)>(&self, mut f: F) {
         for source in self.sources() {
             f(*source)
         }
@@ -217,13 +217,13 @@ impl<PBack: Ptr> CEdge<PBack> {
     }*/
 }
 
-impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
+impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
     /// Given the source and sink incidences (which should point to unique
     /// `ThisCNode`s), this will manage the backrefs
     pub fn make_cedge(
         &mut self,
-        sources: &[PBack],
-        sink: PBack,
+        sources: &[PCNode],
+        sink: PCNode,
         programmability: Programmability,
     ) -> PCEdge {
         self.cedges.insert_with(|p_self| {
@@ -265,7 +265,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
         &self,
         ensemble: &Ensemble,
         ensemble_backref: ensemble::PBack,
-    ) -> (ensemble::PBack, Option<PBack>) {
+    ) -> (ensemble::PBack, Option<PCNode>) {
         let p_equiv = ensemble
             .backrefs
             .get_val(ensemble_backref)
@@ -316,7 +316,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
             match &lnode.kind {
                 LNodeKind::Copy(_) => return Err(Error::OtherStr("the epoch was not optimized")),
                 LNodeKind::Lut(inp, awi) => {
-                    let mut v = SmallVec::<[PBack; 8]>::with_capacity(inp.len());
+                    let mut v = SmallVec::<[PCNode; 8]>::with_capacity(inp.len());
                     for input in inp {
                         v.push(channeler.translate(ensemble, *input).1.unwrap());
                     }
@@ -348,7 +348,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
                     }
                     match (is_full_selector, is_full_arbitrary) {
                         (true, false) => {
-                            let mut v = SmallVec::<[PBack; 8]>::with_capacity(inp.len());
+                            let mut v = SmallVec::<[PCNode; 8]>::with_capacity(inp.len());
                             let mut config = vec![];
                             for input in inp.iter() {
                                 config.push(channeler.translate(ensemble, *input).0);
@@ -378,7 +378,7 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
                             );
                         }
                         (false, true) => {
-                            let mut v = SmallVec::<[PBack; 8]>::with_capacity(inp.len());
+                            let mut v = SmallVec::<[PCNode; 8]>::with_capacity(inp.len());
                             for input in inp {
                                 v.push(channeler.translate(ensemble, *input).1.unwrap());
                             }
@@ -415,9 +415,9 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
         Ok(channeler)
     }
 
-    /// Returns an `OrdArena` of `ThisCNode` `PBack`s of `p` itself and all
+    /// Returns an `OrdArena` of `ThisCNode` `PCNode`s of `p` itself and all
     /// nodes directly incident to it through edges.
-    pub fn related_nodes(&self, p: PBack) -> OrdArena<PUniqueCNode, PBack, ()> {
+    pub fn related_nodes(&self, p: PCNode) -> OrdArena<PUniqueCNode, PCNode, ()> {
         let mut res = OrdArena::new();
         let _ = res.insert(p, ());
         let mut adv = self.cnodes.advancer_surject(p);
@@ -434,14 +434,14 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
     }
 
     /// Advances over all subnodes of a node
-    pub fn advancer_subnodes_of_node(&self, p: PBack) -> CNodeSubnodeAdvancer<PBack, PCEdge> {
+    pub fn advancer_subnodes_of_node(&self, p: PCNode) -> CNodeSubnodeAdvancer<PCNode, PCEdge> {
         CNodeSubnodeAdvancer {
             adv: self.cnodes.advancer_surject(p),
         }
     }
 
     #[must_use]
-    pub fn get_supernode(&self, p: PBack) -> Option<PBack> {
+    pub fn get_supernode(&self, p: PCNode) -> Option<PCNode> {
         let mut adv = self.cnodes.advancer_surject(p);
         while let Some(p) = adv.advance(&self.cnodes) {
             if let Referent::SuperNode(p_supernode) = self.cnodes.get_key(p).unwrap() {
@@ -454,13 +454,13 @@ impl<PBack: Ptr, PCEdge: Ptr> Channeler<PBack, PCEdge> {
 
 ptr_struct!(PUniqueCNode);
 
-pub struct CNodeSubnodeAdvancer<PBack: Ptr, PCEdge: Ptr> {
-    adv: SurjectPtrAdvancer<PBack, Referent<PBack, PCEdge>, CNode<PBack>>,
+pub struct CNodeSubnodeAdvancer<PCNode: Ptr, PCEdge: Ptr> {
+    adv: SurjectPtrAdvancer<PCNode, Referent<PCNode, PCEdge>, CNode<PCNode>>,
 }
 
-impl<PBack: Ptr, PCEdge: Ptr> Advancer for CNodeSubnodeAdvancer<PBack, PCEdge> {
-    type Collection = Channeler<PBack, PCEdge>;
-    type Item = PBack;
+impl<PCNode: Ptr, PCEdge: Ptr> Advancer for CNodeSubnodeAdvancer<PCNode, PCEdge> {
+    type Collection = Channeler<PCNode, PCEdge>;
+    type Item = PCNode;
 
     fn advance(&mut self, collection: &Self::Collection) -> Option<Self::Item> {
         while let Some(p_referent) = self.adv.advance(&collection.cnodes) {
