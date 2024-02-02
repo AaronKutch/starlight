@@ -23,7 +23,7 @@ impl InternalBehavior {
 pub struct CNode<PCNode: Ptr> {
     pub p_this_cnode: PCNode,
     pub lvl: u16,
-    pub has_supernode: bool,
+    pub p_supernode: Option<PCNode>,
     pub internal_behavior: InternalBehavior,
     pub embeddings: SmallSet<PEmbedding>,
 }
@@ -50,31 +50,29 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             (Referent::ThisCNode, CNode {
                 p_this_cnode,
                 lvl,
-                has_supernode: false,
+                p_supernode: None,
                 internal_behavior,
                 embeddings: SmallSet::new(),
             })
         });
-        for subnode in subnodes {
-            if let Some(p) = self.top_level_cnodes.find_key(&subnode) {
+        for p_subnode in subnodes {
+            if let Some(p) = self.top_level_cnodes.find_key(&p_subnode) {
                 self.top_level_cnodes.remove(p).unwrap();
             }
-            let p_subnode = self
-                .cnodes
-                .insert_key(subnode, Referent::SuperNode(Ptr::invalid()))
-                .unwrap();
             let p_supernode = self
                 .cnodes
                 .insert_key(p_cnode, Referent::SubNode(p_subnode))
                 .unwrap();
-            // we want the referents to point exactly at each other's keys and not the
-            // `p_this_cnode`
-            let (referent, cnode) = self.cnodes.get_mut(p_subnode).unwrap();
-            *referent = Referent::SuperNode(p_supernode);
-            cnode.has_supernode = true;
+            let cnode = self.cnodes.get_val_mut(p_subnode).unwrap();
+            cnode.p_supernode = Some(p_supernode);
         }
         let _ = self.top_level_cnodes.insert(p_cnode, ());
         p_cnode
+    }
+
+    #[must_use]
+    pub fn get_supernode(&self, p: PCNode) -> Option<PCNode> {
+        self.cnodes.get_val(p)?.p_supernode
     }
 
     /// Given two `CNode`s, this will find their lowest level common supernode
@@ -210,7 +208,7 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PC
         'over_cnodes: while let Some(p_consider) = adv.advance(&channeler.cnodes) {
             if let Referent::ThisCNode = channeler.cnodes.get_key(p_consider).unwrap() {
                 let cnode = channeler.cnodes.get_val(p_consider).unwrap();
-                if (cnode.lvl != current_lvl) || cnode.has_supernode {
+                if (cnode.lvl != current_lvl) || cnode.p_supernode.is_some() {
                     continue
                 }
                 let related = channeler.related_nodes(p_consider);
@@ -220,7 +218,13 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PC
                 }
                 // check if any related nodes have supernodes
                 for p_related in related.keys() {
-                    if channeler.cnodes.get_val(*p_related).unwrap().has_supernode {
+                    if channeler
+                        .cnodes
+                        .get_val(*p_related)
+                        .unwrap()
+                        .p_supernode
+                        .is_some()
+                    {
                         continue 'over_cnodes;
                     }
                 }
@@ -258,7 +262,7 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(channeler: &mut Channeler<PC
         while let Some(p_consider) = adv.advance(&channeler.cnodes) {
             if let Referent::ThisCNode = channeler.cnodes.get_key(p_consider).unwrap() {
                 let cnode = channeler.cnodes.get_val(p_consider).unwrap();
-                if (cnode.lvl != current_lvl) || cnode.has_supernode {
+                if (cnode.lvl != current_lvl) || cnode.p_supernode.is_some() {
                     continue
                 }
                 // need to also forward the internal behavior

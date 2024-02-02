@@ -9,7 +9,6 @@ use awint::awint_dag::{
 };
 
 use crate::{
-    ensemble,
     route::{channel::Referent, CEdge, CNode, Channeler},
     Error,
 };
@@ -19,9 +18,7 @@ use crate::{
 pub enum NodeKind<PCNode: Ptr, PCEdge: Ptr> {
     CNode(CNode<PCNode>),
     SubNode(PCNode, PCNode),
-    SuperNode(PCNode, PCNode),
     CEdgeIncidence(PCNode, PCEdge, Option<usize>, CEdge<PCNode>, CEdge<PCNode>),
-    EnsembleBackRef(PCNode, ensemble::PBack),
     Remove,
 }
 
@@ -29,7 +26,13 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for NodeKind<PCNode, PCEdg
     fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
         match this {
             NodeKind::CNode(cnode) => DebugNode {
-                sources: vec![],
+                sources: {
+                    let mut v = vec![];
+                    if let Some(p_supernode) = cnode.p_supernode {
+                        v.push((p_supernode, "super".to_owned()));
+                    }
+                    v
+                },
                 center: { vec!["cnode".to_owned(), format!("{:?}", cnode.p_this_cnode)] },
                 sinks: vec![],
             },
@@ -37,11 +40,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for NodeKind<PCNode, PCEdg
                 sources: vec![],
                 center: { vec!["sub".to_owned()] },
                 sinks: vec![(*p_back_forwarded, format!("{p_back:?}"))],
-            },
-            NodeKind::SuperNode(p_back, p_back_forwarded) => DebugNode {
-                sources: vec![(*p_back_forwarded, format!("{p_back:?}"))],
-                center: { vec!["super".to_owned()] },
-                sinks: vec![],
             },
             NodeKind::CEdgeIncidence(p_back, p_cedge, i, cedge, cedge_forwarded) => DebugNode {
                 sources: {
@@ -70,11 +68,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for NodeKind<PCNode, PCEdg
                     }
                     v
                 },
-            },
-            NodeKind::EnsembleBackRef(p_back, ensemble_p_back) => DebugNode {
-                sources: vec![(*p_back, String::new())],
-                center: { vec!["backref".to_owned(), format!("{ensemble_p_back}")] },
-                sinks: vec![],
             },
             NodeKind::Remove => panic!("should have been removed"),
         }
@@ -175,7 +168,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                         NodeKind::CNode(self.cnodes.get_val(p_self).unwrap().clone())
                     }
                     Referent::SubNode(p_back) => NodeKind::SubNode(*p_back, p_cnode),
-                    Referent::SuperNode(p_back) => NodeKind::SuperNode(*p_back, p_cnode),
                     Referent::CEdgeIncidence(p_cedge, i) => {
                         let cedge = self.cedges.get(*p_cedge).unwrap().clone();
                         let mut cedge_forwarded = cedge.clone();
@@ -187,9 +179,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                                 self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
                         }
                         NodeKind::CEdgeIncidence(p_cnode, *p_cedge, *i, cedge, cedge_forwarded)
-                    }
-                    Referent::EnsembleBackRef(ensemble_p_backref) => {
-                        NodeKind::EnsembleBackRef(p_cnode, *ensemble_p_backref)
                     }
                 }
             });
@@ -216,7 +205,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                         }
                     }
                     Referent::SubNode(_) => LevelNodeKind::Remove,
-                    Referent::SuperNode(_) => LevelNodeKind::Remove,
                     Referent::CEdgeIncidence(p_cedge, i) => {
                         // insures that there is only one `CEdge` per set of incidents
                         if i.is_none() {
@@ -240,7 +228,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                             LevelNodeKind::Remove
                         }
                     }
-                    Referent::EnsembleBackRef(_) => LevelNodeKind::Remove,
                 }
             });
         let mut adv = arena.advancer();
@@ -266,7 +253,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                         }
                     }
                     Referent::SubNode(_) => HierarchyNodeKind::Remove,
-                    Referent::SuperNode(_) => HierarchyNodeKind::Remove,
                     Referent::CEdgeIncidence(p_cedge, i) => {
                         // insures that there is only one `CEdge` per set of incidents
                         if i.is_none() {
@@ -284,7 +270,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                             HierarchyNodeKind::Remove
                         }
                     }
-                    Referent::EnsembleBackRef(_) => HierarchyNodeKind::Remove,
                 }
             });
         let mut adv = arena.advancer();

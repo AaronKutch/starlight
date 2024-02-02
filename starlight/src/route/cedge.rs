@@ -7,8 +7,7 @@ use awint::{
 
 use crate::{
     awint_dag::smallvec::SmallVec,
-    ensemble,
-    ensemble::{DynamicValue, Ensemble, LNodeKind},
+    ensemble::{DynamicValue, Ensemble, LNodeKind, PBack},
     misc::SmallSet,
     route::{
         channel::Referent,
@@ -26,7 +25,7 @@ pub enum SelectorValue {
     Const(bool),
 }
 
-/// The `Vec<ensemble::PBack>` has the configuration indexes, the two `Awi`s
+/// The `Vec<PBack>` has the configuration indexes, the two `Awi`s
 /// have bitwidths equal to `1 << len` where `len` is the number of indexes
 ///
 /// Logically, the selector selects from the power-of-two array which may have
@@ -38,7 +37,7 @@ pub enum SelectorValue {
 #[derive(Debug, Clone)]
 pub struct SelectorLut {
     awi: Awi,
-    v: Vec<ensemble::PBack>,
+    v: Vec<PBack>,
 }
 
 impl SelectorLut {
@@ -109,7 +108,7 @@ pub enum Programmability {
     // necessary.
     /// Can behave as an arbitrary lookup table outputting a bit and taking the
     /// input bits.
-    ArbitraryLut(Vec<ensemble::PBack>),
+    ArbitraryLut(Vec<PBack>),
     /// Can behave as an arbitrary selector that multiplexes one of the input
     /// bits to the output
     SelectorLut(SelectorLut),
@@ -261,11 +260,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
 
     // translate from any ensemble backref to the equivalence backref to the
     // channeler backref
-    fn translate(
-        &self,
-        ensemble: &Ensemble,
-        ensemble_backref: ensemble::PBack,
-    ) -> (ensemble::PBack, Option<PCNode>) {
+    fn translate(&self, ensemble: &Ensemble, ensemble_backref: PBack) -> (PBack, Option<PCNode>) {
         let p_equiv = ensemble
             .backrefs
             .get_val(ensemble_backref)
@@ -298,13 +293,9 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 .is_none()
             {
                 let p_cnode = channeler.make_top_level_cnode(vec![], 0, InternalBehavior::empty());
-                let channeler_backref = channeler
-                    .cnodes
-                    .insert_key(p_cnode, Referent::EnsembleBackRef(equiv.p_self_equiv))
-                    .unwrap();
                 let replaced = channeler
                     .ensemble_backref_to_channeler_backref
-                    .insert(equiv.p_self_equiv, channeler_backref)
+                    .insert(equiv.p_self_equiv, p_cnode)
                     .1;
                 assert!(replaced.is_none());
             }
@@ -438,17 +429,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         CNodeSubnodeAdvancer {
             adv: self.cnodes.advancer_surject(p),
         }
-    }
-
-    #[must_use]
-    pub fn get_supernode(&self, p: PCNode) -> Option<PCNode> {
-        let mut adv = self.cnodes.advancer_surject(p);
-        while let Some(p) = adv.advance(&self.cnodes) {
-            if let Referent::SuperNode(p_supernode) = self.cnodes.get_key(p).unwrap() {
-                return Some(self.cnodes.get_val(*p_supernode).unwrap().p_this_cnode)
-            }
-        }
-        None
     }
 }
 

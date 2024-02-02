@@ -1,7 +1,7 @@
-use awint::awint_dag::triple_arena::{Advancer, Arena, OrdArena, Ptr, SurjectArena};
+use awint::awint_dag::triple_arena::{Arena, OrdArena, Ptr, SurjectArena};
 
 use crate::{
-    ensemble,
+    ensemble::PBack,
     route::{CEdge, CNode, Programmability},
     triple_arena::ptr_struct,
     Error,
@@ -17,12 +17,9 @@ ptr_struct!(P0; PTopLevel);
 pub enum Referent<PCNode: Ptr, PCEdge: Ptr> {
     ThisCNode,
     SubNode(PCNode),
-    SuperNode(PCNode),
     /// The index is `None` if it is a sink, TODO use a NonZeroInxVec if we
     /// stick with this
     CEdgeIncidence(PCEdge, Option<usize>),
-    // TODO do we actually need this?
-    EnsembleBackRef(ensemble::PBack),
 }
 
 #[derive(Debug, Clone)]
@@ -34,7 +31,7 @@ pub struct Channeler<PCNode: Ptr, PCEdge: Ptr> {
     /// normal algorithm can allocate over them
     pub top_level_cnodes: OrdArena<PTopLevel, PCNode, ()>,
     // needed for the unit edges to find incidences
-    pub ensemble_backref_to_channeler_backref: OrdArena<P0, ensemble::PBack, PCNode>,
+    pub ensemble_backref_to_channeler_backref: OrdArena<P0, PBack, PCNode>,
 }
 
 impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
@@ -47,7 +44,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         }
     }
 
-    pub fn find_channeler_cnode(&self, ensemble_backref: ensemble::PBack) -> Option<PCNode> {
+    pub fn find_channeler_cnode(&self, ensemble_backref: PBack) -> Option<PCNode> {
         let p = self
             .ensemble_backref_to_channeler_backref
             .find_key(&ensemble_backref)?;
@@ -91,7 +88,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 // already checked
                 Referent::ThisCNode => false,
                 Referent::SubNode(p_subnode) => !self.cnodes.contains(*p_subnode),
-                Referent::SuperNode(p_supernode) => !self.cnodes.contains(*p_supernode),
                 Referent::CEdgeIncidence(p_cedge, i) => {
                     if let Some(cedges) = self.cedges.get(*p_cedge) {
                         if let Some(source_i) = i {
@@ -106,10 +102,19 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                         true
                     }
                 }
-                Referent::EnsembleBackRef(_) => false,
             };
             if invalid {
                 return Err(Error::OtherString(format!("{referent:?} is invalid")))
+            }
+        }
+        // supernode pointers are a special referent stored in the `CNode`s themselves
+        for cnode in self.cnodes.vals() {
+            if let Some(p_supernode) = cnode.p_supernode {
+                if !self.cnodes.contains(p_supernode) {
+                    return Err(Error::OtherString(format!(
+                        "{cnode:?}.p_supernode is invalid"
+                    )))
+                }
             }
         }
         for p_cedge in self.cedges.ptrs() {
@@ -142,17 +147,9 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 // already checked
                 Referent::ThisCNode => false,
                 Referent::SubNode(p_subnode) => {
-                    let subnode = self.cnodes.get_key(*p_subnode).unwrap();
-                    if let Referent::SuperNode(p_supernode) = subnode {
-                        *p_supernode != p_back
-                    } else {
-                        true
-                    }
-                }
-                Referent::SuperNode(p_supernode) => {
-                    let supernode = self.cnodes.get_key(*p_supernode).unwrap();
-                    if let Referent::SubNode(p_subnode) = supernode {
-                        *p_subnode != p_back
+                    let (referent, subnode) = self.cnodes.get(*p_subnode).unwrap();
+                    if let Referent::ThisCNode = referent {
+                        !subnode.p_supernode.is_some_and(|p| p == p_back)
                     } else {
                         true
                     }
@@ -179,7 +176,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                         true
                     }
                 }
-                Referent::EnsembleBackRef(_) => false,
             };
             if fail {
                 return Err(Error::OtherString(format!("{referent:?} roundtrip fail")))
@@ -215,36 +211,50 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 )))
             }
         }
-        // TODO check uniqueness of super/sub relations, check that there is at most one
-        // supernode per node
-        for cnode in self.cnodes.vals() {
-            let contained = self
-                .top_level_cnodes
-                .find_key(&cnode.p_this_cnode)
-                .is_some();
-            if cnode.has_supernode == contained {
-                return Err(Error::OtherString(format!(
-                    "{cnode:?}.has_supernode is wrong"
-                )));
-            }
-            let mut adv = self.cnodes.advancer_surject(cnode.p_this_cnode);
-            let mut found_super_node = false;
-            while let Some(p) = adv.advance(&self.cnodes) {
-                if let Referent::SuperNode(_) = self.cnodes.get_key(p).unwrap() {
-                    found_super_node = true;
-                    break
+        // check `top_level_cnodes`
+        for p_cnode in self.top_level_cnodes.keys() {
+            let (referent, cnode) = self.cnodes.get(*p_cnode).unwrap();
+            if let Referent::ThisCNode = referent {
+                if cnode.p_supernode.is_some() {
+                    return Err(Error::OtherString(format!(
+                        "top_level_cnodes {p_cnode:?} disagrees with p_supernode.is_some()"
+                    )));
                 }
-            }
-            if contained && found_super_node {
+            } else {
                 return Err(Error::OtherString(format!(
-                    "{cnode:?} has a super node when it is also a top level node"
+                    "top_level_cnodes {p_cnode:?} referent is the wrong kind"
                 )));
             }
-            if !(contained || found_super_node) {
+        }
+        for cnode in self.cnodes.vals() {
+            if cnode.p_supernode.is_none()
+                && self
+                    .top_level_cnodes
+                    .find_key(&cnode.p_this_cnode)
+                    .is_none()
+            {
                 return Err(Error::OtherString(format!(
-                    "{cnode:?} is not top level node but does not have a super node"
+                    "{:?} not contained in top_level_cnodes when it should be",
+                    cnode.p_this_cnode
                 )));
             }
+        }
+        // insure `CEdge`s are only between nodes on the same level
+        for (p_cedge, cedge) in &self.cedges {
+            let mut lvl = None;
+            let mut res = Ok(());
+            cedge.incidents(|p_cnode| {
+                let other_lvl = self.cnodes.get_val(p_cnode).unwrap().lvl;
+                if let Some(lvl) = lvl {
+                    if lvl != other_lvl {
+                        res = Err(Error::OtherString(format!(
+                            "{p_cedge:?} incidents not all on same level",
+                        )));
+                    }
+                } else {
+                    lvl = Some(other_lvl);
+                }
+            })
         }
         Ok(())
     }

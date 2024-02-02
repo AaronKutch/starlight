@@ -1,7 +1,7 @@
 use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, Ptr};
 
 use crate::{
-    ensemble::{self, Ensemble, PExternal},
+    ensemble::{Ensemble, PBack, PExternal},
     route::{Channeler, Edge, HyperPath, PHyperPath, Path},
     triple_arena::Arena,
     Error, EvalAwi, LazyAwi, SuspendedEpoch,
@@ -14,7 +14,7 @@ ptr_struct!(PMapping; PEmbedding);
 pub struct Mapping {
     program_p_external: PExternal,
     target_p_external: PExternal,
-    target_p_equiv: ensemble::PBack,
+    target_p_equiv: PBack,
     bit_i: usize,
     is_sink: bool,
 }
@@ -62,7 +62,7 @@ pub struct Router {
     program_ensemble: Ensemble,
     program_channeler: Channeler<PCNode, PCEdge>,
     // `ThisEquiv` `PBack` mapping from program to target
-    mappings: OrdArena<PMapping, ensemble::PBack, Mapping>,
+    mappings: OrdArena<PMapping, PBack, Mapping>,
     // routing embedding of part of the program in the target
     embeddings: Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>>,
     hyperpaths: Arena<PHyperPath, HyperPath<QCNode, QCEdge>>,
@@ -104,7 +104,7 @@ impl Router {
         &self.program_channeler
     }
 
-    pub fn mappings(&self) -> &OrdArena<PMapping, ensemble::PBack, Mapping> {
+    pub fn mappings(&self) -> &OrdArena<PMapping, PBack, Mapping> {
         &self.mappings
     }
 

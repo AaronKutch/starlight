@@ -1,7 +1,7 @@
 use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
 
 use crate::{
-    ensemble::{self, Ensemble, PExternal},
+    ensemble::{Ensemble, PBack, PExternal},
     Error, LazyAwi,
 };
 
@@ -23,7 +23,7 @@ pub struct Config {
 #[derive(Debug, Clone)]
 pub struct Configurator {
     // `ThisEquiv` `PBack` to `PExternal` mapping for bits we are allowed to configure
-    pub configurations: OrdArena<PConfig, ensemble::PBack, Config>,
+    pub configurations: OrdArena<PConfig, PBack, Config>,
 }
 
 impl Configurator {
@@ -33,7 +33,7 @@ impl Configurator {
         }
     }
 
-    pub fn find(&self, p_equiv: ensemble::PBack) -> Option<PConfig> {
+    pub fn find(&self, p_equiv: PBack) -> Option<PConfig> {
         self.configurations.find_key(&p_equiv)
     }
 
