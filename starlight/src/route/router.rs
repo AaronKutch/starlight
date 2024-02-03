@@ -11,12 +11,24 @@ ptr_struct!(PCNode; PCEdge; QCNode; QCEdge);
 ptr_struct!(PMapping; PEmbedding);
 
 #[derive(Debug, Clone)]
+pub struct MappingTarget {
+    target_p_external: PExternal,
+    target_bit_i: usize,
+    target_p_equiv: PBack,
+}
+
+/// The corresponding program `PBack` is in the key that this `Mapping` should
+/// be uniquely associated with.
+#[derive(Debug, Clone)]
 pub struct Mapping {
     program_p_external: PExternal,
-    target_p_external: PExternal,
-    target_p_equiv: PBack,
-    bit_i: usize,
-    is_sink: bool,
+    program_bit_i: usize,
+    // Usually, only one of the following has a single `MappingTarget`, but there are cases like
+    // copying a bit that all happens in a single program `CNode`, but needs to be mapped to
+    // differing target `CNode`s, so in general it can map to a single target source and multiple
+    // target sinks.
+    target_source: Option<MappingTarget>,
+    target_sinks: Vec<MappingTarget>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -25,34 +37,10 @@ pub enum EmbeddingKind<PCNode: Ptr, PCEdge: Ptr> {
     Node(PCNode),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Embedding<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
-    /// If it is not possible for the embedding to be another way and have a
-    /// valid routing
-    absolute: bool,
-    is_sink: bool,
     program: EmbeddingKind<PCNode, PCEdge>,
-    target: EmbeddingKind<QCNode, QCEdge>,
-}
-
-impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> Embedding<PCNode, PCEdge, QCNode, QCEdge> {
-    pub fn absolute_cnode(progam_cnode: PCNode, target_cnode: QCNode, is_sink: bool) -> Self {
-        Self {
-            absolute: true,
-            is_sink,
-            program: EmbeddingKind::Node(progam_cnode),
-            target: EmbeddingKind::Node(target_cnode),
-        }
-    }
-
-    pub fn cnode(progam_cnode: PCNode, target_cnode: QCNode) -> Self {
-        Self {
-            absolute: false,
-            is_sink: false,
-            program: EmbeddingKind::Node(progam_cnode),
-            target: EmbeddingKind::Node(target_cnode),
-        }
-    }
+    target_hyperpath: HyperPath<QCNode, QCEdge>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,7 +53,6 @@ pub struct Router {
     mappings: OrdArena<PMapping, PBack, Mapping>,
     // routing embedding of part of the program in the target
     embeddings: Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>>,
-    hyperpaths: Arena<PHyperPath, HyperPath<QCNode, QCEdge>>,
 }
 
 impl Router {
@@ -82,7 +69,6 @@ impl Router {
             target_channeler,
             program_ensemble: program_epoch.ensemble(|ensemble| ensemble.clone()),
             program_channeler,
-            hyperpaths: Arena::new(),
             mappings: OrdArena::new(),
             embeddings: Arena::new(),
         }
@@ -112,17 +98,13 @@ impl Router {
         &self.embeddings
     }
 
-    pub fn hyperpaths(&self) -> &Arena<PHyperPath, HyperPath<QCNode, QCEdge>> {
-        &self.hyperpaths
-    }
-
     /// Tell the router what program input bits we want to map to what target
     /// input bits
     pub fn map_rnodes(
         &mut self,
         program: PExternal,
         target: PExternal,
-        is_sink: bool,
+        is_driver: bool,
     ) -> Result<(), Error> {
         if let Some((_, program_rnode)) = self.program_ensemble.notary.get_rnode(program) {
             let program_rnode_bits = if let Some(bits) = program_rnode.bits() {
@@ -171,18 +153,58 @@ impl Router {
                                 .get_val(*target_bit)
                                 .unwrap()
                                 .p_self_equiv;
-                            let (_, replaced) = self.mappings.insert(program_p_equiv, Mapping {
-                                program_p_external: program,
+
+                            // insert new mapping target
+                            let mapping_target = MappingTarget {
                                 target_p_external: target,
+                                target_bit_i: bit_i,
                                 target_p_equiv,
-                                bit_i,
-                                is_sink,
-                            });
-                            // we may want to allow this, have some mechanism to be able to
-                            // configure multiple to the same thing as long as constraints are
-                            // satisfied
-                            if replaced.is_some() {
-                                todo!()
+                            };
+                            if let Some(p_map) = self.mappings.find_key(&program_p_equiv) {
+                                let mapping = self.mappings.get_val_mut(p_map).unwrap();
+                                if is_driver {
+                                    if mapping.target_source.is_some() {
+                                        return Err(Error::OtherString(format!(
+                                            "Tried to map multiple program drivers for the same \
+                                             program `RNode` {:?}, probably called \
+                                             `Router::map_*` twice on the same program `LazyAwi`",
+                                            program
+                                        )));
+                                    }
+                                    mapping.target_source = Some(mapping_target);
+                                } else {
+                                    for target_sink in &mapping.target_sinks {
+                                        if target_sink.target_p_equiv
+                                            == mapping_target.target_p_equiv
+                                        {
+                                            return Err(Error::OtherString(format!(
+                                                "Tried to map multiple program value sinks for \
+                                                 the same program `RNode` {:?}, probably called \
+                                                 `Router::map_*` twice on the same program \
+                                                 `EvalAwi`",
+                                                program
+                                            )));
+                                        }
+                                    }
+                                    mapping.target_sinks.push(mapping_target);
+                                }
+                            } else {
+                                let mapping = if is_driver {
+                                    Mapping {
+                                        program_p_external: program,
+                                        program_bit_i: bit_i,
+                                        target_source: Some(mapping_target),
+                                        target_sinks: vec![],
+                                    }
+                                } else {
+                                    Mapping {
+                                        program_p_external: program,
+                                        program_bit_i: bit_i,
+                                        target_source: None,
+                                        target_sinks: vec![mapping_target],
+                                    }
+                                };
+                                let _ = self.mappings.insert(program_p_equiv, mapping);
                             }
                         }
                         (None, None) => (),
@@ -211,13 +233,13 @@ impl Router {
     /// Tell the router what program input bits we want to map to what target
     /// input bits
     pub fn map_lazy(&mut self, program: &LazyAwi, target: &LazyAwi) -> Result<(), Error> {
-        self.map_rnodes(program.p_external(), target.p_external(), false)
+        self.map_rnodes(program.p_external(), target.p_external(), true)
     }
 
     /// Tell the router what program output bits we want to map to what target
     /// output bits
     pub fn map_eval(&mut self, program: &EvalAwi, target: &EvalAwi) -> Result<(), Error> {
-        self.map_rnodes(program.p_external(), target.p_external(), true)
+        self.map_rnodes(program.p_external(), target.p_external(), false)
     }
 
     pub fn verify_integrity(&self) -> Result<(), Error> {
@@ -228,13 +250,20 @@ impl Router {
         Ok(())
     }
 
-    /// Sets up the embedding edges automatically
-    fn make_embedding(
+    /// Given the completed `Embedding`, sets up the embedding edges
+    /// automatically
+    fn make_embedding0(
         &mut self,
         embedding: Embedding<PCNode, PCEdge, QCNode, QCEdge>,
     ) -> Result<PEmbedding, Error> {
+        let program = embedding.program;
         let p_embedding = self.embeddings.insert(embedding);
-        match embedding.program {
+
+        // NOTE: for now, we only put in a reference for an embedding into the program
+        // channeler side and only allow at most one embedding per program `CNode`. If
+        // we keep it this way then it should use an option, I suspect we may want to
+        // register on both sides which will require a set for the target side.
+        match program {
             EmbeddingKind::Edge(p_cedge) => {
                 let embeddings = &mut self
                     .program_channeler
@@ -264,27 +293,76 @@ impl Router {
                 embeddings.insert(p_embedding);
             }
         }
-        match embedding.target {
-            EmbeddingKind::Edge(q_cedge) => {
-                let embeddings = &mut self
-                    .target_channeler
-                    .cedges
-                    .get_mut(q_cedge)
-                    .unwrap()
-                    .embeddings;
-                embeddings.insert(p_embedding);
-            }
-            EmbeddingKind::Node(q_cnode) => {
-                let embeddings = &mut self
-                    .target_channeler
-                    .cnodes
-                    .get_val_mut(q_cnode)
-                    .unwrap()
-                    .embeddings;
-                embeddings.insert(p_embedding);
-            }
-        }
         Ok(p_embedding)
+    }
+
+    /// Makes a minimal embedding to express the given mapping.
+    /// `common_target_root` needs to be the common supernode of all the nodes
+    /// that can interact with this mapping
+    fn make_embedding1(
+        &mut self,
+        /* common_target_root: PCNode, */ p_mapping: PMapping,
+    ) -> Result<(), Error> {
+        let (program_p_equiv, mapping) = self.mappings.get(p_mapping).unwrap();
+        let program_p_equiv = *program_p_equiv;
+        let program_cnode = self
+            .program_channeler()
+            .find_channeler_cnode(program_p_equiv)
+            .unwrap();
+
+        if mapping.target_source.is_some() && (!mapping.target_sinks.is_empty()) {
+            // If a mapping has both a source and sinks, then we need an embedding of the
+            // program cnode that embeds in a target cnode that can cover all the sources
+            // and the sinks. The embedding then has a hyperpath that connects the sources
+            // and sinks.
+
+            // we are dealing with the single program node copying mapping case, which does
+            // not interact with anything else directly so we only deal with the common
+            // supernode of our source and sinks
+
+            // find the corresponding `QCNode` for the source
+            let target_source_p_equiv = mapping.target_source.as_ref().unwrap().target_p_equiv;
+            let target_source_q_cnode = self
+                .target_channeler()
+                .find_channeler_cnode(target_source_p_equiv)
+                .unwrap();
+
+            // begin constructing hyperpath for the embedding
+            let mut hyperpath = HyperPath::<QCNode, QCEdge>::new(target_source_q_cnode);
+
+            // begin finding the common target cnode
+            let mut root_common_target_q_cnode = target_source_q_cnode;
+
+            // do the same for the sinks
+            for mapping_target in &mapping.target_sinks {
+                let target_sink_p_equiv = mapping_target.target_p_equiv;
+                let target_sink_q_cnode = self
+                    .target_channeler()
+                    .find_channeler_cnode(target_sink_p_equiv)
+                    .unwrap();
+                let path = Path::<QCNode, QCEdge>::new(target_sink_q_cnode);
+                hyperpath.push(path);
+                root_common_target_q_cnode = self
+                    .target_channeler()
+                    .find_common_supernode(root_common_target_q_cnode, target_sink_q_cnode)
+                    .unwrap();
+            }
+
+            self.make_embedding0(Embedding {
+                program: EmbeddingKind::Node(program_cnode),
+                target_hyperpath: hyperpath,
+            })
+            .unwrap();
+        } else {
+            // If the mapping has just a source, then a hyper path needs to go concentrating
+            // to the common root node. If the mapping just has sinks, then a hyper path
+            // needs to go from the common root node diluting to the sinks.
+            todo!()
+        }
+
+        // TODO support custom `CEdge` mappings
+
+        Ok(())
     }
 
     pub fn route(&mut self) -> Result<(), Error> {
@@ -304,61 +382,12 @@ fn route(router: &mut Router) -> Result<(), Error> {
     // hierarchy. However, we know that the mappings correspond to some embeddings
     // that are absolutely necessary for the routing to be possible, so we can start
     // by making those embeddings.
-    let mut root_common_program_cnode = None;
-    let mut root_common_target_cnode = None;
     let mut adv = router.mappings.advancer();
     while let Some(p_mapping) = adv.advance(&router.mappings) {
-        let (program_p_equiv, mapping) = router.mappings.get(p_mapping).unwrap();
-        let program_p_equiv = *program_p_equiv;
-        let target_p_equiv = mapping.target_p_equiv;
-        let program_base_cnode = router
-            .program_channeler()
-            .find_channeler_cnode(program_p_equiv)
-            .unwrap();
-        let target_base_cnode = router
-            .target_channeler()
-            .find_channeler_cnode(target_p_equiv)
-            .unwrap();
-
-        if let Some(p_cnode) = root_common_program_cnode {
-            root_common_program_cnode = Some(
-                router
-                    .program_channeler()
-                    .find_common_supernode(p_cnode, program_base_cnode)
-                    .unwrap(),
-            );
-        } else {
-            root_common_program_cnode = Some(program_base_cnode);
-        }
-        if let Some(q_cnode) = root_common_target_cnode {
-            root_common_target_cnode = Some(
-                router
-                    .target_channeler()
-                    .find_common_supernode(q_cnode, target_base_cnode)
-                    .unwrap(),
-            );
-        } else {
-            root_common_target_cnode = Some(target_base_cnode);
-        }
-        router
-            .make_embedding(Embedding::absolute_cnode(
-                program_base_cnode,
-                target_base_cnode,
-                mapping.is_sink,
-            ))
-            .unwrap();
-        // TODO support custom absolute `CEdge` mappings
+        router.make_embedding1(p_mapping).unwrap()
     }
-    // Embed root common nodes. This is not absolute because there are cases where
-    // edges may need to route outside of the initial common region and the
-    // root embedding must concentrate
-    let root_common_target_cnode = root_common_target_cnode.unwrap();
-    let p_common = router
-        .make_embedding(Embedding::cnode(
-            root_common_program_cnode.unwrap(),
-            root_common_target_cnode,
-        ))
-        .unwrap();
+
+    // TODO just complete the hyperpaths
 
     // property: if a program CNode is embedded in a certain target CNode, the
     // supernodes of the program CNode should be embedded somewhere in the
@@ -373,31 +402,7 @@ fn route(router: &mut Router) -> Result<(), Error> {
     // Embed all supernodes of the absolute embeddings in the common `CNode`, and
     // make the paths between them all
 
-    let mut adv = router.embeddings.advancer();
-    while let Some(p_embedding) = adv.advance(&router.embeddings) {
-        if p_embedding != p_common {
-            let embedding = router.embeddings.get(p_embedding).unwrap();
-            if let (EmbeddingKind::Node(mut p_cnode), EmbeddingKind::Node(mut q_cnode)) =
-                (embedding.program, embedding.target)
-            {
-                // so we know which direction to orient the path
-                let is_sink = embedding.is_sink;
-                if is_sink {
-                } else {
-                    let mut hyperpath = HyperPath::<QCNode, QCEdge>::new(q_cnode);
-                    let mut path = Path::<QCNode, QCEdge>::new(QCNode::invalid());
-                    path.push(Edge::Concentrate(root_common_target_cnode));
-                    while let Some(p_cnode) = router.program_channeler().get_supernode(p_cnode) {
-                        router
-                            .make_embedding(Embedding::cnode(p_cnode, root_common_target_cnode))
-                            .unwrap();
-                    }
-                }
-            } else {
-                unreachable!()
-            }
-        }
-    }
+    // TODO ?
 
     // in order to program a target CEdge, the incidents of a base level program
     // CEdge must be compatible with their embedded incidents in the target.
@@ -435,9 +440,6 @@ fn route_step(router: &mut Router) -> Result<bool, Error> {
     let mut adv = router.embeddings.advancer();
     while let Some(p_embedding) = adv.advance(&router.embeddings) {
         let embedding = router.embeddings.get(p_embedding).unwrap();
-        if embedding.absolute {
-            continue
-        }
         match embedding.program {
             EmbeddingKind::Edge(p_cedge) => {
                 let edge = router.program_channeler().cedges.get(p_cedge).unwrap();

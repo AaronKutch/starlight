@@ -50,4 +50,8 @@ impl<QCNode: Ptr, QCEdge: Ptr> HyperPath<QCNode, QCEdge> {
             paths: vec![],
         }
     }
+
+    pub fn push(&mut self, path: Path<QCNode, QCEdge>) {
+        self.paths.push(path)
+    }
 }

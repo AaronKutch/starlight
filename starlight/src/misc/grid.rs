@@ -196,6 +196,26 @@ impl<T> Grid<T> {
         }
     }
 
+    pub fn for_each_edge_mut<F: FnMut(&mut T, (usize, usize), Direction)>(&mut self, mut f: F) {
+        let len = self.len();
+        let i = 0;
+        for j in 0..len.1 {
+            f(self.get_mut((i, j)).unwrap(), (i, j), Direction::Neg0);
+        }
+        let i = len.0 - 1;
+        for j in 0..len.1 {
+            f(self.get_mut((i, j)).unwrap(), (i, j), Direction::Pos0);
+        }
+        let j = 0;
+        for i in 0..len.0 {
+            f(self.get_mut((i, j)).unwrap(), (i, j), Direction::Neg1);
+        }
+        let j = len.1 - 1;
+        for i in 0..len.0 {
+            f(self.get_mut((i, j)).unwrap(), (i, j), Direction::Pos1);
+        }
+    }
+
     // TODO need somewhat of a fuzzing routine to test these functions against edge
     // cases
 
