@@ -819,5 +819,25 @@ impl Epoch {
         }
     }
 
-    //pub fn run_to_quiessence(&self, max_time: Delay) -> Result<(), Error> {}
+    /// Returns if the `Epoch` is in a quiescent state, i.e. the internal
+    /// temporal event queue is empty and there will be no value changes if
+    /// `Epoch::run` is used. Requires that `self` be the current `Epoch`.
+    pub fn quiesced(&self) -> Result<bool, Error> {
+        // the reason for this signature is that we don't want the user to have the
+        // responsibility of emptying the zero delay queue to know for sure that there
+        // is actual quiescent, there are too many gotchas about what happens if the
+        // `Epoch` is in a logically quiescent state but eval has not happened or
+        // happened to the point that it stopped at a certain delay and did not
+        // empty the zero delay queue because normal `EvalAwi` evals would empty
+        // it, we need to empty it ourselves here and return an error in case of
+        // zero duration infinite loop. This and initial startup cases also
+        // implies the need for `check_current`.
+
+        // just call `run` with zero delay, otherwise we have to repeat various lowering
+        // cases
+        self.run(Delay::zero())?;
+        self.ensemble(|ensemble| {
+            Ok(ensemble.delayer.delayed_events.is_empty() && ensemble.evaluator.are_events_empty())
+        })
+    }
 }

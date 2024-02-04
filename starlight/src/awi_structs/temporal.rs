@@ -8,13 +8,103 @@ use awint::{
 
 use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Error};
 
+/// Delays the temporal value propogation of `bits` by `delay`.
+///
+/// For a purely combinatorial circuit that is run for an infinite time, this
+/// function acts like a no-op; the effects of this function are seen in
+/// temporal evaluation and in non-DAG interactions. The initial temporal value
+/// `bits` is set to an opaque value, and then after `delay` it is set to the
+/// value it was driven with. Any other temporal changes to the value of
+/// `bits` are also delayed in their changes. Note there is no delay effect for
+/// anything that used `bits` before it was used as an argument to this
+/// function, only after this function is there an applied effect, as if this
+/// function changes `bits` into its future value.
+///
+/// ```
+/// use dag::*;
+/// use starlight::{awi, dag, delay, Epoch, EvalAwi, LazyAwi};
+/// let epoch = Epoch::new();
+///
+/// let mut a = awi!(0xa_u4);
+/// let a_before = EvalAwi::from(&a);
+/// // delay for 10 units
+/// delay(&mut a, 10);
+/// let a_after = EvalAwi::from(&a);
+/// {
+///     use awi::{assert, assert_eq, *};
+///     // `a_before` with no delay in between it and the
+///     // `0xa_u4` value immediately evaluates
+///     assert_eq!(a_before.eval().unwrap(), awi!(0xa_u4));
+///     // `a_after` starts as an `Opaque`
+///     assert!(a_after.eval_is_all_unknown().unwrap());
+///     // the epoch has not quiesced since
+///     // there are still future events
+///     assert!(!epoch.quiesced().unwrap());
+///
+///     epoch.run(9).unwrap();
+///     assert!(a_after.eval_is_all_unknown().unwrap());
+///     assert!(!epoch.quiesced().unwrap());
+///
+///     // only after 10 units does the
+///     // value finally finish propogating
+///     epoch.run(1).unwrap();
+///     assert_eq!(a_after.eval().unwrap(), awi!(0xa_u4));
+///     assert!(epoch.quiesced().unwrap());
+/// }
+///
+/// let x = LazyAwi::opaque(bw(4));
+/// let mut y = awi!(x);
+/// delay(&mut y, 10);
+/// let y = EvalAwi::from(&x);
+/// {
+///     use awi::{assert, assert_eq, *};
+///
+///     // immediate quiescence since the driver is already opaque
+///     assert!(epoch.quiesced().unwrap());
+///
+///     x.retro_(&awi!(0xb_u4)).unwrap();
+///     assert!(!epoch.quiesced().unwrap());
+///     epoch.run(10).unwrap();
+///     assert!(epoch.quiesced().unwrap());
+///     assert_eq!(y.eval().unwrap(), awi!(0xb_u4));
+///
+///     x.retro_(&awi!(0xc_u4)).unwrap();
+///     assert!(!epoch.quiesced().unwrap());
+///     epoch.run(10).unwrap();
+///     assert!(epoch.quiesced().unwrap());
+///     assert_eq!(y.eval().unwrap(), awi!(0xc_u4));
+/// }
+/// ```
+pub fn delay<D: Into<Delay>>(bits: &mut Bits, delay: D) {
+    let mut tmp = awi::Awi::from_u128(delay.into().amount());
+    let sig = tmp.sig();
+    tmp.zero_resize(NonZeroUsize::new(sig).unwrap_or(bw(1)));
+    if !tmp.is_zero() {
+        // TODO same as the `DelayedLoopSource` case
+        let delay_awi = dag::Awi::from(&tmp).state();
+        let nzbw = bits.nzbw();
+        bits.update_state(
+            nzbw,
+            Op::Opaque(smallvec![bits.state(), delay_awi], Some("Delay")),
+        )
+        .unwrap_at_runtime();
+
+        // because `delay` still stays in a DAG, it was thought this wasn't needed, but
+        // it turns out that for quiescence to calculate correctly (see the
+        // `tnode_delay_opaque_quiesced` test), this needs to be done so an event knows
+        // it has a `TNode` to cross
+        let epoch = get_current_epoch().unwrap();
+        let mut lock = epoch.epoch_data.borrow_mut();
+        lock.ensemble.stator.states_to_lower.push(bits.state());
+    }
+}
+
 /// Provides a way to temporally wrap around a combinatorial circuit.
 ///
 /// Get a `&Bits` temporal value from a `Loop` via one of the traits like
 /// `Deref<Target=Bits>` or `AsRef<Bits>`, then drive the `Loop` with
-/// [Loop::drive]. When [crate::Epoch::drive_loops] is run, it will evaluate the
-/// value of the driver and use that to retroactively change the temporal value
-/// of the loop.
+/// [Loop::drive]. Evaluation will find the value of the driver and use that to
+/// retroactively change the temporal value of the loop.
 ///
 /// ```
 /// use starlight::{awi, dag::*, Epoch, EvalAwi, Loop};
@@ -173,12 +263,15 @@ impl Loop {
     /// `Loop`s temporal value in a iterative temporal evaluation. Includes a
     /// delay `delay`. Returns an error if `self.bw() != driver.bw()`.
     pub fn drive_with_delay<D: Into<Delay>>(self, driver: &Bits, delay: D) -> Result<(), Error> {
-        if self.source.bw() != driver.bw() {
+        let delay = delay.into();
+        if delay.is_zero() {
+            self.drive(driver)
+        } else if self.source.bw() != driver.bw() {
             Err(Error::WrongBitwidth)
         } else {
             // TODO perhaps just lower, but the plan is to base incremental compilation on
             // states. Not sure if we ever want dynamic delay.
-            let mut tmp = awi::Awi::from_u128(delay.into().amount());
+            let mut tmp = awi::Awi::from_u128(delay.amount());
             let sig = tmp.sig();
             tmp.zero_resize(NonZeroUsize::new(sig).unwrap_or(bw(1)));
             let delay_awi = dag::Awi::from(&tmp).state();
@@ -259,8 +352,7 @@ impl AsRef<Bits> for Loop {
 /// `Deref<Target=Bits>` or `AsRef<Bits>` to get the temporal value. Second,
 /// [Net::push] and [Net::get_mut] can be used to write values to each of the
 /// ports. Third, [Net::drive] takes a possibly dynamic index that multiplexes
-/// one of the values of the ports to drive the temporal value across
-/// [crate::Epoch::drive_loops] calls.
+/// one of the values of the ports to drive the temporal value.
 ///
 /// Note: In most HDL oriented cases, you will want to create `Net`s with
 /// `Net::opaque` to simulate a net starting with an undefined value that must

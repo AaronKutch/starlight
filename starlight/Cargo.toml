@@ -1,5 +1,6 @@
 [package]
 name = "starlight"
+# FIXME before next release make a `Argument128` `Op` variant for delays
 version = "0.3.0"
 edition = "2021"
 authors = ["Aaron Kutch <aaronkutch@att.net>"]

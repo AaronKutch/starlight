@@ -384,6 +384,12 @@ impl Ensemble {
                         if let Some(name) = name {
                             match name {
                                 "LazyOpaque" => (),
+                                "Delay" => {
+                                    return Err(Error::OtherStr(
+                                        "cannot lower delay opaque with no `Op` inputs, some \
+                                         variant was violated",
+                                    ))
+                                }
                                 "UndrivenLoopSource" | "LoopSource" | "DelayedLoopSource" => {
                                     return Err(Error::OtherStr(
                                         "cannot lower loop source opaque with no initial value, \
@@ -672,6 +678,62 @@ fn lower_elementary_to_lnodes_intermediate(
         Opaque(ref v, name) => {
             if let Some(name) = name {
                 match name {
+                    "Delay" => {
+                        if v.len() != 2 {
+                            return Err(Error::OtherStr(
+                                "`Delay` has an unexpected number of arguments",
+                            ))
+                        }
+                        let w = this.stator.states[p_state].p_self_bits.len();
+                        let p_driver_state = v[0];
+                        let p_delay_state = v[1];
+                        if w != this.stator.states[p_driver_state].p_self_bits.len() {
+                            return Err(Error::OtherStr("`Delay` has a bitwidth mismatch"))
+                        }
+                        let delay_w = this.stator.states[p_delay_state].p_self_bits.len();
+                        if delay_w > 128 {
+                            return Err(Error::OtherStr("unexpectedly large delay"))
+                        }
+                        let mut delay = Awi::zero(bw(delay_w));
+                        for i in 0..delay_w {
+                            let p_back = this.stator.states[p_delay_state].p_self_bits[i].unwrap();
+                            let bit = this
+                                .backrefs
+                                .get_val(p_back)
+                                .unwrap()
+                                .val
+                                .known_value()
+                                .unwrap();
+                            delay.set(i, bit).unwrap();
+                        }
+                        let delay = Delay::from_amount(delay.to_u128());
+                        if delay.is_zero() {
+                            // the function that creates `Delay` is supposed to do a no-op or copy
+                            // instead
+                            return Err(Error::OtherStr("`Delay` delay amount is zero"))
+                        }
+                        for i in 0..w {
+                            let p_driver =
+                                this.stator.states[p_driver_state].p_self_bits[i].unwrap();
+                            // We could potentially set the initial value to the initial value of
+                            // the driver, but I suspect that unlike the `LazyAwi` driving case,
+                            // this is fundamentally an ill defined issue when zero delay loops are
+                            // involved. I believe that for the `drive` function interface at least,
+                            // the source should simply start as a dynamic unknown and let the
+                            // delayed drive update it later.
+
+                            // however we do want the initial value to detect immediate quiescence
+                            // when the driver is already `Unknown`
+                            let init_val = this.backrefs.get_val(p_driver).unwrap().val;
+                            let p_source = this.stator.states[p_state].p_self_bits[i].unwrap();
+
+                            let p_tnode = this.make_tnode(p_source, p_driver, delay).unwrap();
+                            if init_val != Value::Unknown {
+                                // setup the delayed drive
+                                this.eval_tnode(p_tnode).unwrap();
+                            }
+                        }
+                    }
                     "UndrivenLoopSource" => {
                         if v.len() != 1 {
                             return Err(Error::OtherStr(
@@ -710,9 +772,7 @@ fn lower_elementary_to_lnodes_intermediate(
                                 this.stator.states[p_initial_state].p_self_bits[i].unwrap();
                             let init_val = this.backrefs.get_val(p_initial).unwrap().val;
                             // the loop source is an internal `Opaque` root at this point, we
-                            // initiate the initial event chain
-                            // ourselves while `make_tnode` initiates the delayed tnode
-                            // drive
+                            // initiate the initial event chain ourselves.
 
                             let p_tnode =
                                 this.make_tnode(p_looper, p_driver, Delay::zero()).unwrap();
@@ -742,7 +802,9 @@ fn lower_elementary_to_lnodes_intermediate(
                                     ));
                                 }
                             };
-                            // the state bit can get optimized away
+                            // initial event for the initial value, need to do this in general
+                            // because the state bit can get optimized away before we actually use
+                            // it
                             let p_back = this.backrefs.get_val(p_looper).unwrap().p_self_equiv;
                             this.evaluator.push_event(Event {
                                 partial_ord_num: NonZeroU64::new(1).unwrap(),
@@ -787,6 +849,11 @@ fn lower_elementary_to_lnodes_intermediate(
                             delay.set(i, bit).unwrap();
                         }
                         let delay = Delay::from_amount(delay.to_u128());
+                        if delay.is_zero() {
+                            // the function that creates `DelayedLoopSource` is supposed to do a
+                            // `LoopSource` instead
+                            return Err(Error::OtherStr("`DelayedLoopSource` delay amount is zero"))
+                        }
                         for i in 0..w {
                             let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
                             let p_driver =
@@ -797,8 +864,11 @@ fn lower_elementary_to_lnodes_intermediate(
 
                             let p_tnode = this.make_tnode(p_looper, p_driver, delay).unwrap();
                             if !delay.is_zero() {
+                                // immediately setup an event
                                 this.eval_tnode(p_tnode).unwrap();
                             } else {
+                                // least priority event for the reason specified in the `LoopSource`
+                                // case
                                 this.evaluator.push_event(Event {
                                     partial_ord_num: NonZeroU64::MAX,
                                     change_kind: ChangeKind::TNode(p_tnode),
@@ -817,7 +887,6 @@ fn lower_elementary_to_lnodes_intermediate(
                                     ));
                                 }
                             };
-                            // the state bit can get optimized away
                             let p_back = this.backrefs.get_val(p_looper).unwrap().p_self_equiv;
                             this.evaluator.push_event(Event {
                                 partial_ord_num: NonZeroU64::new(1).unwrap(),
