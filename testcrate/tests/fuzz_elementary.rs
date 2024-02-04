@@ -2,6 +2,7 @@ use std::{cmp::min, num::NonZeroUsize};
 
 use starlight::{
     awint::{awi, dag},
+    delay,
     triple_arena::{ptr_struct, Arena},
     Epoch, EvalAwi, LazyAwi, StarRng,
 };
@@ -137,6 +138,9 @@ impl Mem {
             lazy.retro_(lit).unwrap();
         }
 
+        epoch.run(1 << 32).unwrap();
+        assert!(epoch.quiesced().unwrap());
+
         // evaluate all
         epoch.assert_assertions(true).unwrap();
         for pair in self.a.vals() {
@@ -145,8 +149,9 @@ impl Mem {
     }
 }
 
-fn operation(rng: &mut StarRng, m: &mut Mem) {
-    match rng.index(4).unwrap() {
+fn operation(rng: &mut StarRng, m: &mut Mem, use_tnodes: bool) {
+    let op = rng.index(4).unwrap();
+    match op {
         // Copy
         0 => {
             // doesn't actually do anything on the DAG side, but we use it to get parallel
@@ -157,6 +162,9 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
                 let (to, from) = m.a.get2_mut(to, from).unwrap();
                 to.awi.copy_(&from.awi).unwrap();
                 to.dag.copy_(&from.dag).unwrap();
+                if use_tnodes {
+                    delay(&mut to.dag, rng.index(4).unwrap() as u128);
+                }
             }
         }
         // Get-Set
@@ -225,9 +233,11 @@ fn fuzz_elementary() {
     let mut m = Mem::new();
 
     for _ in 0..N.1 {
+        //let mut rng = StarRng::new(i as u64);
+        //m.rng = StarRng::new((i + 1) as u64);
         let epoch = Epoch::new();
         for _ in 0..N.0 {
-            operation(&mut rng, &mut m)
+            operation(&mut rng, &mut m, false)
         }
         m.finish(&epoch);
         epoch.verify_integrity().unwrap();
@@ -240,4 +250,27 @@ fn fuzz_elementary() {
     }
 }
 
-// TODO need a version with loops and random rnodes
+#[test]
+fn fuzz_elementary_with_delay() {
+    let mut rng = StarRng::new(0);
+    let mut m = Mem::new();
+
+    for _ in 0..N.1 {
+        //let mut rng = StarRng::new(i as u64);
+        //m.rng = StarRng::new((i + 1) as u64);
+        let epoch = Epoch::new();
+        for _ in 0..N.0 {
+            operation(&mut rng, &mut m, true)
+        }
+        m.finish(&epoch);
+        epoch.verify_integrity().unwrap();
+        m.verify_equivalence(&epoch);
+        epoch.optimize().unwrap();
+        m.verify_equivalence(&epoch);
+        // TODO verify stable optimization
+        drop(epoch);
+        m.clear();
+    }
+}
+
+// TODO need a version that precisely times `TNode`s

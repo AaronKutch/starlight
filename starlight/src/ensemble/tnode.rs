@@ -204,6 +204,13 @@ impl Ensemble {
 
     /// Runs temporal evaluation until `delay` has passed since the current time
     pub fn run(&mut self, delay: Delay) -> Result<(), Error> {
+        // this needs to be called in the beginning to fill up the delayed events queue
+        // if there are evaluator events to process, in between each simultaneous
+        // processing, and at the very end of the last iteration to check for infinite
+        // loops and to make quiescent calculations correct
+        self.restart_request_phase()?;
+        // if there are evaluations that have not played yet, empty them so any delayed
+        // events from them can fill the queue
         let final_time = self.delayer.current_time.checked_add(delay).unwrap();
         while let Some(next_time) = self.delayer.peek_next_event_time() {
             if next_time > final_time {
@@ -227,12 +234,10 @@ impl Ensemble {
                         .unwrap();
                 }
             }
+            self.restart_request_phase()?;
         }
         self.delayer.current_time = final_time;
-        // this needs to be done in case the last events would lead to infinite loops,
-        // it is `restart_request_phase` instead of `switch_to_request_phase` to handle
-        // any order of infinite loop detection
-        self.restart_request_phase()
+        Ok(())
     }
 }
 

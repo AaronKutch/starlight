@@ -137,6 +137,24 @@ fn tnode_delay() {
 }
 
 #[test]
+fn tnode_delay_lowered() {
+    use dag::*;
+    let epoch = Epoch::new();
+    let x = LazyAwi::opaque(bw(4));
+    let mut y = awi!(x);
+    delay(&mut y, 3);
+    let y = EvalAwi::from(&y);
+    {
+        use awi::{assert_eq, *};
+        epoch.lower_and_prune().unwrap();
+        x.retro_(&awi!(0xa_u4)).unwrap();
+        epoch.run(3).unwrap();
+        assert_eq!(y.eval().unwrap(), awi!(0xa_u4));
+    }
+    drop(epoch);
+}
+
+#[test]
 fn tnode_delay_opaque_quiesced_lowered() {
     use dag::*;
     let epoch = Epoch::new();
