@@ -15,7 +15,7 @@ const N: (usize, usize) = (50, 1000);
 
 ptr_struct!(P0);
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Pair {
     awi: awi::Awi,
     dag: dag::Awi,
@@ -91,7 +91,7 @@ impl Mem {
     pub fn next_capped(&mut self, w: usize, cap: usize) -> P0 {
         if self.rng.out_of_4(3) && (!self.v[w].is_empty()) {
             let p = self.rng.index_slice(&self.v[w]).unwrap();
-            if self.get(*p).awi.to_usize() < cap {
+            if self.get_awi(*p).to_usize() < cap {
                 return *p
             }
         }
@@ -120,8 +120,12 @@ impl Mem {
         self.next_capped(usize::BITS as usize, cap)
     }
 
-    pub fn get(&self, inx: P0) -> Pair {
-        self.a[inx].clone()
+    pub fn get_awi(&self, inx: P0) -> awi::Awi {
+        self.a[inx].awi.clone()
+    }
+
+    pub fn get_dag(&self, inx: P0) -> dag::Awi {
+        self.a[inx].dag.clone()
     }
 
     pub fn finish(&mut self, epoch: &Epoch) {
@@ -184,32 +188,33 @@ fn operation(rng: &mut StarRng, m: &mut Mem, use_tnodes: bool) {
             let w1 = 4 << rng.index(4).unwrap();
             let min_w = min(w0, w1);
             let width = m.next_usize(min_w + 1);
-            let from = m.next_usize(1 + w0 - m.get(width).awi.to_usize());
-            let to = m.next_usize(1 + w1 - m.get(width).awi.to_usize());
+            let from = m.next_usize(1 + w0 - m.get_awi(width).to_usize());
+            let to = m.next_usize(1 + w1 - m.get_awi(width).to_usize());
             let rhs = m.next(w0);
             let lhs = m.next(w1);
 
-            let from_a = m.get(from);
-            let to_a = m.get(to);
-            let width_a = m.get(width);
-            let rhs_a = m.get(rhs);
+            let from_a = m.get_awi(from);
+            let to_a = m.get_awi(to);
+            let width_a = m.get_awi(width);
+            let rhs_a = m.get_awi(rhs);
             m.a[lhs]
                 .awi
                 .field(
-                    to_a.awi.to_usize(),
-                    &rhs_a.awi,
-                    from_a.awi.to_usize(),
-                    width_a.awi.to_usize(),
+                    to_a.to_usize(),
+                    &rhs_a,
+                    from_a.to_usize(),
+                    width_a.to_usize(),
                 )
                 .unwrap();
             // use the `awi` versions for the shift information
+            let rhs_b = m.get_dag(rhs);
             m.a[lhs]
                 .dag
                 .field(
-                    to_a.awi.to_usize(),
-                    &rhs_a.dag,
-                    from_a.awi.to_usize(),
-                    width_a.awi.to_usize(),
+                    to_a.to_usize(),
+                    &rhs_b,
+                    from_a.to_usize(),
+                    width_a.to_usize(),
                 )
                 .unwrap();
         }
@@ -218,10 +223,12 @@ fn operation(rng: &mut StarRng, m: &mut Mem, use_tnodes: bool) {
             let out = m.next(1);
             let (inx_w, inx) = m.next6();
             let lut = m.next(1 << inx_w);
-            let lut_a = m.get(lut);
-            let inx_a = m.get(inx);
-            m.a[out].awi.lut_(&lut_a.awi, &inx_a.awi).unwrap();
-            m.a[out].dag.lut_(&lut_a.dag, &inx_a.dag).unwrap();
+            let lut_a = m.get_awi(lut);
+            let inx_a = m.get_awi(inx);
+            m.a[out].awi.lut_(&lut_a, &inx_a).unwrap();
+            let lut_b = m.get_dag(lut);
+            let inx_b = m.get_dag(inx);
+            m.a[out].dag.lut_(&lut_b, &inx_b).unwrap();
         }
         _ => unreachable!(),
     }

@@ -1,7 +1,7 @@
 use std::{fmt, num::NonZeroUsize, thread::panicking};
 
 use awint::{
-    awint_dag::{dag, triple_arena::Ptr, Lineage, PState},
+    awint_dag::{dag, triple_arena::Ptr, Lineage, Location, PState},
     awint_internals::{forward_debug_fmt, BITS},
 };
 
@@ -43,14 +43,6 @@ impl Drop for EvalAwi {
 impl Lineage for EvalAwi {
     fn state(&self) -> PState {
         self.p_state
-    }
-}
-
-impl Clone for EvalAwi {
-    /// This makes another rnode to the same state that `self` pointed to.
-    #[track_caller]
-    fn clone(&self) -> Self {
-        Self::from_state(self.p_state)
     }
 }
 
@@ -138,7 +130,6 @@ impl EvalAwi {
         Ensemble::get_thread_local_rnode_nzbw(self.p_external)
     }
 
-    #[track_caller]
     pub fn nzbw(&self) -> NonZeroUsize {
         self.try_get_nzbw().unwrap()
     }
@@ -149,10 +140,20 @@ impl EvalAwi {
 
     /// Sets up `PExternal`s and other things, requires that this be a new
     /// `EvalAwi` or that `drop_internal` has been called on the old value
+    #[track_caller]
     fn set_internal(&mut self, p_state: PState) -> Result<(), Error> {
+        let tmp = std::panic::Location::caller();
+        let location = Location {
+            file: tmp.file(),
+            line: tmp.line(),
+            col: tmp.column(),
+        };
         if let Some(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
-            match lock.ensemble.make_rnode_for_pstate(p_state, true, true) {
+            match lock
+                .ensemble
+                .make_rnode_for_pstate(p_state, Some(location), true, true)
+            {
                 Ok(p_external) => {
                     lock.ensemble
                         .stator

@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, Ptr};
 
 use crate::{
@@ -96,6 +98,56 @@ impl Router {
 
     pub fn embeddings(&self) -> &Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>> {
         &self.embeddings
+    }
+
+    pub fn debug_mapping(&self, p_mapping: PMapping) -> String {
+        let (p_back, mapping) = self.mappings().get(p_mapping).unwrap();
+        let mut s = String::new();
+        let rnode = self
+            .program_ensemble()
+            .notary
+            .get_rnode(mapping.program_p_external)
+            .unwrap()
+            .1;
+        if let Some(location) = rnode.location {
+            writeln!(s, "program side of mapping originates from {location:#?}").unwrap();
+        }
+        if let Some(ref source) = mapping.target_source {
+            let rnode = self
+                .target_ensemble()
+                .notary
+                .get_rnode(source.target_p_external)
+                .unwrap()
+                .1;
+            if let Some(location) = rnode.location {
+                writeln!(
+                    s,
+                    "target source side of mapping originates from {location:#?}"
+                )
+                .unwrap();
+            }
+        }
+        for (i, sink) in mapping.target_sinks.iter().enumerate() {
+            let rnode = self
+                .target_ensemble()
+                .notary
+                .get_rnode(sink.target_p_external)
+                .unwrap()
+                .1;
+            if let Some(location) = rnode.location {
+                writeln!(
+                    s,
+                    "target sink {i} side of mapping originates from {location:#?}"
+                )
+                .unwrap();
+            }
+        }
+        writeln!(
+            s,
+            "other mapping details: {p_mapping:?} {p_back:?} {mapping:#?}"
+        )
+        .unwrap();
+        s
     }
 
     /// Tell the router what program input bits we want to map to what target
@@ -334,7 +386,7 @@ impl Router {
             let mut root_common_target_q_cnode = target_source_q_cnode;
 
             // do the same for the sinks
-            for mapping_target in &mapping.target_sinks {
+            for (i, mapping_target) in mapping.target_sinks.iter().enumerate() {
                 let target_sink_p_equiv = mapping_target.target_p_equiv;
                 let target_sink_q_cnode = self
                     .target_channeler()
@@ -342,10 +394,24 @@ impl Router {
                     .unwrap();
                 let path = Path::<QCNode, QCEdge>::new(target_sink_q_cnode);
                 hyperpath.push(path);
-                root_common_target_q_cnode = self
+                root_common_target_q_cnode = if let Some(q_cnode) = self
                     .target_channeler()
                     .find_common_supernode(root_common_target_q_cnode, target_sink_q_cnode)
-                    .unwrap();
+                {
+                    q_cnode
+                } else {
+                    let s = self.debug_mapping(p_mapping);
+                    return Err(Error::OtherString(format!(
+                        "When trying to find an initial embedding for a program bit that is \
+                         mapped to both a target source and one or more target sinks (which \
+                         occurs when mapping a trivial copy operation in the program directly \
+                         onto a target), could not find a common supernode between the source and \
+                         sink {i} (meaning that the target is like a disconnected graph and two \
+                         parts of the mapping are on different parts that are impossible to route \
+                         between). The mapping is:\n{s}\nThe `CNodes` are \
+                         {root_common_target_q_cnode}, {target_sink_q_cnode}"
+                    )));
+                };
             }
 
             self.make_embedding0(Embedding {
@@ -420,6 +486,11 @@ fn route(router: &mut Router) -> Result<(), Error> {
     // and should be resolved first.
 
     // TODO
+
+    // Note: I suspect we need 4 "colors" of Lagrangian pressure in order to do a
+    // constraint violation cleanup
+
+    return Ok(());
 
     let mut gas = 100u64;
     loop {

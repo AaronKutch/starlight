@@ -72,7 +72,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
 
     #[must_use]
     pub fn get_supernode(&self, p: PCNode) -> Option<PCNode> {
-        self.cnodes.get_val(p)?.p_supernode
+        let p_supernode_ref = self.cnodes.get_val(p)?.p_supernode?;
+        Some(self.cnodes.get_val(p_supernode_ref)?.p_this_cnode)
     }
 
     /// Given two `CNode`s, this will find their lowest level common supernode

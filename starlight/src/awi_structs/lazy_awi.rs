@@ -7,7 +7,7 @@ use std::{
 };
 
 use awint::{
-    awint_dag::{dag, smallvec::smallvec, Lineage, Op, PState},
+    awint_dag::{dag, smallvec::smallvec, Lineage, Location, Op, PState},
     awint_internals::forward_debug_fmt,
 };
 
@@ -79,6 +79,7 @@ macro_rules! init {
     ($($f:ident $retro_:ident);*;) => {
         $(
             /// Initializes a `LazyAwi` with the corresponding dynamic value
+            #[track_caller]
             pub fn $f(w: NonZeroUsize) -> Self {
                 let res = Self::opaque(w);
                 res.$retro_().unwrap();
@@ -157,14 +158,21 @@ impl LazyAwi {
     }
 
     /// Initializes a `LazyAwi` with an unknown dynamic value
+    #[track_caller]
     pub fn opaque(w: NonZeroUsize) -> Self {
+        let tmp = std::panic::Location::caller();
+        let location = Location {
+            file: tmp.file(),
+            line: tmp.line(),
+            col: tmp.column(),
+        };
         let opaque = dag::Awi::new(w, Op::Opaque(smallvec![], Some("LazyOpaque")));
         let p_external = get_current_epoch()
             .unwrap()
             .epoch_data
             .borrow_mut()
             .ensemble
-            .make_rnode_for_pstate(opaque.state(), false, false)
+            .make_rnode_for_pstate(opaque.state(), Some(location), false, false)
             .unwrap();
         Self { opaque, p_external }
     }

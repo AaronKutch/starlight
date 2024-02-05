@@ -27,7 +27,7 @@ use crate::{
 };
 
 /// A list of single bit `EvalAwi`s for assertions
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Assertions {
     pub bits: Vec<EvalAwi>,
 }

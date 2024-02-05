@@ -3,7 +3,7 @@ use std::num::{NonZeroU128, NonZeroU64, NonZeroUsize};
 use awint::awint_dag::{
     smallvec::{smallvec, SmallVec},
     triple_arena::{ptr_struct, Arena, OrdArena, Ptr, Recast, Recaster},
-    PState,
+    Location, PState,
 };
 
 use crate::{
@@ -27,7 +27,11 @@ pub struct RNode {
     nzbw: NonZeroUsize,
     bits: SmallVec<[Option<PBack>; 1]>,
     read_only: bool,
+    /// Location where this `RNode` was created
+    pub location: Option<Location>,
+    /// Associated state that this `RNode` was initialized from
     pub associated_state: Option<PState>,
+    /// If the associated state needs to be lowered before states are pruned
     pub lower_before_pruning: bool,
 }
 
@@ -44,6 +48,7 @@ impl RNode {
     pub fn new(
         nzbw: NonZeroUsize,
         read_only: bool,
+        location: Option<Location>,
         associated_state: Option<PState>,
         lower_before_pruning: bool,
     ) -> Self {
@@ -52,6 +57,7 @@ impl RNode {
             read_only,
             bits: smallvec![],
             associated_state,
+            location,
             lower_before_pruning,
         }
     }
@@ -150,6 +156,7 @@ impl Ensemble {
     pub fn make_rnode_for_pstate(
         &mut self,
         p_state: PState,
+        location: Option<Location>,
         read_only: bool,
         lower_before_pruning: bool,
     ) -> Result<PExternal, Error> {
@@ -158,6 +165,7 @@ impl Ensemble {
             let (_, p_external) = self.notary.insert_rnode(RNode::new(
                 nzbw,
                 read_only,
+                location,
                 Some(p_state),
                 lower_before_pruning,
             ));

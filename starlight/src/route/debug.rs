@@ -116,8 +116,8 @@ impl<PCNode: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode> {
 /// For viewing the hierarchy structure
 #[derive(Debug, Clone)]
 pub enum HierarchyNodeKind<PCNode: Ptr> {
-    // supernode edge is stored on the end
-    CNode(CNode<PCNode>, Option<PCNode>),
+    // supernode edge and forwarded version is stored on the end
+    CNode(CNode<PCNode>, Option<(PCNode, PCNode)>),
     CEdge(CEdge<PCNode>, CEdge<PCNode>),
     Remove,
 }
@@ -126,8 +126,8 @@ impl<PCNode: Ptr> DebugNodeTrait<PCNode> for HierarchyNodeKind<PCNode> {
     fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
         match this {
             HierarchyNodeKind::CNode(cnode, p_super) => DebugNode {
-                sources: if let Some(p_super) = p_super {
-                    vec![(*p_super, String::new())]
+                sources: if let Some((p_super, p_super_forwarded)) = p_super {
+                    vec![(*p_super_forwarded, format!("{p_super:?}"))]
                 } else {
                     vec![]
                 },
@@ -247,7 +247,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     Referent::ThisCNode => {
                         let cnode = self.cnodes.get_val(p_self).unwrap();
                         if let Some(p) = self.get_supernode(cnode.p_this_cnode) {
-                            HierarchyNodeKind::CNode(cnode.clone(), Some(p))
+                            let p_forwarded = self.cnodes.get_val(p).unwrap().p_this_cnode;
+                            HierarchyNodeKind::CNode(cnode.clone(), Some((p, p_forwarded)))
                         } else {
                             HierarchyNodeKind::CNode(cnode.clone(), None)
                         }

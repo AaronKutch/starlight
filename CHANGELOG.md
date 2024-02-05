@@ -5,6 +5,7 @@
 - Reworked the evaluation system to be event based, now there are `drive_with_delay` functions and
   `Epoch::run*` functions with precise semantics
 - Removed `LazyInlAwi`
+- Removed the `Clone` impl for `EvalAwi` because it had questionable semantics and bad implications
 
 ### Additions
 - `Loop`s and `Net`s can now have an arbitrary initial value
