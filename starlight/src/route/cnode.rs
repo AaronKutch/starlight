@@ -71,6 +71,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
     }
 
     #[must_use]
+    pub fn get_supernode_referent(&self, p: PCNode) -> Option<PCNode> {
+        self.cnodes.get_val(p)?.p_supernode
+    }
+
+    #[must_use]
     pub fn get_supernode(&self, p: PCNode) -> Option<PCNode> {
         let p_supernode_ref = self.cnodes.get_val(p)?.p_supernode?;
         Some(self.cnodes.get_val(p_supernode_ref)?.p_this_cnode)

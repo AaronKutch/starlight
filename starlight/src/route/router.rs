@@ -4,7 +4,7 @@ use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, Ptr};
 
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
-    route::{Channeler, Edge, HyperPath, PHyperPath, Path},
+    route::{Channeler, Edge, EdgeKind, HyperPath, PHyperPath, Path},
     triple_arena::Arena,
     Error, EvalAwi, LazyAwi, SuspendedEpoch,
 };
@@ -349,12 +349,7 @@ impl Router {
     }
 
     /// Makes a minimal embedding to express the given mapping.
-    /// `common_target_root` needs to be the common supernode of all the nodes
-    /// that can interact with this mapping
-    fn make_embedding1(
-        &mut self,
-        /* common_target_root: PCNode, */ p_mapping: PMapping,
-    ) -> Result<(), Error> {
+    fn make_embedding1(&mut self, p_mapping: PMapping) -> Result<(), Error> {
         let (program_p_equiv, mapping) = self.mappings.get(p_mapping).unwrap();
         let program_p_equiv = *program_p_equiv;
         let program_cnode = self
@@ -414,6 +409,31 @@ impl Router {
                 };
             }
 
+            // the endpoints of the hyperedge are initialized, initialize the paths by
+            // connecting them all through the common supernode
+
+            // get the common edges to the common root
+            let mut q = hyperpath.source();
+            let mut path_to_root = vec![];
+            while q != root_common_target_q_cnode {
+                q = self.target_channeler().get_supernode(q).unwrap();
+                path_to_root.push(Edge::new(EdgeKind::Concentrate, q));
+            }
+            // push on the path to root and a path back down to the sink
+            for path in hyperpath.paths_mut() {
+                let mut path_to_sink = vec![];
+                // note the order of operations because we reverse the `Vec` to avoid
+                // insertions, we needed to use `get_supernode`
+                let mut q = path.sink();
+                while q != root_common_target_q_cnode {
+                    path_to_sink.push(Edge::new(EdgeKind::Dilute, q));
+                    q = self.target_channeler().get_supernode(q).unwrap();
+                }
+                path_to_sink.reverse();
+                path.extend(path_to_root.iter().copied());
+                path.extend(path_to_sink.iter().copied());
+            }
+
             self.make_embedding0(Embedding {
                 program: EmbeddingKind::Node(program_cnode),
                 target_hyperpath: hyperpath,
@@ -421,8 +441,12 @@ impl Router {
             .unwrap();
         } else {
             // If the mapping has just a source, then a hyper path needs to go concentrating
-            // to the common root node. If the mapping just has sinks, then a hyper path
-            // needs to go from the common root node diluting to the sinks.
+            // to a root node. If the mapping just has sinks, then a hyper path
+            // needs to go from the root node diluting to the sinks.
+
+            // just find the root from the current location, embed the root, but if it is
+            // already embedded check it corresponds with the same program root, otherwise
+            // there must be a disconnection
             todo!()
         }
 
@@ -452,8 +476,6 @@ fn route(router: &mut Router) -> Result<(), Error> {
     while let Some(p_mapping) = adv.advance(&router.mappings) {
         router.make_embedding1(p_mapping).unwrap()
     }
-
-    // TODO just complete the hyperpaths
 
     // property: if a program CNode is embedded in a certain target CNode, the
     // supernodes of the program CNode should be embedded somewhere in the
@@ -486,6 +508,18 @@ fn route(router: &mut Router) -> Result<(), Error> {
     // and should be resolved first.
 
     // TODO
+
+    // Way of viewing hyperpaths: the paths can be ordered in order of which ones
+    // stay on the same path the longest. The first and second path stay together
+    // the longest before diverging, then the third diverges earlier, etc.
+    // A straightforward optimization then is to start from any endpoint and see if
+    // there is a shorter overall path to another, rebasing the divergence at that
+    // point. If it was close to breakeven by some measure, then do a finding
+    // triangle median like thing where different points in the triangle are
+    // branched off from, then finding a center close to those.
+    // With the hierarchy, we can try a new kind of hyperpath finding that is
+    // perhaps based purely on finding the immediate best local routing in each
+    // dilution.
 
     // Note: I suspect we need 4 "colors" of Lagrangian pressure in order to do a
     // constraint violation cleanup

@@ -1,17 +1,33 @@
+use std::iter::IntoIterator;
+
 use awint::awint_dag::triple_arena::Ptr;
 
 use crate::triple_arena::ptr_struct;
 
 ptr_struct!(PHyperPath);
 
-#[derive(Debug, Clone)]
-pub enum Edge<QCNode: Ptr, QCEdge: Ptr> {
-    /// Points to a `CEdge`
+#[derive(Debug, Clone, Copy)]
+pub enum EdgeKind<QCEdge: Ptr> {
+    /// Edge through a `CEdge` between `CNode`s on the same level
     Transverse(QCEdge),
-    /// Points to a `Referent::SuperNode`
-    Concentrate(QCNode),
-    /// Points to a `Referent::SubNode`
-    Dilute(QCNode),
+    /// Edge to a higher level `CNode`
+    Concentrate,
+    /// Edge to a lower level `CNode`
+    Dilute,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Edge<QCNode: Ptr, QCEdge: Ptr> {
+    /// The method of traversal
+    pub kind: EdgeKind<QCEdge>,
+    /// The `ThisCNode` incident the edge reaches
+    pub to: QCNode,
+}
+
+impl<QCNode: Ptr, QCEdge: Ptr> Edge<QCNode, QCEdge> {
+    pub fn new(kind: EdgeKind<QCEdge>, to: QCNode) -> Self {
+        Self { kind, to }
+    }
 }
 
 /// A single path from a source to sink across multiple `CEdge`s
@@ -30,8 +46,16 @@ impl<QCNode: Ptr, QCEdge: Ptr> Path<QCNode, QCEdge> {
         }
     }
 
+    pub fn sink(&self) -> QCNode {
+        self.sink
+    }
+
     pub fn push(&mut self, edge: Edge<QCNode, QCEdge>) {
         self.edges.push(edge)
+    }
+
+    pub fn extend<I: IntoIterator<Item = Edge<QCNode, QCEdge>>>(&mut self, edges: I) {
+        self.edges.extend(edges)
     }
 }
 
@@ -51,7 +75,19 @@ impl<QCNode: Ptr, QCEdge: Ptr> HyperPath<QCNode, QCEdge> {
         }
     }
 
+    pub fn source(&self) -> QCNode {
+        self.source
+    }
+
     pub fn push(&mut self, path: Path<QCNode, QCEdge>) {
         self.paths.push(path)
+    }
+
+    pub fn paths(&self) -> &[Path<QCNode, QCEdge>] {
+        &self.paths
+    }
+
+    pub fn paths_mut(&mut self) -> &mut [Path<QCNode, QCEdge>] {
+        &mut self.paths
     }
 }
