@@ -19,8 +19,8 @@ pub enum EmbeddingKind<PCNode: Ptr, PCEdge: Ptr> {
 
 #[derive(Debug, Clone)]
 pub struct Embedding<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
-    program: EmbeddingKind<PCNode, PCEdge>,
-    target_hyperpath: HyperPath<QCNode, QCEdge>,
+    pub program: EmbeddingKind<PCNode, PCEdge>,
+    pub target_hyperpath: HyperPath<QCNode, QCEdge>,
 }
 
 impl Router {

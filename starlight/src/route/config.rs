@@ -10,12 +10,12 @@ ptr_struct!(PConfig);
 #[derive(Debug, Clone)]
 pub struct Config {
     /// stable `Ptr` for the target
-    p_external: PExternal,
+    pub p_external: PExternal,
     /// The index in the `RNode`
-    bit_i: usize,
+    pub bit_i: usize,
     /// The bit value the configuration wants. `None` is for not yet determined
     /// or for if the value can be set to `Value::Unknown`.
-    value: Option<bool>,
+    pub value: Option<bool>,
 }
 
 /// The channeler for the target needs to know which bits the router can use to

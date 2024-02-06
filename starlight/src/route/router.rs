@@ -1,10 +1,10 @@
 use std::fmt::Write;
 
-use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, Ptr};
+use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
 
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
-    route::{Channeler, Edge, EdgeKind, Embedding, HyperPath, PEmbedding, PHyperPath, Path},
+    route::{Channeler, EdgeKind, Embedding, EmbeddingKind, PEmbedding},
     triple_arena::Arena,
     Error, EvalAwi, LazyAwi, SuspendedEpoch,
 };
@@ -86,6 +86,201 @@ impl Router {
 
     pub fn embeddings(&self) -> &Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>> {
         &self.embeddings
+    }
+
+    fn verify_integrity_of_mapping_target(
+        &self,
+        mapping_target: &MappingTarget,
+    ) -> Result<(), Error> {
+        if let Some((_, rnode)) = self
+            .target_ensemble
+            .notary
+            .get_rnode(mapping_target.target_p_external)
+        {
+            if let Some(bits) = rnode.bits() {
+                let mut ok = false;
+                if let Some(Some(bit)) = bits.get(mapping_target.target_bit_i) {
+                    if *bit == mapping_target.target_p_equiv {
+                        ok = true;
+                    }
+                }
+                if !ok {
+                    return Err(Error::OtherString(format!(
+                        "{mapping_target:?} rnode validity issue"
+                    )));
+                }
+            } else {
+                return Err(Error::OtherString(format!(
+                    "{mapping_target:?} rnode is unlowered"
+                )));
+            }
+        } else {
+            return Err(Error::OtherString(format!(
+                "{mapping_target:?}.target_p_external is invalid"
+            )))
+        }
+        Ok(())
+    }
+
+    pub fn verify_integrity(&self) -> Result<(), Error> {
+        // check substituent validities first
+        self.target_ensemble.verify_integrity()?;
+        self.target_channeler.verify_integrity()?;
+        self.program_ensemble.verify_integrity()?;
+        self.program_channeler.verify_integrity()?;
+        // mapping validities
+        for (p_mapping, program_p_equiv, mapping) in self.mappings() {
+            if let Some((_, rnode)) = self
+                .program_ensemble
+                .notary
+                .get_rnode(mapping.program_p_external)
+            {
+                if let Some(bits) = rnode.bits() {
+                    let mut ok = false;
+                    if let Some(Some(bit)) = bits.get(mapping.program_bit_i) {
+                        if *bit == *program_p_equiv {
+                            ok = true;
+                        }
+                    }
+                    if !ok {
+                        return Err(Error::OtherString(format!(
+                            "{p_mapping} {mapping:?} rnode validity issue"
+                        )));
+                    }
+                } else {
+                    return Err(Error::OtherString(format!(
+                        "{p_mapping} {mapping:?} rnode is unlowered"
+                    )));
+                }
+            } else {
+                return Err(Error::OtherString(format!(
+                    "{p_mapping} {mapping:?}.program_p_external is invalid"
+                )))
+            }
+
+            if let Some(ref mapping_target) = mapping.target_source {
+                self.verify_integrity_of_mapping_target(mapping_target)?;
+            }
+            for mapping_target in &mapping.target_sinks {
+                self.verify_integrity_of_mapping_target(mapping_target)?;
+            }
+        }
+        // embedding validities
+        for (p_embedding, embedding) in self.embeddings() {
+            match embedding.program {
+                EmbeddingKind::Edge(p_cedge) => {
+                    if !self.program_channeler().cedges.contains(p_cedge) {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:?}.program is invalid"
+                        )))
+                    }
+                }
+                EmbeddingKind::Node(p_cnode) => {
+                    if !self.program_channeler().cnodes.contains(p_cnode) {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:?}.program is invalid"
+                        )))
+                    }
+                }
+            }
+            let hyperpath = &embedding.target_hyperpath;
+            if !self.target_channeler().cnodes.contains(hyperpath.source()) {
+                return Err(Error::OtherString(format!(
+                    "{p_embedding} {embedding:?}.target_hyperpath.source is invalid"
+                )))
+            }
+            for path in hyperpath.paths() {
+                if !self.target_channeler().cnodes.contains(path.sink()) {
+                    return Err(Error::OtherString(format!(
+                        "{p_embedding} {embedding:?} path sink is invalid"
+                    )))
+                }
+                for edge in path.edges() {
+                    if !self.target_channeler().cnodes.contains(edge.to) {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:?} path edge.to is invalid"
+                        )))
+                    }
+                    match edge.kind {
+                        EdgeKind::Transverse(q_cedge, source_i) => {
+                            if let Some(cedge) = self.target_channeler().cedges.get(q_cedge) {
+                                if let Some(source_i) = source_i {
+                                    if cedge.sources().get(source_i).is_none() {
+                                        return Err(Error::OtherString(format!(
+                                            "{p_embedding} {embedding:?} path sink source_i is \
+                                             out of range"
+                                        )))
+                                    }
+                                } else if !self.target_channeler().cnodes.contains(cedge.sink()) {
+                                    return Err(Error::OtherString(format!(
+                                        "{p_embedding} {embedding:?} path sink is invalid"
+                                    )))
+                                }
+                            } else {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:?} path edge.kind is invalid"
+                                )))
+                            }
+                        }
+                        EdgeKind::Concentrate => (),
+                        EdgeKind::Dilute => (),
+                    }
+                }
+            }
+            // check path continuity
+            for (i, path) in hyperpath.paths().iter().enumerate() {
+                let mut q = hyperpath.source();
+                for (j, edge) in path.edges().iter().enumerate() {
+                    match edge.kind {
+                        EdgeKind::Transverse(q_cedge, source_i) => {
+                            let cedge = self.target_channeler().cedges.get(q_cedge).unwrap();
+                            if let Some(source_i) = source_i {
+                                q = cedge.sources()[source_i];
+                                if q != edge.to {
+                                    return Err(Error::OtherString(format!(
+                                        "{p_embedding} {embedding:?} path {i} is broken at \
+                                         traversal edge {j}"
+                                    )))
+                                }
+                            } else {
+                                q = cedge.sink();
+                                if q != edge.to {
+                                    return Err(Error::OtherString(format!(
+                                        "{p_embedding} {embedding:?} path {i} is broken at \
+                                         traversal edge {j}"
+                                    )))
+                                }
+                            }
+                        }
+                        EdgeKind::Concentrate => {
+                            q = self.target_channeler().get_supernode(q).unwrap();
+                            if q != edge.to {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:?} path {i} is broken at \
+                                     concentration edge {j}"
+                                )))
+                            }
+                        }
+                        EdgeKind::Dilute => {
+                            let supernode = self.target_channeler().get_supernode(edge.to).unwrap();
+                            if q != supernode {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:?} path {i} is broken at dilution \
+                                     edge {j}"
+                                )))
+                            }
+                            q = edge.to;
+                        }
+                    }
+                }
+                if q != path.sink() {
+                    return Err(Error::OtherString(format!(
+                        "{p_embedding} {embedding:?} path {i} ending does not match sink"
+                    )))
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn debug_mapping(&self, p_mapping: PMapping) -> String {
@@ -282,19 +477,12 @@ impl Router {
         self.map_rnodes(program.p_external(), target.p_external(), false)
     }
 
-    pub fn verify_integrity(&self) -> Result<(), Error> {
-        self.target_ensemble.verify_integrity()?;
-        self.target_channeler.verify_integrity()?;
-        self.program_ensemble.verify_integrity()?;
-        self.program_channeler.verify_integrity()?;
-        Ok(())
-    }
-
     pub fn route(&mut self) -> Result<(), Error> {
         self.initialize_embeddings()
     }
 }
 
+/*
 fn route(router: &mut Router) -> Result<(), Error> {
     if router.mappings.is_empty() {
         // nothing to route
@@ -364,6 +552,7 @@ fn route(router: &mut Router) -> Result<(), Error> {
     */
     Ok(())
 }
+*/
 
 /*
 fn route_step(router: &mut Router) -> Result<bool, Error> {

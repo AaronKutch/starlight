@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 mod cedge;
 mod channel;
 mod cnode;
@@ -16,6 +14,6 @@ pub use channel::{Channeler, Referent};
 pub use cnode::CNode;
 pub use config::{Config, Configurator, PConfig};
 pub use embed::{Embedding, EmbeddingKind, PEmbedding};
-pub use path::{Edge, EdgeKind, HyperPath, PHyperPath, Path};
+pub use path::{Edge, EdgeKind, HyperPath, Path};
 pub use region_adv::RegionAdvancer;
 pub use router::Router;

@@ -2,14 +2,10 @@ use std::iter::IntoIterator;
 
 use awint::awint_dag::triple_arena::Ptr;
 
-use crate::triple_arena::ptr_struct;
-
-ptr_struct!(PHyperPath);
-
 #[derive(Debug, Clone, Copy)]
 pub enum EdgeKind<QCEdge: Ptr> {
-    /// Edge through a `CEdge` between `CNode`s on the same level
-    Transverse(QCEdge),
+    /// Edge through a `CEdge` between `CNode`s on the same level. The
+    Transverse(QCEdge, Option<usize>),
     /// Edge to a higher level `CNode`
     Concentrate,
     /// Edge to a lower level `CNode`
@@ -20,7 +16,8 @@ pub enum EdgeKind<QCEdge: Ptr> {
 pub struct Edge<QCNode: Ptr, QCEdge: Ptr> {
     /// The method of traversal
     pub kind: EdgeKind<QCEdge>,
-    /// The `ThisCNode` incident the edge reaches
+    /// The `ThisCNode` incident the edge reaches, the concentration and
+    /// dilution edges can easily be derived from this.
     pub to: QCNode,
 }
 
@@ -48,6 +45,10 @@ impl<QCNode: Ptr, QCEdge: Ptr> Path<QCNode, QCEdge> {
 
     pub fn sink(&self) -> QCNode {
         self.sink
+    }
+
+    pub fn edges(&self) -> &[Edge<QCNode, QCEdge>] {
+        &self.edges
     }
 
     pub fn push(&mut self, edge: Edge<QCNode, QCEdge>) {
