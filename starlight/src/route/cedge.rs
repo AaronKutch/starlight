@@ -401,7 +401,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             );
         }
 
-        generate_hierarchy(&mut channeler);
+        generate_hierarchy(&mut channeler)?;
 
         Ok(channeler)
     }

@@ -8,6 +8,7 @@ mod embed;
 mod path;
 mod region_adv;
 mod router;
+mod routing;
 
 pub use cedge::{BulkBehavior, CEdge, Programmability, SelectorLut, SelectorValue};
 pub use channel::{Channeler, Referent};
@@ -17,3 +18,4 @@ pub use embed::{Embedding, EmbeddingKind, PEmbedding};
 pub use path::{Edge, EdgeKind, HyperPath, Path};
 pub use region_adv::RegionAdvancer;
 pub use router::Router;
+pub(crate) use routing::route;
