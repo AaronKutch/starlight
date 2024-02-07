@@ -246,6 +246,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         }
         // insure `CEdge`s are only between nodes on the same level
         for (p_cedge, cedge) in &self.cedges {
+            if cedge.sources().is_empty() {
+                return Err(Error::OtherString(format!(
+                    "{p_cedge:?} edge has no sources",
+                )));
+            }
             let mut lvl = None;
             let mut res = Ok(());
             cedge.incidents(|p_cnode| {
@@ -259,7 +264,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 } else {
                     lvl = Some(other_lvl);
                 }
-            })
+            });
+            res?;
         }
         Ok(())
     }

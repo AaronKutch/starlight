@@ -10,7 +10,7 @@ mod region_adv;
 mod router;
 mod routing;
 
-pub use cedge::{BulkBehavior, CEdge, Programmability, SelectorLut, SelectorValue};
+pub use cedge::{CEdge, ChannelWidths, Programmability, SelectorLut, SelectorValue};
 pub use channel::{Channeler, Referent};
 pub use cnode::CNode;
 pub use config::{Config, Configurator, PConfig};

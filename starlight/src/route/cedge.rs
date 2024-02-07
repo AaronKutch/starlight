@@ -1,4 +1,7 @@
-use std::{fmt::Write, num::NonZeroUsize};
+use std::{
+    fmt::Write,
+    num::{NonZeroU64, NonZeroUsize},
+};
 
 use awint::{
     awint_dag::triple_arena::{surject_iterators::SurjectPtrAdvancer, Advancer, Ptr},
@@ -76,21 +79,18 @@ impl SelectorLut {
 
 /// Used by higher order edges to tell what it is capable of overall
 #[derive(Debug, Clone)]
-pub struct BulkBehavior {
+pub struct ChannelWidths {
     /// The number of bits that can enter this channel's sources
     pub channel_entry_widths: Vec<usize>,
     /// The number of bits that can exit this channel
     pub channel_exit_width: usize,
-    /// For now, we just add up the number of LUT bits in the channel
-    pub lut_bits: usize,
 }
 
-impl BulkBehavior {
+impl ChannelWidths {
     pub fn empty() -> Self {
         Self {
             channel_entry_widths: vec![],
             channel_exit_width: 0,
-            lut_bits: 0,
         }
     }
 }
@@ -114,7 +114,7 @@ pub enum Programmability {
     SelectorLut(SelectorLut),
 
     /// Bulk behavior
-    Bulk(BulkBehavior),
+    Bulk(ChannelWidths),
 }
 
 impl Programmability {
@@ -129,11 +129,14 @@ impl Programmability {
             }
             Programmability::Bulk(bulk) => {
                 let mut s = String::new();
-                for width in &bulk.channel_entry_widths {
-                    write!(s, " {}", width).unwrap();
+                for (i, width) in bulk.channel_entry_widths.iter().cloned().enumerate() {
+                    if i == 0 {
+                        write!(s, "{}", width).unwrap();
+                    } else {
+                        write!(s, " {}", width).unwrap();
+                    }
                 }
                 v.push(s);
-                v.push(format!("lut_bits {}", bulk.lut_bits));
             }
         }
         v
@@ -154,6 +157,8 @@ pub struct CEdge<PCNode: Ptr> {
     // Ideally when `CNode`s are merged, they keep approximately the same weight distribution for
     // wide edges delay_weight: u64,
     //lagrangian_weight: u64,
+    /// Used by algorithms
+    pub alg_visit: NonZeroU64,
 }
 
 impl<PCNode: Ptr> CEdge<PCNode> {
@@ -243,6 +248,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 sink: fixed_sink,
                 programmability,
                 embeddings: SmallSet::new(),
+                alg_visit: NonZeroU64::new(1).unwrap(),
             }
         })
     }
