@@ -1,8 +1,4 @@
-use std::{
-    cmp::{max, Reverse},
-    collections::BinaryHeap,
-    num::NonZeroU64,
-};
+use std::{cmp::max, collections::BinaryHeap, num::NonZeroU64};
 
 use awint::awint_dag::triple_arena::{Advancer, Ptr};
 
@@ -189,25 +185,12 @@ diluting the program, and then diluting both while maintaining a more dilution
 for the program than the target. There are usually multiple program cnodes embedded
 into a single target cnode, until the lowest level.
 
-The questions are: Do we have distinct mandatory levels? Do we have special CEdges
-between the levels? Do we have intersections in the subnode sets of cnodes?
-
-Currently, it seems that we do not want intersections in the subnode cnode and/or cedge sets,
-because the concentrated cedges will have redundancies and probably confuse the channel
-routing capacities. We treat the supernode and subnode backrefs as zero cost edges
-that the hyperpaths can use during intermediate routing. We keep the levels
-distinct and do not let there be super/sub node backrefs within the same level, and
-we keep an integer for the level with the `CNode`. We try to store all other
-information in the `CEdge`s, and alternate exclusive paths are encoded into the
-topology instead.
+There are distinct levels with no `CEdge`s between them
 
 This allows the Lagrangian routing algorithm to start with completed paths between program-target
 mappings, so that we do not constantly have to use maps to look up where we need to be moving loose
 endpoints. The Lagrangians can do advanced things by themselves like promoting concentration or
 dilution of paths to different cedges when necessary.
-
-For one more detail, what do we do about disconnected graphs?
-
 */
 
 /// Starting from unit `CNode`s and `CEdge`s describing all known low level
@@ -220,19 +203,11 @@ For one more detail, what do we do about disconnected graphs?
 pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
     channeler: &mut Channeler<PCNode, PCEdge>,
 ) -> Result<(), Error> {
-    // For each cnode on a given level, we will attempt to concentrate it and all
-    // its neighbors. If any neighbor has a supernode already, it skips the cnode
-
-    // we want the tree to be approximately balanced (so if the program and target
-    // channelers are both balanced they should mesh more efficiently when
-    // diluting), so this prioritizes on bulk first and `Ptr` second for
-    // determinism
-
     // when a `CNode` ends up with no edges to anything
     let mut final_top_level_cnodes = Vec::<PCNode>::new();
     let mut possibly_single_subnode = Vec::<PCNode>::new();
     let mut next_level_cnodes = Vec::<PCNode>::new();
-    let mut priority = BinaryHeap::<Reverse<(InternalBehavior, PCNode)>>::new();
+    let mut priority = BinaryHeap::<(usize, PCNode)>::new();
 
     for cnode in channeler.cnodes.vals() {
         if cnode.lvl != 0 {
@@ -240,15 +215,12 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
                 "hierarchy appears to have been generated before",
             ))
         }
-        priority.push(Reverse((
-            cnode.internal_behavior.clone(),
-            cnode.p_this_cnode,
-        )));
+        priority.push((0, cnode.p_this_cnode));
     }
 
     let mut current_lvl = 0u16;
     'outer: loop {
-        let p_consider = if let Some(Reverse((_, p_consider))) = priority.pop() {
+        let p_consider = if let Some((_, p_consider)) = priority.pop() {
             p_consider
         } else {
             if next_level_cnodes.is_empty() {
@@ -270,6 +242,9 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
             // has already been concentrated
             continue
         }
+
+        // For each cnode on a given level, we will attempt to concentrate it and all
+        // its neighbors. If any neighbor has a supernode already, it skips the cnode
 
         let related = channeler.related_nodes(p_consider);
         if related.len() == 1 {
@@ -338,7 +313,7 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
 pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
     current_lvl: u16,
     channeler: &mut Channeler<PCNode, PCEdge>,
-    priority: &mut BinaryHeap<Reverse<(InternalBehavior, PCNode)>>,
+    priority: &mut BinaryHeap<(usize, PCNode)>,
     possibly_single_subnode: &mut Vec<PCNode>,
     next_level_cnodes: &mut Vec<PCNode>,
 ) -> Result<(), Error> {
@@ -357,8 +332,6 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
 
     // create bulk `CEdge`s between all nodes on the level
     for p_consider in next_level_cnodes.drain(..) {
-        let cnode = channeler.cnodes.get_val(p_consider).unwrap();
-        priority.push(Reverse((cnode.internal_behavior.clone(), p_consider)));
         // first get the set of subnodes
         channeler.alg_visit = channeler.alg_visit.checked_add(1).unwrap();
         let direct_subnode_visit = channeler.alg_visit;
@@ -437,7 +410,7 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
                             }
                             // else the connections are internal, TODO are there
                             // any internal connection statistics we should want
-                            // to track
+                            // to track?
                         }
                     }
                 }
@@ -450,6 +423,9 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
             .unwrap()
             .internal_behavior;
         internal_behavior.lut_bits = internal_behavior.lut_bits.checked_add(lut_bits).unwrap();
+        // keeps the tree both relatively balanced and edge sizes tractable
+        priority.push((channel_widths.channel_exit_width, p_consider));
+        // create the edge
         if !source_set.is_empty() {
             for source in source_set.iter().cloned() {
                 let cnode = channeler.cnodes.get_val(source).unwrap();
