@@ -1,7 +1,7 @@
 use std::{fmt::Write, num::NonZeroUsize};
 
 use awint::{
-    awint_dag::triple_arena::{surject_iterators::SurjectPtrAdvancer, Advancer, OrdArena, Ptr},
+    awint_dag::triple_arena::{surject_iterators::SurjectPtrAdvancer, Advancer, Ptr},
     Awi,
 };
 
@@ -408,16 +408,21 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
 
     /// Returns an `OrdArena` of `ThisCNode` `PCNode`s of `p` itself and all
     /// nodes directly incident to it through edges.
-    pub fn related_nodes(&self, p: PCNode) -> OrdArena<PUniqueCNode, PCNode, ()> {
-        let mut res = OrdArena::new();
-        let _ = res.insert(p, ());
+    pub fn related_nodes(&mut self, p: PCNode) -> Vec<PCNode> {
+        self.related_visit = self.related_visit.checked_add(1).unwrap();
+        let cnode = self.cnodes.get_val_mut(p).unwrap();
+        cnode.related_visit = self.related_visit;
+        let mut res = vec![p];
         let mut adv = self.cnodes.advancer_surject(p);
         while let Some(p_referent) = adv.advance(&self.cnodes) {
             if let Referent::CEdgeIncidence(p_cedge, _) = self.cnodes.get_key(p_referent).unwrap() {
                 let cedge = self.cedges.get(*p_cedge).unwrap();
                 cedge.incidents(|p_incident| {
-                    let p_tmp = self.cnodes.get_val(p_incident).unwrap().p_this_cnode;
-                    let _ = res.insert(p_tmp, ());
+                    let cnode = self.cnodes.get_val_mut(p_incident).unwrap();
+                    if cnode.related_visit != self.related_visit {
+                        cnode.related_visit = self.related_visit;
+                        res.push(cnode.p_this_cnode);
+                    }
                 });
             }
         }

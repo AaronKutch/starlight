@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use awint::awint_dag::triple_arena::{Arena, OrdArena, Ptr, SurjectArena};
 
 use crate::{
@@ -32,6 +34,8 @@ pub struct Channeler<PCNode: Ptr, PCEdge: Ptr> {
     pub top_level_cnodes: OrdArena<PTopLevel, PCNode, ()>,
     // needed for the unit edges to find incidences
     pub ensemble_backref_to_channeler_backref: OrdArena<P0, PBack, PCNode>,
+    // used by the `related_nodes` function
+    pub related_visit: NonZeroU64,
 }
 
 impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
@@ -41,6 +45,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             cedges: Arena::new(),
             top_level_cnodes: OrdArena::new(),
             ensemble_backref_to_channeler_backref: OrdArena::new(),
+            related_visit: NonZeroU64::new(2).unwrap(),
         }
     }
 

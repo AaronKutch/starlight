@@ -1,6 +1,7 @@
 use std::{
     cmp::{max, Reverse},
     collections::BinaryHeap,
+    num::NonZeroU64,
 };
 
 use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, Ptr};
@@ -38,6 +39,7 @@ pub struct CNode<PCNode: Ptr> {
     pub p_supernode: Option<PCNode>,
     pub internal_behavior: InternalBehavior,
     pub embeddings: SmallSet<PEmbedding>,
+    pub related_visit: NonZeroU64,
 }
 
 impl<PCNode: Ptr> CNode<PCNode> {
@@ -65,6 +67,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 p_supernode: None,
                 internal_behavior,
                 embeddings: SmallSet::new(),
+                related_visit: NonZeroU64::new(1).unwrap(),
             })
         });
         for p_subnode in subnodes {
@@ -275,7 +278,7 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
         let mut subnodes_in_tree = 0usize;
         let mut lut_bits = 0usize;
         // check if any related nodes have supernodes
-        for p_related in related.keys() {
+        for p_related in &related {
             let related_cnode = channeler.cnodes.get_val(*p_related).unwrap();
             subnodes_in_tree = subnodes_in_tree
                 .checked_add(related_cnode.internal_behavior.subnodes_in_tree)
@@ -294,7 +297,7 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
         }
         // concentrate
         let p_next_lvl = channeler.make_top_level_cnode(
-            related.keys().copied(),
+            related.iter().copied(),
             current_lvl.checked_add(1).unwrap(),
             InternalBehavior {
                 subnodes_in_tree,
@@ -368,9 +371,9 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
         let mut related_subnodes_set = OrdArena::<P1, PCNode, ()>::new();
         let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
         while let Some(p_subnode) = subnode_adv.advance(channeler) {
-            for p_related in channeler.related_nodes(p_subnode).keys() {
-                if subnode_set.find_key(p_related).is_none() {
-                    let _ = related_subnodes_set.insert(*p_related, ());
+            for p_related in channeler.related_nodes(p_subnode) {
+                if subnode_set.find_key(&p_related).is_none() {
+                    let _ = related_subnodes_set.insert(p_related, ());
                 }
             }
         }
