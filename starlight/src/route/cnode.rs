@@ -39,7 +39,8 @@ pub struct CNode<PCNode: Ptr> {
     pub p_supernode: Option<PCNode>,
     pub internal_behavior: InternalBehavior,
     pub embeddings: SmallSet<PEmbedding>,
-    pub related_visit: NonZeroU64,
+    pub alg_visit: NonZeroU64,
+    pub alg_bulk: BulkBehavior,
 }
 
 impl<PCNode: Ptr> CNode<PCNode> {
@@ -67,7 +68,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 p_supernode: None,
                 internal_behavior,
                 embeddings: SmallSet::new(),
-                related_visit: NonZeroU64::new(1).unwrap(),
+                alg_visit: NonZeroU64::new(1).unwrap(),
+                alg_bulk: BulkBehavior::empty(),
             })
         });
         for p_subnode in subnodes {
@@ -361,33 +363,44 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
         // to the surject value structs to avoid all these `OrdArena`s
         ptr_struct!(P0; P1; P2; P3);
         // first get the set of subnodes
-        let mut subnode_set = OrdArena::<P0, PCNode, ()>::new();
+        channeler.alg_visit = channeler.alg_visit.checked_add(1).unwrap();
+        let direct_subnode_visit = channeler.alg_visit;
+        let mut subnode_set = vec![];
         let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
         while let Some(p_subnode) = subnode_adv.advance(channeler) {
-            let _ = subnode_set.insert(p_subnode, ());
+            channeler.cnodes.get_val_mut(p_subnode).unwrap().alg_visit = direct_subnode_visit;
+            subnode_set.push(p_subnode);
         }
         // iterate through the subnodes again, but now get a set of second neighbors
         // that aren't in the subnodes set
-        let mut related_subnodes_set = OrdArena::<P1, PCNode, ()>::new();
-        let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
-        while let Some(p_subnode) = subnode_adv.advance(channeler) {
+        channeler.alg_visit = channeler.alg_visit.checked_add(1).unwrap();
+        let related_visit = channeler.alg_visit;
+        let mut related_subnode_set = vec![];
+        //let mut related_set = vec![];
+        for p_subnode in subnode_set.iter().copied() {
             for p_related in channeler.related_nodes(p_subnode) {
-                if subnode_set.find_key(&p_related).is_none() {
-                    let _ = related_subnodes_set.insert(p_related, ());
+                let cnode = channeler.cnodes.get_val_mut(p_related).unwrap();
+                if (cnode.alg_visit != direct_subnode_visit) && (cnode.alg_visit != related_visit) {
+                    cnode.alg_visit = related_visit;
+                    related_subnode_set.push(p_related);
                 }
             }
         }
-        // get all the supernodes of the related subnodes, and associate them with
+        // get all the supernodes of the second neighbors, and associate them with
         // bulk behavior for the `CEdge` with them later. This bulk behavior will be the
         // edge from this `CNode` under consideration to the related node (so only sink
         // incidents will contribute to the bulk behavior), and when the related cnode
         // is under consideration it will handle the edge in the other direction, so we
         // can avoid duplication.
-        let mut related_supernodes_set = OrdArena::<P2, PCNode, BulkBehavior>::new();
-        for p_related_subnode in related_subnodes_set.keys().copied() {
-            let p_related_supernode = channeler.get_supernode(p_related_subnode).unwrap();
-            let _ = related_supernodes_set.insert(p_related_supernode, BulkBehavior::empty());
-        }
+        /*for p_related_subnode in related_subnode_set.iter().copied() {
+            let p_related = channeler.get_supernode(p_related_subnode).unwrap();
+            let cnode = channeler.cnodes.get_val_mut(p_related).unwrap();
+            if cnode.alg_visit != related_visit {
+                cnode.alg_visit = related_visit;
+                cnode.alg_bulk = BulkBehavior::empty();
+                related_set.push(p_related);
+            }
+        }*/
         // we want to find hyperedges with incidents that are both in the subnodes and
         // related subnodes, which will be concentrated as a bulk edge between the
         // supernode under consideration and the related supernodes. To avoid
@@ -412,8 +425,7 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
         // there any exponential blowup cases that can happen despite the
         // internalization?
 
-        let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
-        while let Some(p_subnode) = subnode_adv.advance(channeler) {
+        for p_subnode in subnode_set.iter().copied() {
             let mut adv_edges = channeler.cnodes.advancer_surject(p_subnode);
             while let Some(p_referent) = adv_edges.advance(&channeler.cnodes) {
                 if let Referent::CEdgeIncidence(p_cedge, i) =
@@ -428,15 +440,9 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
                         let mut bulk_info = OrdArena::<P3, PCNode, usize>::new();
                         for (i, p_source) in cedge.sources().iter().copied().enumerate() {
                             let cnode = channeler.cnodes.get_val(p_source).unwrap();
-                            // TODO if we commit to having a single supernode, have the info
-                            // in the `CNode` value and not in a referent.
-
-                            // if cnode.supernode.unwrap() == ...
-
-                            if subnode_set.find_key(&cnode.p_this_cnode).is_none() {
+                            if cnode.alg_visit != direct_subnode_visit {
                                 // we have a source incident in the related set
-                                let p = related_subnodes_set.find_key(&cnode.p_this_cnode).unwrap();
-                                let p_related_subnode = *related_subnodes_set.get_key(p).unwrap();
+                                let p_related_subnode = cnode.p_this_cnode;
                                 let w = match cedge.programmability() {
                                     Programmability::TNode
                                     | Programmability::StaticLut(_)

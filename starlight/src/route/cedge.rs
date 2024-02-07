@@ -409,9 +409,9 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
     /// Returns an `OrdArena` of `ThisCNode` `PCNode`s of `p` itself and all
     /// nodes directly incident to it through edges.
     pub fn related_nodes(&mut self, p: PCNode) -> Vec<PCNode> {
-        self.related_visit = self.related_visit.checked_add(1).unwrap();
+        self.alg_visit = self.alg_visit.checked_add(1).unwrap();
         let cnode = self.cnodes.get_val_mut(p).unwrap();
-        cnode.related_visit = self.related_visit;
+        cnode.alg_visit = self.alg_visit;
         let mut res = vec![p];
         let mut adv = self.cnodes.advancer_surject(p);
         while let Some(p_referent) = adv.advance(&self.cnodes) {
@@ -420,8 +420,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 let cedge = self.cedges.get(p_cedge).unwrap();
                 cedge.incidents(|p_incident| {
                     let cnode = self.cnodes.get_val_mut(p_incident).unwrap();
-                    if cnode.related_visit != self.related_visit {
-                        cnode.related_visit = self.related_visit;
+                    if cnode.alg_visit != self.alg_visit {
+                        cnode.alg_visit = self.alg_visit;
                         res.push(cnode.p_this_cnode);
                     }
                 });
