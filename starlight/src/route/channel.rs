@@ -89,14 +89,14 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         }
         // check other referent validities
         for referent in self.cnodes.keys() {
-            let invalid = match referent {
+            let invalid = match *referent {
                 // already checked
                 Referent::ThisCNode => false,
-                Referent::SubNode(p_subnode) => !self.cnodes.contains(*p_subnode),
+                Referent::SubNode(p_subnode) => !self.cnodes.contains(p_subnode),
                 Referent::CEdgeIncidence(p_cedge, i) => {
-                    if let Some(cedges) = self.cedges.get(*p_cedge) {
+                    if let Some(cedges) = self.cedges.get(p_cedge) {
                         if let Some(source_i) = i {
-                            if *source_i > cedges.sources().len() {
+                            if source_i > cedges.sources().len() {
                                 return Err(Error::OtherString(format!(
                                     "{referent:?} roundtrip out of bounds"
                                 )))
@@ -124,8 +124,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         }
         for p_cedge in self.cedges.ptrs() {
             let cedge = self.cedges.get(p_cedge).unwrap();
-            for p_cnode in cedge.sources().iter() {
-                if !self.cnodes.contains(*p_cnode) {
+            for p_cnode in cedge.sources().iter().copied() {
+                if !self.cnodes.contains(p_cnode) {
                     return Err(Error::OtherString(format!(
                         "{cedge:?} source {p_cnode:?} is invalid",
                     )))
@@ -138,8 +138,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 )))
             }
         }
-        for p_cnode in self.top_level_cnodes.keys() {
-            if !self.cnodes.contains(*p_cnode) {
+        for p_cnode in self.top_level_cnodes.keys().copied() {
+            if !self.cnodes.contains(p_cnode) {
                 return Err(Error::OtherString(format!(
                     "top_level_cnodes {p_cnode:?} is invalid"
                 )))
@@ -148,11 +148,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         // Other roundtrips from `backrefs` direction to ensure bijection
         for p_back in self.cnodes.ptrs() {
             let referent = self.cnodes.get_key(p_back).unwrap();
-            let fail = match referent {
+            let fail = match *referent {
                 // already checked
                 Referent::ThisCNode => false,
                 Referent::SubNode(p_subnode) => {
-                    let (referent, subnode) = self.cnodes.get(*p_subnode).unwrap();
+                    let (referent, subnode) = self.cnodes.get(p_subnode).unwrap();
                     if let Referent::ThisCNode = referent {
                         !subnode.p_supernode.is_some_and(|p| p == p_back)
                     } else {
@@ -160,13 +160,13 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     }
                 }
                 Referent::CEdgeIncidence(p_cedge, i) => {
-                    let cedge = self.cedges.get(*p_cedge).unwrap();
-                    if let Some(source_i) = *i {
+                    let cedge = self.cedges.get(p_cedge).unwrap();
+                    if let Some(source_i) = i {
                         if let Some(source) = cedge.sources().get(source_i) {
                             if let Referent::CEdgeIncidence(p_cedge1, i1) =
-                                self.cnodes.get_key(*source).unwrap()
+                                *self.cnodes.get_key(*source).unwrap()
                             {
-                                (*p_cedge != *p_cedge1) || (*i != *i1)
+                                (p_cedge != p_cedge1) || (i != i1)
                             } else {
                                 true
                             }
@@ -174,9 +174,9 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                             true
                         }
                     } else if let Referent::CEdgeIncidence(p_cedge1, i1) =
-                        self.cnodes.get_key(cedge.sink()).unwrap()
+                        *self.cnodes.get_key(cedge.sink()).unwrap()
                     {
-                        (*p_cedge != *p_cedge1) || i1.is_some()
+                        (p_cedge != p_cedge1) || i1.is_some()
                     } else {
                         true
                     }
@@ -217,8 +217,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             }
         }
         // check `top_level_cnodes`
-        for p_cnode in self.top_level_cnodes.keys() {
-            let (referent, cnode) = self.cnodes.get(*p_cnode).unwrap();
+        for p_cnode in self.top_level_cnodes.keys().copied() {
+            let (referent, cnode) = self.cnodes.get(p_cnode).unwrap();
             if let Referent::ThisCNode = referent {
                 if cnode.p_supernode.is_some() {
                     return Err(Error::OtherString(format!(

@@ -69,9 +69,9 @@ impl Mem {
     /// Randomly creates a new pair or gets an existing one under the `cap`
     pub fn next_capped(&mut self, w: usize, cap: usize) -> P0 {
         if self.rng.out_of_4(3) && (!self.v[w].is_empty()) {
-            let p = self.rng.index_slice(&self.v[w]).unwrap();
-            if self.get_awi(*p).to_usize() < cap {
-                return *p
+            let p = *self.rng.index_slice(&self.v[w]).unwrap();
+            if self.get_awi(p).to_usize() < cap {
+                return p
             }
         }
         let nzbw = NonZeroUsize::new(w).unwrap();

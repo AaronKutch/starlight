@@ -372,14 +372,14 @@ impl LNode {
         let mut to = 0;
         while to < next_bw {
             for j in 0..w {
-                let tmp0 = &lut[from + j];
-                let tmp1 = &lut[from + w + j];
+                let tmp0 = lut[from + j];
+                let tmp1 = lut[from + w + j];
                 match tmp0 {
                     DynamicValue::ConstUnknown => return None,
                     DynamicValue::Const(b0) => match tmp1 {
                         DynamicValue::ConstUnknown => return None,
                         DynamicValue::Const(b1) => {
-                            if *b0 != *b1 {
+                            if b0 != b1 {
                                 return None
                             }
                         }
@@ -389,7 +389,7 @@ impl LNode {
                         DynamicValue::ConstUnknown => return None,
                         DynamicValue::Const(_) => return None,
                         DynamicValue::Dynam(p1) => {
-                            if !backrefs.in_same_set(*p0, *p1).unwrap() {
+                            if !backrefs.in_same_set(p0, p1).unwrap() {
                                 return None
                             }
                         }
@@ -406,11 +406,11 @@ impl LNode {
         let mut to = 0;
         while to < next_bw {
             for j in 0..w {
-                let tmp0 = &lut[from + j];
-                let tmp1 = &lut[from + w + j];
-                res.push(*tmp0);
+                let tmp0 = lut[from + j];
+                let tmp1 = lut[from + w + j];
+                res.push(tmp0);
                 if let DynamicValue::Dynam(p) = tmp1 {
-                    removed.push(*p);
+                    removed.push(p);
                 }
             }
             from += 2 * w;
@@ -489,15 +489,15 @@ impl Ensemble {
                 let lut_w = NonZeroUsize::new(original_lut.len()).unwrap();
                 let mut lut = Awi::zero(lut_w);
                 let mut lut_known = Awi::zero(lut_w);
-                for (i, value) in original_lut.iter().enumerate() {
+                for (i, value) in original_lut.iter().copied().enumerate() {
                     match value {
                         DynamicValue::ConstUnknown => (),
                         DynamicValue::Const(b) => {
                             lut_known.set(i, true).unwrap();
-                            lut.set(i, *b).unwrap()
+                            lut.set(i, b).unwrap()
                         }
                         DynamicValue::Dynam(p) => {
-                            let equiv = self.backrefs.get_val(*p).unwrap();
+                            let equiv = self.backrefs.get_val(p).unwrap();
                             if let Some(b) = equiv.val.known_value() {
                                 lut_known.set(i, true).unwrap();
                                 lut.set(i, b).unwrap();
@@ -552,9 +552,9 @@ impl Ensemble {
         if lut.bw() != num_entries {
             return None
         }
-        for p_inx in p_inxs {
+        for p_inx in p_inxs.iter().copied() {
             if let Some(p_inx) = p_inx {
-                if !self.backrefs.contains(*p_inx) {
+                if !self.backrefs.contains(p_inx) {
                     return None
                 }
             }
@@ -603,9 +603,9 @@ impl Ensemble {
         if p_lut_bits.len() != num_entries {
             return None
         }
-        for p_inx in p_inxs {
+        for p_inx in p_inxs.iter().copied() {
             if let Some(p_inx) = p_inx {
-                if !self.backrefs.contains(*p_inx) {
+                if !self.backrefs.contains(p_inx) {
                     return None
                 }
             }
@@ -630,15 +630,15 @@ impl Ensemble {
                 inp.push(p_back);
             }
             let mut lut = vec![];
-            for p_lut_bit in p_lut_bits {
+            for p_lut_bit in p_lut_bits.iter().copied() {
                 if let DynamicValue::Dynam(p_lut_bit) = p_lut_bit {
                     let p_back = self
                         .backrefs
-                        .insert_key(*p_lut_bit, Referent::Input(p_lnode))
+                        .insert_key(p_lut_bit, Referent::Input(p_lnode))
                         .unwrap();
                     lut.push(DynamicValue::Dynam(p_back));
                 } else {
-                    lut.push(*p_lut_bit);
+                    lut.push(p_lut_bit);
                 }
             }
             LNode::new(p_self, LNodeKind::DynamicLut(inp, lut), lowered_from)

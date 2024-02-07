@@ -372,7 +372,8 @@ impl Router {
                 }
                 for (bit_i, the_two) in program_rnode_bits
                     .iter()
-                    .zip(target_rnode_bits.iter())
+                    .copied()
+                    .zip(target_rnode_bits.iter().copied())
                     .enumerate()
                 {
                     match the_two {
@@ -380,13 +381,13 @@ impl Router {
                             let program_p_equiv = self
                                 .program_ensemble
                                 .backrefs
-                                .get_val(*program_bit)
+                                .get_val(program_bit)
                                 .unwrap()
                                 .p_self_equiv;
                             let target_p_equiv = self
                                 .target_ensemble
                                 .backrefs
-                                .get_val(*target_bit)
+                                .get_val(target_bit)
                                 .unwrap()
                                 .p_self_equiv;
 

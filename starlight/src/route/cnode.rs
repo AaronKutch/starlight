@@ -278,8 +278,8 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
         let mut subnodes_in_tree = 0usize;
         let mut lut_bits = 0usize;
         // check if any related nodes have supernodes
-        for p_related in &related {
-            let related_cnode = channeler.cnodes.get_val(*p_related).unwrap();
+        for p_related in related.iter().copied() {
+            let related_cnode = channeler.cnodes.get_val(p_related).unwrap();
             subnodes_in_tree = subnodes_in_tree
                 .checked_add(related_cnode.internal_behavior.subnodes_in_tree)
                 .unwrap();
@@ -314,9 +314,9 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
         let mut max_lvl = 0;
         let mut subnodes_in_tree = 0usize;
         let mut lut_bits = 0usize;
-        for p_cnode in channeler.top_level_cnodes.keys() {
-            set.push(*p_cnode);
-            let cnode = channeler.cnodes.get_val(*p_cnode).unwrap();
+        for p_cnode in channeler.top_level_cnodes.keys().copied() {
+            set.push(p_cnode);
+            let cnode = channeler.cnodes.get_val(p_cnode).unwrap();
             subnodes_in_tree = subnodes_in_tree
                 .checked_add(cnode.internal_behavior.subnodes_in_tree)
                 .unwrap();
@@ -384,8 +384,8 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
         // is under consideration it will handle the edge in the other direction, so we
         // can avoid duplication.
         let mut related_supernodes_set = OrdArena::<P2, PCNode, BulkBehavior>::new();
-        for p_related_subnode in related_subnodes_set.keys() {
-            let p_related_supernode = channeler.get_supernode(*p_related_subnode).unwrap();
+        for p_related_subnode in related_subnodes_set.keys().copied() {
+            let p_related_supernode = channeler.get_supernode(p_related_subnode).unwrap();
             let _ = related_supernodes_set.insert(p_related_supernode, BulkBehavior::empty());
         }
         // we want to find hyperedges with incidents that are both in the subnodes and
@@ -417,17 +417,17 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
             let mut adv_edges = channeler.cnodes.advancer_surject(p_subnode);
             while let Some(p_referent) = adv_edges.advance(&channeler.cnodes) {
                 if let Referent::CEdgeIncidence(p_cedge, i) =
-                    channeler.cnodes.get_key(p_referent).unwrap()
+                    *channeler.cnodes.get_key(p_referent).unwrap()
                 {
                     // avoid duplication, if this is a sink incidence we automatically have
                     // a one time iter of the edge we need to handle
                     if i.is_none() {
-                        let cedge = channeler.cedges.get(*p_cedge).unwrap();
+                        let cedge = channeler.cedges.get(p_cedge).unwrap();
                         // this is an `OrdArena` to handle the multiple incidents from the
                         // same set redundancy
                         let mut bulk_info = OrdArena::<P3, PCNode, usize>::new();
-                        for (i, p_source) in cedge.sources().iter().enumerate() {
-                            let cnode = channeler.cnodes.get_val(*p_source).unwrap();
+                        for (i, p_source) in cedge.sources().iter().copied().enumerate() {
+                            let cnode = channeler.cnodes.get_val(p_source).unwrap();
                             // TODO if we commit to having a single supernode, have the info
                             // in the `CNode` value and not in a referent.
 

@@ -218,15 +218,15 @@ impl Ensemble {
             }
             let (time, events) = self.delayer.pop_next_simultaneous_events().unwrap();
             self.delayer.current_time = time;
-            for p_tnode in &events.tnode_drives {
+            for p_tnode in events.tnode_drives.iter().copied() {
                 // this is conditional because some optimizations can remove tnodes
-                if let Some(tnode) = self.tnodes.get(*p_tnode) {
+                if let Some(tnode) = self.tnodes.get(p_tnode) {
                     let p_driver = tnode.p_driver;
                     self.request_value(p_driver)?;
                 }
             }
-            for p_tnode in &events.tnode_drives {
-                if let Some(tnode) = self.tnodes.get(*p_tnode) {
+            for p_tnode in events.tnode_drives.iter().copied() {
+                if let Some(tnode) = self.tnodes.get(p_tnode) {
                     let val = self.backrefs.get_val(tnode.p_driver).unwrap().val;
                     let p_self = tnode.p_self;
                     // TODO if we don't unwrap, we need to reregister events

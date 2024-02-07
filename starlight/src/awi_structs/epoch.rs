@@ -216,8 +216,8 @@ impl EpochShared {
     pub fn drop_associated(&self) -> Result<(), Error> {
         let mut lock = self.epoch_data.borrow_mut();
         if let Some(ours) = lock.responsible_for.remove(self.p_self) {
-            for p_state in &ours.states_inserted {
-                let _ = lock.ensemble.remove_state(*p_state);
+            for p_state in ours.states_inserted.iter().copied() {
+                let _ = lock.ensemble.remove_state(p_state);
             }
             drop(lock);
             // drop the `EvalAwi`s of the assertions after unlocking

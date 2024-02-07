@@ -142,12 +142,12 @@ impl Ensemble {
                     return Err(Error::OtherString(format!("{state:?} operand is missing")))
                 }
             }
-            for (inx, p_self_bit) in state.p_self_bits.iter().enumerate() {
+            for (inx, p_self_bit) in state.p_self_bits.iter().copied().enumerate() {
                 if let Some(p_self_bit) = p_self_bit {
                     if let Some(Referent::ThisStateBit(p_self, inx_self)) =
-                        self.backrefs.get_key(*p_self_bit)
+                        self.backrefs.get_key(p_self_bit).copied()
                     {
-                        if (p_state != *p_self) || (inx != *inx_self) {
+                        if (p_state != p_self) || (inx != inx_self) {
                             return Err(Error::OtherString(format!(
                                 "{state:?}.p_self_bits roundtrip fail"
                             )))
@@ -161,8 +161,9 @@ impl Ensemble {
             }
         }
         for (p_lnode, lnode) in &self.lnodes {
-            if let Some(Referent::ThisLNode(p_self)) = self.backrefs.get_key(lnode.p_self) {
-                if p_lnode != *p_self {
+            if let Some(Referent::ThisLNode(p_self)) = self.backrefs.get_key(lnode.p_self).copied()
+            {
+                if p_lnode != p_self {
                     return Err(Error::OtherString(format!(
                         "{lnode:?}.p_self roundtrip fail"
                     )))
@@ -172,8 +173,9 @@ impl Ensemble {
             }
         }
         for (p_tnode, tnode) in &self.tnodes {
-            if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get_key(tnode.p_self) {
-                if p_tnode != *p_self {
+            if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get_key(tnode.p_self).copied()
+            {
+                if p_tnode != p_self {
                     return Err(Error::OtherString(format!(
                         "{tnode:?}.p_self roundtrip fail"
                     )))
@@ -183,16 +185,16 @@ impl Ensemble {
             }
         }
         // check other referent validities
-        for referent in self.backrefs.keys() {
+        for referent in self.backrefs.keys().copied() {
             let invalid = match referent {
                 // already checked
                 Referent::ThisEquiv => false,
                 Referent::ThisLNode(_) => false,
                 Referent::ThisTNode(_) => false,
                 Referent::ThisStateBit(..) => false,
-                Referent::Input(p_input) => !self.lnodes.contains(*p_input),
-                Referent::Driver(p_driver) => !self.tnodes.contains(*p_driver),
-                Referent::ThisRNode(p_rnode) => !self.notary.rnodes().contains(*p_rnode),
+                Referent::Input(p_input) => !self.lnodes.contains(p_input),
+                Referent::Driver(p_driver) => !self.tnodes.contains(p_driver),
+                Referent::ThisRNode(p_rnode) => !self.notary.rnodes().contains(p_rnode),
             };
             if invalid {
                 return Err(Error::OtherString(format!("{referent:?} is invalid")))
@@ -226,9 +228,9 @@ impl Ensemble {
         }
         for p_tnode in self.tnodes.ptrs() {
             let tnode = self.tnodes.get(p_tnode).unwrap();
-            if let Some(referent) = self.backrefs.get_key(tnode.p_driver) {
+            if let Some(referent) = self.backrefs.get_key(tnode.p_driver).copied() {
                 if let Referent::Driver(p_driver) = referent {
-                    if !self.tnodes.contains(*p_driver) {
+                    if !self.tnodes.contains(p_driver) {
                         return Err(Error::OtherString(format!(
                             "{p_tnode}: {tnode:?} driver referrent {p_driver} is invalid"
                         )))
@@ -247,11 +249,11 @@ impl Ensemble {
         }
         for rnode in self.notary.rnodes().vals() {
             if let Some(bits) = rnode.bits() {
-                for p_back in bits {
+                for p_back in bits.iter().copied() {
                     if let Some(p_back) = p_back {
-                        if let Some(referent) = self.backrefs.get_key(*p_back) {
+                        if let Some(referent) = self.backrefs.get_key(p_back).copied() {
                             if let Referent::ThisRNode(p_rnode) = referent {
-                                if !self.notary.rnodes().contains(*p_rnode) {
+                                if !self.notary.rnodes().contains(p_rnode) {
                                     return Err(Error::OtherString(format!(
                                         "{rnode:?} backref {p_rnode} is invalid"
                                     )))
@@ -271,28 +273,28 @@ impl Ensemble {
         // Other roundtrips from `backrefs` direction to ensure bijection
         for p_back in self.backrefs.ptrs() {
             let referent = self.backrefs.get_key(p_back).unwrap();
-            let fail = match referent {
+            let fail = match *referent {
                 // already checked
                 Referent::ThisEquiv => false,
                 Referent::ThisLNode(p_lnode) => {
-                    let lnode = self.lnodes.get(*p_lnode).unwrap();
+                    let lnode = self.lnodes.get(p_lnode).unwrap();
                     p_back != lnode.p_self
                 }
                 Referent::ThisTNode(p_tnode) => {
-                    let tnode = self.tnodes.get(*p_tnode).unwrap();
+                    let tnode = self.tnodes.get(p_tnode).unwrap();
                     p_back != tnode.p_self
                 }
                 Referent::ThisStateBit(p_state, inx) => {
-                    let state = self.stator.states.get(*p_state).unwrap();
-                    let p_bit = state.p_self_bits.get(*inx).unwrap();
+                    let state = self.stator.states.get(p_state).unwrap();
+                    let p_bit = state.p_self_bits.get(inx).copied().unwrap();
                     if let Some(p_bit) = p_bit {
-                        *p_bit != p_back
+                        p_bit != p_back
                     } else {
                         true
                     }
                 }
                 Referent::Input(p_input) => {
-                    let lnode = self.lnodes.get(*p_input).unwrap();
+                    let lnode = self.lnodes.get(p_input).unwrap();
                     let mut found = false;
                     lnode.inputs(|p_back1| {
                         if p_back1 == p_back {
@@ -302,11 +304,11 @@ impl Ensemble {
                     !found
                 }
                 Referent::Driver(p_tnode) => {
-                    let tnode = self.tnodes.get(*p_tnode).unwrap();
+                    let tnode = self.tnodes.get(p_tnode).unwrap();
                     tnode.p_driver != p_back
                 }
                 Referent::ThisRNode(p_rnode) => {
-                    let rnode = self.notary.rnodes().get_val(*p_rnode).unwrap();
+                    let rnode = self.notary.rnodes().get_val(p_rnode).unwrap();
                     let mut found = false;
                     if let Some(bits) = rnode.bits() {
                         for bit in bits {

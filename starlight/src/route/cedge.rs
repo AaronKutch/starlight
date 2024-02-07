@@ -322,7 +322,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                         }
                     }
                     let mut is_full_arbitrary = true;
-                    for lut_bit in lut.iter() {
+                    for lut_bit in lut.iter().copied() {
                         match lut_bit {
                             DynamicValue::ConstUnknown | DynamicValue::Const(_) => {
                                 // TODO we should handle intermediates inbetween arbitrary and
@@ -330,7 +330,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                                 is_full_arbitrary = false;
                             }
                             DynamicValue::Dynam(p) => {
-                                let p_equiv = channeler.translate(ensemble, *p).0;
+                                let p_equiv = channeler.translate(ensemble, p).0;
                                 if configurator.find(p_equiv).is_none() {
                                     is_full_arbitrary = false;
                                 }
@@ -345,7 +345,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                                 config.push(channeler.translate(ensemble, *input).0);
                             }
                             let mut awi = Awi::zero(NonZeroUsize::new(2 << inp.len()).unwrap());
-                            for (i, lut_bit) in lut.iter().enumerate() {
+                            for (i, lut_bit) in lut.iter().copied().enumerate() {
                                 let i = i << 1;
                                 match lut_bit {
                                     DynamicValue::ConstUnknown => {
@@ -353,12 +353,12 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                                     }
                                     DynamicValue::Const(b) => {
                                         awi.set(i.wrapping_add(1), true).unwrap();
-                                        if *b {
+                                        if b {
                                             awi.set(i, true).unwrap();
                                         }
                                     }
                                     DynamicValue::Dynam(p) => {
-                                        v.push(channeler.translate(ensemble, *p).1.unwrap());
+                                        v.push(channeler.translate(ensemble, p).1.unwrap());
                                     }
                                 }
                             }
@@ -374,9 +374,9 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                                 v.push(channeler.translate(ensemble, *input).1.unwrap());
                             }
                             let mut config = vec![];
-                            for lut_bit in lut.iter() {
+                            for lut_bit in lut.iter().copied() {
                                 if let DynamicValue::Dynam(p) = lut_bit {
-                                    let p_equiv = channeler.translate(ensemble, *p).0;
+                                    let p_equiv = channeler.translate(ensemble, p).0;
                                     config.push(p_equiv);
                                 } else {
                                     unreachable!()
@@ -415,8 +415,9 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         let mut res = vec![p];
         let mut adv = self.cnodes.advancer_surject(p);
         while let Some(p_referent) = adv.advance(&self.cnodes) {
-            if let Referent::CEdgeIncidence(p_cedge, _) = self.cnodes.get_key(p_referent).unwrap() {
-                let cedge = self.cedges.get(*p_cedge).unwrap();
+            if let Referent::CEdgeIncidence(p_cedge, _) = *self.cnodes.get_key(p_referent).unwrap()
+            {
+                let cedge = self.cedges.get(p_cedge).unwrap();
                 cedge.incidents(|p_incident| {
                     let cnode = self.cnodes.get_val_mut(p_incident).unwrap();
                     if cnode.related_visit != self.related_visit {
@@ -449,11 +450,12 @@ impl<PCNode: Ptr, PCEdge: Ptr> Advancer for CNodeSubnodeAdvancer<PCNode, PCEdge>
 
     fn advance(&mut self, collection: &Self::Collection) -> Option<Self::Item> {
         while let Some(p_referent) = self.adv.advance(&collection.cnodes) {
-            if let Referent::SubNode(p_subnode_ref) = collection.cnodes.get_key(p_referent).unwrap()
+            if let Referent::SubNode(p_subnode_ref) =
+                *collection.cnodes.get_key(p_referent).unwrap()
             {
                 let p_cnode = collection
                     .cnodes
-                    .get_val(*p_subnode_ref)
+                    .get_val(p_subnode_ref)
                     .unwrap()
                     .p_this_cnode;
                 return Some(p_cnode);

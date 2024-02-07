@@ -54,21 +54,19 @@ impl Ensemble {
                 RenderNodeKind::Equiv(p_back) => {
                     let mut adv = self.backrefs.advancer_surject(p_back);
                     while let Some(p_ref) = adv.advance(&self.backrefs) {
-                        match self.backrefs.get_key(p_ref).unwrap() {
+                        match *self.backrefs.get_key(p_ref).unwrap() {
                             Referent::ThisEquiv => (),
                             Referent::ThisLNode(p_lnode) => {
-                                edges.push(RenderNodeKind::LNode(*p_lnode))
+                                edges.push(RenderNodeKind::LNode(p_lnode))
                             }
                             Referent::ThisTNode(p_tnode) => {
-                                edges.push(RenderNodeKind::TNode(*p_tnode))
+                                edges.push(RenderNodeKind::TNode(p_tnode))
                             }
                             Referent::ThisStateBit(..) => (),
-                            Referent::Input(p_lnode) => edges.push(RenderNodeKind::LNode(*p_lnode)),
-                            Referent::Driver(p_tnode) => {
-                                edges.push(RenderNodeKind::TNode(*p_tnode))
-                            }
+                            Referent::Input(p_lnode) => edges.push(RenderNodeKind::LNode(p_lnode)),
+                            Referent::Driver(p_tnode) => edges.push(RenderNodeKind::TNode(p_tnode)),
                             Referent::ThisRNode(p_rnode) => {
-                                edges.push(RenderNodeKind::RNode(*p_rnode))
+                                edges.push(RenderNodeKind::RNode(p_rnode))
                             }
                         }
                     }
@@ -86,9 +84,9 @@ impl Ensemble {
                 RenderNodeKind::RNode(p_rnode) => {
                     let rnode = self.notary.rnodes().get_val(p_rnode).unwrap();
                     if let Some(bits) = rnode.bits() {
-                        for p in bits {
+                        for p in bits.iter().copied() {
                             if let Some(p) = p {
-                                edges.push(RenderNodeKind::Equiv(*p));
+                                edges.push(RenderNodeKind::Equiv(p));
                             }
                         }
                     }

@@ -163,13 +163,13 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 let p_cnode = self.cnodes.get_val(p_self).unwrap().clone().p_this_cnode;
-                match referent {
+                match *referent {
                     Referent::ThisCNode => {
                         NodeKind::CNode(self.cnodes.get_val(p_self).unwrap().clone())
                     }
-                    Referent::SubNode(p_back) => NodeKind::SubNode(*p_back, p_cnode),
+                    Referent::SubNode(p_back) => NodeKind::SubNode(p_back, p_cnode),
                     Referent::CEdgeIncidence(p_cedge, i) => {
-                        let cedge = self.cedges.get(*p_cedge).unwrap().clone();
+                        let cedge = self.cedges.get(p_cedge).unwrap().clone();
                         let mut cedge_forwarded = cedge.clone();
                         for source in cedge_forwarded.sources_mut() {
                             *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;
@@ -178,7 +178,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                             *cedge_forwarded.sink_mut() =
                                 self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
                         }
-                        NodeKind::CEdgeIncidence(p_cnode, *p_cedge, *i, cedge, cedge_forwarded)
+                        NodeKind::CEdgeIncidence(p_cnode, p_cedge, i, cedge, cedge_forwarded)
                     }
                 }
             });
@@ -195,7 +195,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         let mut arena = Arena::<PCNode, LevelNodeKind<PCNode>>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
-                match referent {
+                match *referent {
                     Referent::ThisCNode => {
                         let cnode = self.cnodes.get_val(p_self).unwrap();
                         if cnode.lvl == u16::try_from(lvl).unwrap() {
@@ -208,7 +208,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     Referent::CEdgeIncidence(p_cedge, i) => {
                         // insures that there is only one `CEdge` per set of incidents
                         if i.is_none() {
-                            let cedge = self.cedges.get(*p_cedge).unwrap().clone();
+                            let cedge = self.cedges.get(p_cedge).unwrap().clone();
                             if self.cnodes.get_val(cedge.sink()).unwrap().lvl
                                 == u16::try_from(lvl).unwrap()
                             {
@@ -243,7 +243,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         let mut arena = Arena::<PCNode, HierarchyNodeKind<PCNode>>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
-                match referent {
+                match *referent {
                     Referent::ThisCNode => {
                         let cnode = self.cnodes.get_val(p_self).unwrap();
                         if let Some(p) = self.get_supernode(cnode.p_this_cnode) {
@@ -257,7 +257,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     Referent::CEdgeIncidence(p_cedge, i) => {
                         // insures that there is only one `CEdge` per set of incidents
                         if i.is_none() {
-                            let cedge = self.cedges.get(*p_cedge).unwrap().clone();
+                            let cedge = self.cedges.get(p_cedge).unwrap().clone();
                             let mut cedge_forwarded = cedge.clone();
                             for source in cedge_forwarded.sources_mut() {
                                 *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;

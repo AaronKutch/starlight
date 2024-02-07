@@ -611,16 +611,16 @@ impl Ensemble {
                 // remove all associated LNodes first
                 let mut adv = self.backrefs.advancer_surject(p_back);
                 while let Some(p_back) = adv.advance(&self.backrefs) {
-                    match self.backrefs.get_key(p_back).unwrap() {
+                    match *self.backrefs.get_key(p_back).unwrap() {
                         Referent::ThisEquiv => (),
                         Referent::ThisStateBit(p_state, bit_i) => {
-                            self.remove_state_bit_not_p_self(*p_state, *bit_i);
+                            self.remove_state_bit_not_p_self(p_state, bit_i);
                         }
                         Referent::ThisLNode(p_lnode) => {
-                            self.remove_lnode_not_p_self(*p_lnode);
+                            self.remove_lnode_not_p_self(p_lnode);
                         }
                         Referent::ThisTNode(p_tnode) => {
-                            self.remove_tnode_not_p_self(*p_tnode);
+                            self.remove_tnode_not_p_self(p_tnode);
                         }
                         _ => unreachable!(),
                     }
@@ -726,24 +726,23 @@ impl Ensemble {
                 // remove all associated LNodes
                 let mut adv = self.backrefs.advancer_surject(p_back);
                 while let Some(p_back) = adv.advance(&self.backrefs) {
-                    match self.backrefs.get_key(p_back).unwrap() {
+                    match *self.backrefs.get_key(p_back).unwrap() {
                         Referent::ThisEquiv => (),
                         Referent::ThisLNode(p_lnode) => {
-                            self.remove_lnode_not_p_self(*p_lnode);
+                            self.remove_lnode_not_p_self(p_lnode);
                             remove.push(p_back);
                         }
                         Referent::ThisTNode(p_tnode) => {
-                            self.remove_tnode_not_p_self(*p_tnode);
+                            self.remove_tnode_not_p_self(p_tnode);
                             remove.push(p_back);
                         }
                         Referent::ThisStateBit(..) => (),
                         Referent::Input(p_inp) => {
-                            self.optimizer
-                                .insert(Optimization::InvestigateConst(*p_inp));
+                            self.optimizer.insert(Optimization::InvestigateConst(p_inp));
                         }
                         Referent::Driver(p_driver) => {
                             self.optimizer
-                                .insert(Optimization::InvestigateDriverConst(*p_driver));
+                                .insert(Optimization::InvestigateDriverConst(p_driver));
                         }
                         Referent::ThisRNode(_) => (),
                     }
