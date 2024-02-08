@@ -1,6 +1,7 @@
 use std::{
+    cmp::max,
     fmt::Write,
-    num::{NonZeroU64, NonZeroUsize},
+    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
 };
 
 use awint::{
@@ -154,9 +155,13 @@ pub struct CEdge<PCNode: Ptr> {
     programmability: Programmability,
 
     pub embeddings: SmallSet<PEmbedding>,
-    // Ideally when `CNode`s are merged, they keep approximately the same weight distribution for
-    // wide edges delay_weight: u64,
-    //lagrangian_weight: u64,
+
+    /// The weight needs to be at least 1 to prevent the algorithm from doing
+    /// very bad routes
+    pub delay_weight: NonZeroU32,
+    /// The lagrangian multiplier, fixed point such that (1 << 16) is 1.0
+    pub lagrangian: u32,
+
     /// Used by algorithms
     pub alg_visit: NonZeroU64,
 }
@@ -192,33 +197,6 @@ impl<PCNode: Ptr> CEdge<PCNode> {
     pub fn incidents_len(&self) -> usize {
         self.sources().len().checked_add(1).unwrap()
     }
-
-    pub fn is_base(&self) -> bool {
-        matches!(self.programmability(), Programmability::Bulk(_))
-    }
-
-    /*pub fn channel_entry_width(&self) -> usize {
-        match self.programmability() {
-            Programmability::StaticLut(awi) => awi.bw().trailing_zeros() as usize,
-            Programmability::ArbitraryLut(table) => table.len().trailing_zeros() as usize,
-            Programmability::SelectorLut(selector_lut) => selector_lut.v.len(),
-            Programmability::Bulk(bulk) => bulk.channel_entry_widths.sum(),
-        }
-    }
-
-    pub fn channel_exit_width(&self) -> usize {
-        match self.programmability() {
-            Programmability::StaticLut(awi) => 1,
-            Programmability::ArbitraryLut(table) => 1,
-            Programmability::SelectorLut(selector_lut) => 1,
-            Programmability::Bulk(bulk) => bulk.channel_exit_width,
-        }
-    }
-
-    /// Takes the minimum of the channel entry width and channel exit width
-    pub fn channel_width(&self) -> usize {
-        min(self.channel_entry_width(), self.channel_exit_width())
-    }*/
 }
 
 impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
@@ -229,6 +207,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         sources: &[PCNode],
         sink: PCNode,
         programmability: Programmability,
+        delay_weight: NonZeroU32,
     ) -> PCEdge {
         self.cedges.insert_with(|p_self| {
             let mut fixed_sources = vec![];
@@ -248,6 +227,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 sink: fixed_sink,
                 programmability,
                 embeddings: SmallSet::new(),
+                delay_weight,
+                lagrangian: 0,
                 alg_visit: NonZeroU64::new(1).unwrap(),
             }
         })
@@ -317,7 +298,12 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     for input in inp {
                         v.push(channeler.translate(ensemble, *input).1.unwrap());
                     }
-                    channeler.make_cedge(&v, p_self, Programmability::StaticLut(awi.clone()));
+                    channeler.make_cedge(
+                        &v,
+                        p_self,
+                        Programmability::StaticLut(awi.clone()),
+                        NonZeroU32::new(1).unwrap(),
+                    );
                 }
                 LNodeKind::DynamicLut(inp, lut) => {
                     let mut is_full_selector = true;
@@ -372,6 +358,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                                 &v,
                                 p_self,
                                 Programmability::SelectorLut(SelectorLut { awi, v: config }),
+                                NonZeroU32::new(1).unwrap(),
                             );
                         }
                         (false, true) => {
@@ -388,7 +375,12 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                                     unreachable!()
                                 }
                             }
-                            channeler.make_cedge(&v, p_self, Programmability::ArbitraryLut(config));
+                            channeler.make_cedge(
+                                &v,
+                                p_self,
+                                Programmability::ArbitraryLut(config),
+                                NonZeroU32::new(1).unwrap(),
+                            );
                         }
                         // we will need interaction with the `Ensemble` to do `LNode` side lowering
                         _ => todo!(),
@@ -397,13 +389,32 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             }
         }
 
+        // TODO handle or warn about crazy magnitude difference cases
+        let mut max_delay = 1;
+        for tnode in ensemble.tnodes.vals() {
+            max_delay = max(max_delay, tnode.delay().amount());
+        }
+        let divisor = (max_delay >> 16).saturating_add(1);
+
         // add `CEdge`s according to `TNode`s
         for tnode in ensemble.tnodes.vals() {
             let v = [channeler.translate(ensemble, tnode.p_driver).1.unwrap()];
+
             channeler.make_cedge(
                 &v,
                 channeler.translate(ensemble, tnode.p_self).1.unwrap(),
                 Programmability::TNode,
+                NonZeroU32::new(
+                    u32::try_from(
+                        tnode
+                            .delay()
+                            .amount()
+                            .wrapping_div(divisor)
+                            .clamp(1, 1 << 16),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
             );
         }
 
@@ -413,11 +424,12 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
     }
 
     /// Returns an `OrdArena` of `ThisCNode` `PCNode`s of `p` itself and all
-    /// nodes directly incident to it through edges.
+    /// nodes directly incident to it through edges. Node that this modifies the
+    /// `alg_visit` of local nodes.
     pub fn related_nodes(&mut self, p: PCNode) -> Vec<PCNode> {
-        self.alg_visit = self.alg_visit.checked_add(1).unwrap();
+        let related_visit = self.next_alg_visit();
         let cnode = self.cnodes.get_val_mut(p).unwrap();
-        cnode.alg_visit = self.alg_visit;
+        cnode.alg_visit = related_visit;
         let mut res = vec![p];
         let mut adv = self.cnodes.advancer_surject(p);
         while let Some(p_referent) = adv.advance(&self.cnodes) {
@@ -426,8 +438,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 let cedge = self.cedges.get(p_cedge).unwrap();
                 cedge.incidents(|p_incident| {
                     let cnode = self.cnodes.get_val_mut(p_incident).unwrap();
-                    if cnode.alg_visit != self.alg_visit {
-                        cnode.alg_visit = self.alg_visit;
+                    if cnode.alg_visit != related_visit {
+                        cnode.alg_visit = related_visit;
                         res.push(cnode.p_this_cnode);
                     }
                 });
@@ -447,7 +459,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
 ptr_struct!(PUniqueCNode);
 
 pub struct CNodeSubnodeAdvancer<PCNode: Ptr, PCEdge: Ptr> {
-    adv: SurjectPtrAdvancer<PCNode, Referent<PCNode, PCEdge>, CNode<PCNode>>,
+    adv: SurjectPtrAdvancer<PCNode, Referent<PCNode, PCEdge>, CNode<PCNode, PCEdge>>,
 }
 
 impl<PCNode: Ptr, PCEdge: Ptr> Advancer for CNodeSubnodeAdvancer<PCNode, PCEdge> {

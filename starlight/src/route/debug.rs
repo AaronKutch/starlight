@@ -16,7 +16,7 @@ use crate::{
 /// For viewing everything at once
 #[derive(Debug, Clone)]
 pub enum NodeKind<PCNode: Ptr, PCEdge: Ptr> {
-    CNode(CNode<PCNode>),
+    CNode(CNode<PCNode, PCEdge>),
     SubNode(PCNode, PCNode),
     CEdgeIncidence(PCNode, PCEdge, Option<usize>, CEdge<PCNode>, CEdge<PCNode>),
     Remove,
@@ -76,13 +76,13 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for NodeKind<PCNode, PCEdg
 
 /// For viewing the cgraph at only one level
 #[derive(Debug, Clone)]
-pub enum LevelNodeKind<PCNode: Ptr> {
-    CNode(CNode<PCNode>),
+pub enum LevelNodeKind<PCNode: Ptr, PCEdge: Ptr> {
+    CNode(CNode<PCNode, PCEdge>),
     CEdge(CEdge<PCNode>, CEdge<PCNode>),
     Remove,
 }
 
-impl<PCNode: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode> {
+impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode, PCEdge> {
     fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
         match this {
             LevelNodeKind::CNode(cnode) => DebugNode {
@@ -115,14 +115,14 @@ impl<PCNode: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode> {
 
 /// For viewing the hierarchy structure
 #[derive(Debug, Clone)]
-pub enum HierarchyNodeKind<PCNode: Ptr> {
+pub enum HierarchyNodeKind<PCNode: Ptr, PCEdge: Ptr> {
     // supernode edge and forwarded version is stored on the end
-    CNode(CNode<PCNode>, Option<(PCNode, PCNode)>),
+    CNode(CNode<PCNode, PCEdge>, Option<(PCNode, PCNode)>),
     CEdge(CEdge<PCNode>, CEdge<PCNode>),
     Remove,
 }
 
-impl<PCNode: Ptr> DebugNodeTrait<PCNode> for HierarchyNodeKind<PCNode> {
+impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for HierarchyNodeKind<PCNode, PCEdge> {
     fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
         match this {
             HierarchyNodeKind::CNode(cnode, p_super) => DebugNode {
@@ -191,8 +191,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         arena
     }
 
-    pub fn to_cnode_level_debug(&self, lvl: usize) -> Arena<PCNode, LevelNodeKind<PCNode>> {
-        let mut arena = Arena::<PCNode, LevelNodeKind<PCNode>>::new();
+    pub fn to_cnode_level_debug(&self, lvl: usize) -> Arena<PCNode, LevelNodeKind<PCNode, PCEdge>> {
+        let mut arena = Arena::<PCNode, LevelNodeKind<PCNode, PCEdge>>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 match *referent {
@@ -239,8 +239,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         arena
     }
 
-    pub fn to_cnode_hierarchy_debug(&self) -> Arena<PCNode, HierarchyNodeKind<PCNode>> {
-        let mut arena = Arena::<PCNode, HierarchyNodeKind<PCNode>>::new();
+    pub fn to_cnode_hierarchy_debug(&self) -> Arena<PCNode, HierarchyNodeKind<PCNode, PCEdge>> {
+        let mut arena = Arena::<PCNode, HierarchyNodeKind<PCNode, PCEdge>>::new();
         self.cnodes
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
                 match *referent {

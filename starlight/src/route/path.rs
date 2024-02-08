@@ -2,10 +2,11 @@ use std::iter::IntoIterator;
 
 use awint::awint_dag::triple_arena::Ptr;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EdgeKind<QCEdge: Ptr> {
-    /// Edge through a `CEdge` between `CNode`s on the same level. The
-    Transverse(QCEdge, Option<usize>),
+    /// Edge through a `CEdge` between `CNode`s on the same level. The `usize`
+    /// indicates which source is used.
+    Transverse(QCEdge, usize),
     /// Edge to a higher level `CNode`
     Concentrate,
     /// Edge to a lower level `CNode`

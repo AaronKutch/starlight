@@ -26,7 +26,7 @@ pub enum Referent<PCNode: Ptr, PCEdge: Ptr> {
 
 #[derive(Debug, Clone)]
 pub struct Channeler<PCNode: Ptr, PCEdge: Ptr> {
-    pub cnodes: SurjectArena<PCNode, Referent<PCNode, PCEdge>, CNode<PCNode>>,
+    pub cnodes: SurjectArena<PCNode, Referent<PCNode, PCEdge>, CNode<PCNode, PCEdge>>,
     pub cedges: Arena<PCEdge, CEdge<PCNode>>,
     /// The plan is that this always ends up with a single top level node, with
     /// all unconnected graphs being connected with `Behavior::Noop` so that the
@@ -47,6 +47,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             ensemble_backref_to_channeler_backref: OrdArena::new(),
             alg_visit: NonZeroU64::new(2).unwrap(),
         }
+    }
+
+    pub fn next_alg_visit(&mut self) -> NonZeroU64 {
+        self.alg_visit = self.alg_visit.checked_add(1).unwrap();
+        self.alg_visit
     }
 
     pub fn find_channeler_cnode(&self, ensemble_backref: PBack) -> Option<PCNode> {

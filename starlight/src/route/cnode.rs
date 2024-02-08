@@ -1,4 +1,8 @@
-use std::{cmp::max, collections::BinaryHeap, num::NonZeroU64};
+use std::{
+    cmp::max,
+    collections::BinaryHeap,
+    num::{NonZeroU32, NonZeroU64},
+};
 
 use awint::awint_dag::triple_arena::{Advancer, Ptr};
 
@@ -29,7 +33,7 @@ impl InternalBehavior {
 
 /// A channel node
 #[derive(Debug, Clone)]
-pub struct CNode<PCNode: Ptr> {
+pub struct CNode<PCNode: Ptr, PCEdge: Ptr> {
     pub p_this_cnode: PCNode,
     pub lvl: u16,
     pub p_supernode: Option<PCNode>,
@@ -37,9 +41,11 @@ pub struct CNode<PCNode: Ptr> {
     pub embeddings: SmallSet<PEmbedding>,
     pub alg_visit: NonZeroU64,
     pub alg_entry_width: usize,
+    // this is used in Dijkstras' and points backwards
+    pub alg_edge: (Option<PCEdge>, usize),
 }
 
-impl<PCNode: Ptr> CNode<PCNode> {
+impl<PCNode: Ptr, PCEdge: Ptr> CNode<PCNode, PCEdge> {
     pub fn internal_behavior(&self) -> &InternalBehavior {
         &self.internal_behavior
     }
@@ -66,6 +72,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 embeddings: SmallSet::new(),
                 alg_visit: NonZeroU64::new(1).unwrap(),
                 alg_entry_width: 0,
+                alg_edge: (None, 0),
             })
         });
         for p_subnode in subnodes {
@@ -333,8 +340,7 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
     // create bulk `CEdge`s between all nodes on the level
     for p_consider in next_level_cnodes.drain(..) {
         // first get the set of subnodes
-        channeler.alg_visit = channeler.alg_visit.checked_add(1).unwrap();
-        let direct_subnode_visit = channeler.alg_visit;
+        let direct_subnode_visit = channeler.next_alg_visit();
         let mut subnode_set = vec![];
         let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
         while let Some(p_subnode) = subnode_adv.advance(channeler) {
@@ -352,8 +358,7 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
 
         // iterate through the subnodes again, but now get a set of second neighbors
         // that aren't in the subnodes set
-        channeler.alg_visit = channeler.alg_visit.checked_add(1).unwrap();
-        let related_visit = channeler.alg_visit;
+        let related_visit = channeler.next_alg_visit();
         let mut source_set = vec![];
         let mut channel_widths = ChannelWidths::empty();
         let mut lut_bits = 0usize;
@@ -423,8 +428,12 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
             .unwrap()
             .internal_behavior;
         internal_behavior.lut_bits = internal_behavior.lut_bits.checked_add(lut_bits).unwrap();
-        // keeps the tree both relatively balanced and edge sizes tractable
-        priority.push((channel_widths.channel_exit_width, p_consider));
+        // We want the edge source numbers to be mostly tractable. The tree will be
+        // lopsided somewhat because of this, but will ultimately be WAVL-like balanced
+        // because everything that doesn't have overlap issues will be concentrated
+        // every round.
+        let channel_exit_width = channel_widths.channel_exit_width;
+        priority.push((channel_exit_width, p_consider));
         // create the edge
         if !source_set.is_empty() {
             for source in source_set.iter().cloned() {
@@ -433,10 +442,18 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
                     .channel_entry_widths
                     .push(cnode.alg_entry_width);
             }
+            // TODO the delay weight system is messed up for bulk edges, perhaps this is
+            // where we can add more than one edge per concentrated node if the weights vary
+            // wildly, e.g. for an island FPGA with some long range connections
             channeler.make_cedge(
                 &source_set,
                 p_consider,
                 Programmability::Bulk(channel_widths),
+                // gross approximation for now
+                NonZeroU32::new(
+                    u32::try_from(channel_exit_width.clamp(1, u32::MAX as usize)).unwrap(),
+                )
+                .unwrap(),
             );
         }
     }

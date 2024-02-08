@@ -205,16 +205,10 @@ impl Router {
                     match edge.kind {
                         EdgeKind::Transverse(q_cedge, source_i) => {
                             if let Some(cedge) = self.target_channeler().cedges.get(q_cedge) {
-                                if let Some(source_i) = source_i {
-                                    if cedge.sources().get(source_i).is_none() {
-                                        return Err(Error::OtherString(format!(
-                                            "{p_embedding} {embedding:?} path sink source_i is \
-                                             out of range"
-                                        )))
-                                    }
-                                } else if !self.target_channeler().cnodes.contains(cedge.sink()) {
+                                if cedge.sources().get(source_i).is_none() {
                                     return Err(Error::OtherString(format!(
-                                        "{p_embedding} {embedding:?} path sink is invalid"
+                                        "{p_embedding} {embedding:?} path sink source_i is out of \
+                                         range"
                                     )))
                                 }
                             } else {
@@ -235,22 +229,12 @@ impl Router {
                     match edge.kind {
                         EdgeKind::Transverse(q_cedge, source_i) => {
                             let cedge = self.target_channeler().cedges.get(q_cedge).unwrap();
-                            if let Some(source_i) = source_i {
-                                q = cedge.sources()[source_i];
-                                if q != edge.to {
-                                    return Err(Error::OtherString(format!(
-                                        "{p_embedding} {embedding:?} path {i} is broken at \
-                                         traversal edge {j}"
-                                    )))
-                                }
-                            } else {
-                                q = cedge.sink();
-                                if q != edge.to {
-                                    return Err(Error::OtherString(format!(
-                                        "{p_embedding} {embedding:?} path {i} is broken at \
-                                         traversal edge {j}"
-                                    )))
-                                }
+                            q = cedge.sources()[source_i];
+                            if q != edge.to {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:?} path {i} is broken at traversal \
+                                     edge {j}"
+                                )))
                             }
                         }
                         EdgeKind::Concentrate => {
