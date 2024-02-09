@@ -78,7 +78,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for NodeKind<PCNode, PCEdg
 #[derive(Debug, Clone)]
 pub enum LevelNodeKind<PCNode: Ptr, PCEdge: Ptr> {
     CNode(CNode<PCNode, PCEdge>),
-    CEdge(CEdge<PCNode>, CEdge<PCNode>),
+    CEdge(PCEdge, CEdge<PCNode>, CEdge<PCNode>),
     Remove,
 }
 
@@ -95,7 +95,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode, 
                 },
                 sinks: vec![],
             },
-            LevelNodeKind::CEdge(cedge, cedge_forwarded) => DebugNode {
+            LevelNodeKind::CEdge(p_cedge, cedge, cedge_forwarded) => DebugNode {
                 sources: {
                     let mut v = vec![];
                     for (source, source_forwarded) in
@@ -105,7 +105,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode, 
                     }
                     v
                 },
-                center: { cedge.programmability().debug_strings() },
+                center: {
+                    let mut v = cedge.programmability().debug_strings();
+                    v.push(format!("{p_cedge:?}"));
+                    v
+                },
                 sinks: { vec![(cedge_forwarded.sink(), "".to_owned())] },
             },
             LevelNodeKind::Remove => panic!("should have been removed"),
@@ -118,7 +122,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode, 
 pub enum HierarchyNodeKind<PCNode: Ptr, PCEdge: Ptr> {
     // supernode edge and forwarded version is stored on the end
     CNode(CNode<PCNode, PCEdge>, Option<(PCNode, PCNode)>),
-    CEdge(CEdge<PCNode>, CEdge<PCNode>),
+    CEdge(PCEdge, CEdge<PCNode>, CEdge<PCNode>),
     Remove,
 }
 
@@ -139,7 +143,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for HierarchyNodeKind<PCNo
                 },
                 sinks: vec![],
             },
-            HierarchyNodeKind::CEdge(cedge, cedge_forwarded) => DebugNode {
+            HierarchyNodeKind::CEdge(p_cedge, cedge, cedge_forwarded) => DebugNode {
                 sources: {
                     let mut v = vec![];
                     for (source, source_forwarded) in
@@ -149,7 +153,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for HierarchyNodeKind<PCNo
                     }
                     v
                 },
-                center: { cedge.programmability().debug_strings() },
+                center: {
+                    let mut v = cedge.programmability().debug_strings();
+                    v.push(format!("{p_cedge:?}"));
+                    v
+                },
                 sinks: { vec![(cedge_forwarded.sink(), "".to_owned())] },
             },
             HierarchyNodeKind::Remove => panic!("should have been removed"),
@@ -220,7 +228,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                                     *cedge_forwarded.sink_mut() =
                                         self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
                                 }
-                                LevelNodeKind::CEdge(cedge, cedge_forwarded)
+                                LevelNodeKind::CEdge(p_cedge, cedge, cedge_forwarded)
                             } else {
                                 LevelNodeKind::Remove
                             }
@@ -266,7 +274,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                                 *cedge_forwarded.sink_mut() =
                                     self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
                             }
-                            HierarchyNodeKind::CEdge(cedge, cedge_forwarded)
+                            HierarchyNodeKind::CEdge(p_cedge, cedge, cedge_forwarded)
                         } else {
                             HierarchyNodeKind::Remove
                         }

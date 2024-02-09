@@ -175,11 +175,11 @@ fn route_embedding(
 
                 // color the backbone
                 let backbone_visit = router.target_channeler.next_alg_visit();
-                let mut edge_i_end = None;
-                for (i, edge) in path.edges().iter().skip(edge_i).enumerate() {
+                let mut edge_i_end = edge_i;
+                for edge in path.edges()[(edge_i + 1)..].iter() {
+                    edge_i_end += 1;
                     if edge.kind == EdgeKind::Dilute {
                         exit = Some(edge.to);
-                        edge_i_end = Some(i);
                         break
                     }
                     if edge.kind == EdgeKind::Concentrate {
@@ -194,7 +194,6 @@ fn route_embedding(
                         .unwrap()
                         .alg_visit = backbone_visit;
                 }
-                let edge_i_end = edge_i_end.unwrap();
                 let exit = exit.unwrap();
 
                 // TODO I suspect that we may want to do the routing from the source backwards,
@@ -232,12 +231,13 @@ fn route_embedding(
                 'outer: while let Some(Reverse((cost, q_cedge, source_j))) = priority.pop() {
                     let cedge = router.target_channeler.cedges.get(q_cedge).unwrap();
                     let q_cnode = cedge.sink();
+                    let cnode = router.target_channeler.cnodes.get_val_mut(q_cnode).unwrap();
+                    let q_cnode = cnode.p_this_cnode;
                     if q_cnode == exit {
                         // found our new path
                         found = true;
                         break 'outer
                     }
-                    let cnode = router.target_channeler.cnodes.get_val_mut(q_cnode).unwrap();
                     // processing visits first and always setting them means that if
                     // other searches go out of the backbone shadow, they do not need to
                     // look up the supernode
@@ -299,7 +299,7 @@ fn route_embedding(
                     while let Some(edge) = new_path.pop() {
                         completed_path.push(edge);
                     }
-                    completed_path.extend(edges[edge_i_end..].iter().copied());
+                    completed_path.extend(edges[(edge_i_end + 1)..].iter().copied());
                     // update the path
                     router
                         .embeddings
@@ -310,8 +310,9 @@ fn route_embedding(
                         .edges = completed_path;
                 } else {
                     return Err(Error::OtherString(format!(
-                        "could not find possible routing for embedding {p_embedding:?}, this is \
-                         probably a bug with the router or channeler"
+                        "could not find possible routing (disregarding width constraints) for \
+                         embedding {p_embedding:?}, this is probably a bug with the router or \
+                         channeler"
                     )));
                 }
             }
