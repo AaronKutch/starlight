@@ -31,8 +31,8 @@ impl<QCNode: Ptr, QCEdge: Ptr> Edge<QCNode, QCEdge> {
 /// A single path from a source to sink across multiple `CEdge`s
 #[derive(Debug, Clone)]
 pub struct Path<QCNode: Ptr, QCEdge: Ptr> {
-    sink: QCNode,
-    edges: Vec<Edge<QCNode, QCEdge>>,
+    pub sink: QCNode,
+    pub edges: Vec<Edge<QCNode, QCEdge>>,
     //critical_multiplier: u64,
 }
 

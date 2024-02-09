@@ -164,6 +164,7 @@
 //! drop(epoch);
 //! ```
 
+#![allow(clippy::thread_local_initializer_can_be_made_const)]
 #![allow(clippy::needless_range_loop)]
 #![allow(clippy::manual_flatten)]
 #![allow(clippy::comparison_chain)]
