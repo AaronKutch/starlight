@@ -77,7 +77,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for NodeKind<PCNode, PCEdg
 /// For viewing the cgraph at only one level
 #[derive(Debug, Clone)]
 pub enum LevelNodeKind<PCNode: Ptr, PCEdge: Ptr> {
-    CNode(CNode<PCNode, PCEdge>),
+    CNode(CNode<PCNode, PCEdge>, CNode<PCNode, PCEdge>),
     CEdge(PCEdge, CEdge<PCNode>, CEdge<PCNode>),
     Remove,
 }
@@ -85,13 +85,17 @@ pub enum LevelNodeKind<PCNode: Ptr, PCEdge: Ptr> {
 impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode, PCEdge> {
     fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
         match this {
-            LevelNodeKind::CNode(cnode) => DebugNode {
+            LevelNodeKind::CNode(cnode, forwarded_cnode) => DebugNode {
                 sources: vec![],
                 center: {
-                    vec![
+                    let mut v = vec![
                         format!("{} cnode {}", cnode.lvl, cnode.internal_behavior.lut_bits),
                         format!("{:?}", cnode.p_this_cnode),
-                    ]
+                    ];
+                    if let Some(p_supernode) = forwarded_cnode.p_supernode {
+                        v.push(format!("sup: {:?}", p_supernode));
+                    }
+                    v
                 },
                 sinks: vec![],
             },
@@ -207,7 +211,12 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     Referent::ThisCNode => {
                         let cnode = self.cnodes.get_val(p_self).unwrap();
                         if cnode.lvl == u16::try_from(lvl).unwrap() {
-                            LevelNodeKind::CNode(cnode.clone())
+                            let mut forwarded_cnode = cnode.clone();
+                            if let Some(ref mut p_supernode) = forwarded_cnode.p_supernode {
+                                *p_supernode =
+                                    self.cnodes.get_val(*p_supernode).unwrap().p_this_cnode;
+                            }
+                            LevelNodeKind::CNode(cnode.clone(), forwarded_cnode)
                         } else {
                             LevelNodeKind::Remove
                         }
