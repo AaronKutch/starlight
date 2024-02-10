@@ -208,7 +208,7 @@ fn dilute_plateau(
 
     // color the backbone
     let backbone_visit = router.target_channeler.next_alg_visit();
-    for edge in &path.edges()[(edge_i + 1)..edge_end_i] {
+    for edge in &path.edges()[edge_i..edge_end_i] {
         router
             .target_channeler
             .cnodes
