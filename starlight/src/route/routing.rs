@@ -1,12 +1,13 @@
 use std::{
     cmp::{max, Reverse},
     collections::BinaryHeap,
+    num::NonZeroU64,
 };
 
 use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
-    route::{Edge, EdgeKind, EmbeddingKind, PEmbedding, Referent, Router},
+    route::{Edge, EdgeKind, EmbeddingKind, PEmbedding, QCNode, Referent, Router},
     Error,
 };
 
@@ -171,7 +172,19 @@ fn route_embedding(
                     }
                     if let Some(edge_i) = edge_i {
                         if let Some(edge_end_i) = edge_end_i {
-                            dilute_plateau(router, p_embedding, path_i, edge_i, edge_end_i)?;
+                            let found =
+                                dilute_plateau(router, p_embedding, path_i, edge_i, edge_end_i)?;
+                            if !found {
+                                // for the combined source and sink embeddings which should have
+                                // simple absolute trapezoids, if `dilute_plateau` could not find
+                                // the path then one is not possible
+                                return Err(Error::OtherString(format!(
+                                    "could not find possible routing (disregarding width \
+                                     constraints) for embedding {p_embedding:?}, unless this is a \
+                                     poorly connected target or edge case, then this is probably \
+                                     a bug with the router"
+                                )));
+                            }
                         } else {
                             // plateau does not have an end going down
                             unreachable!();
@@ -188,25 +201,28 @@ fn route_embedding(
     Ok(())
 }
 
-// subroutine to dilute a "plateau" by one level
+// Subroutine to dilute a "plateau" by one level. `edge_i..edge_end_i` should be
+// the range of edges that have `edge.to` at the plateau level. Returns `false`
+// if a valid path could not be found
 fn dilute_plateau(
     router: &mut Router,
     p_embedding: PEmbedding,
     path_i: usize,
     edge_i: usize,
     edge_end_i: usize,
-) -> Result<(), Error> {
+) -> Result<bool, Error> {
     let embedding = router.embeddings.get(p_embedding).unwrap();
     let q_source = embedding.target_hyperpath.source();
     let path = &embedding.target_hyperpath.paths()[path_i];
-    let entry = if edge_i == 0 {
+    let start = if edge_i == 0 {
         q_source
     } else {
         path.edges()[edge_i - 1].to
     };
-    let exit = path.edges()[edge_end_i].to;
+    let end = path.edges()[edge_end_i].to;
+    let mut max_backbone_lvl = router.target_channeler.cnodes.get_val(start).unwrap().lvl + 1;
 
-    // color the backbone
+    // color the initial backbone which uses the concentrated path
     let backbone_visit = router.target_channeler.next_alg_visit();
     for edge in &path.edges()[edge_i..edge_end_i] {
         router
@@ -217,25 +233,166 @@ fn dilute_plateau(
             .alg_visit = backbone_visit;
     }
 
-    // TODO I suspect that we may want to do the routing from the source backwards,
-    // because then we go through the multiple sources which could then be assigned
-    // individual weights, or maybe since the ultimate constraints are the sinks
-    // this is the correct way?
+    loop {
+        let found =
+            route_path_on_level(router, backbone_visit, max_backbone_lvl, start, end).unwrap();
+        if found {
+            break
+        }
+        // see `route_path_on_level`, we need to retry with a higher max backbone, but
+        // first color the higher part of the backbone
 
-    // the priority queue is based around the cost of getting to an edge plus its
-    // cost, because if we based around the nodes there are cases where there can be
-    // multiple edge sources from a node to the same sink, and if there were an
-    // incidence advancer loop inside the priority loop it would introduce issues
-    // about selecting the best edge from a node
+        // TODO there is probably a way to optimize this
+        max_backbone_lvl += 1;
+        let embedding = router.embeddings.get(p_embedding).unwrap();
+        let path = &embedding.target_hyperpath.paths()[path_i];
+        for edge in &path.edges()[edge_i..edge_end_i] {
+            let mut q_supernode = router
+                .target_channeler
+                .cnodes
+                .get_val(edge.to)
+                .unwrap()
+                .p_supernode;
+            loop {
+                if let Some(q) = q_supernode {
+                    let cnode = router.target_channeler.cnodes.get_val_mut(q).unwrap();
+                    if cnode.lvl == max_backbone_lvl {
+                        cnode.alg_visit = backbone_visit;
+                        break
+                    }
+                    q_supernode = cnode.p_supernode;
+                } else {
+                    // we have already reached the root
+                    return Ok(false)
+                }
+            }
+        }
+    }
+    // get the path which is stored on the `alg_edge`s
+    let mut new_path = vec![];
+    let mut q_cnode = end;
+    loop {
+        let cnode = router.target_channeler.cnodes.get_val_mut(q_cnode).unwrap();
+        if let (Some(q_cedge), j) = cnode.alg_edge {
+            let cedge = router.target_channeler.cedges.get(q_cedge).unwrap();
+            new_path.push(Edge {
+                kind: EdgeKind::Transverse(q_cedge, j),
+                to: cnode.p_this_cnode,
+            });
+            q_cnode = cedge.sources()[j];
+        } else {
+            break
+        }
+    }
+    // splice the new part into the old
+    let edges = router
+        .embeddings
+        .get(p_embedding)
+        .unwrap()
+        .target_hyperpath
+        .paths()[path_i]
+        .edges();
+    let mut completed_path = edges[..edge_i].to_vec();
+    while let Some(edge) = new_path.pop() {
+        completed_path.push(edge);
+    }
+    completed_path.extend(edges[(edge_end_i + 1)..].iter().copied());
+    // update the path
+    router
+        .embeddings
+        .get_mut(p_embedding)
+        .unwrap()
+        .target_hyperpath
+        .paths_mut()[path_i]
+        .edges = completed_path;
+    Ok(true)
+}
 
+/*
+`route_path_on_level` derives its efficiency from only expanding a Dijkstra front within the
+"shadow" of a certain set of supernodes, usually the path from the previous concentrated level.
+This is even much better than A* in many cases if this is used all the way down the tree. If the
+lower level was like
+
+   A start
+  / \
+...  A
+      \
+       A  ...
+      / \ /
+    ...  B
+          \
+           B end
+
+with the nodes labeled with their supernode counterparts, which in the concentrated level is
+
+   A  ...
+  / \ /
+...  B
+
+then when the concentrated path is A -> B, the A and B supernodes will be colored with
+`backbone_visit` and then `route_path_on_level` will be called with that visit number, the
+start on the lower level, the end on the lower level, and `max_backbone_lvl` set to the level that
+the backbone nodes are on. The lower level routing will only search within the
+region that has supernodes marked with `backbone_visit`, and thus they will not have to
+explore the arbitrarily large "..." regions. This often produces a valid routing and also often
+produces an optimized routing when considering paths outside of the region. However, there is an
+important issue to consider:
+
+In any hierarchy generation method, we will always end up in situations like:
+
+         C
+        /
+       A
+      / \
+     /   \
+end B     A start
+           \
+            C
+
+Where there are two nodes ("A" here) that are concentrated to the same supernode, and a node
+concentrated differently ("B" here) that will end up as
+
+ A
+ |\
+ | \
+ |  C
+ | /
+ |/
+ B
+
+on the next level since there was an edge from the "A" subnode group that has a sink in "B".
+However, not all of the subnodes can actually reach B directly from A, so if the higher level path
+and backbone coloring was A -> B, the lower level routing will find that it cannot reach the ending
+because it needs to go through a route slightly outside of the shadow. `route_path_on_level` will
+return false, but then it can be retried with a higher `max_backbone_lvl` where we
+have gone through the previously used backbone and project them to a higher level. If the target has
+any typical amount of cross connectivity, a path will be found within one or two higher levels.
+If nothing is found by the root, then the connection is impossible if the `start` and `end` are
+absolute, otherwise those need to be moved.
+*/
+
+/// Assumes that `start` and `end` are on the same level, and `max_backbone_lvl`
+/// is at least on the same level as the `start` and `end` are on. Returns
+/// `true` if the routing was successful, leaving the path information on the
+/// `alg_edge`s starting at the `end` node. Returns an error if the
+/// `max_backbone_lvl` is above the root node.
+fn route_path_on_level(
+    router: &mut Router,
+    backbone_visit: NonZeroU64,
+    max_backbone_lvl: u16,
+    start: QCNode,
+    end: QCNode,
+) -> Result<bool, Error> {
     let front_visit = router.target_channeler.next_alg_visit();
     let mut priority = BinaryHeap::new();
     // initialize entry node for algorithm
-    let cnode = router.target_channeler.cnodes.get_val_mut(entry).unwrap();
+    let cnode = router.target_channeler.cnodes.get_val_mut(start).unwrap();
+    let route_lvl = cnode.lvl;
     cnode.alg_visit = front_visit;
     cnode.alg_edge.0 = None;
     // push initial edges from the entry
-    let mut adv = router.target_channeler.cnodes.advancer_surject(entry);
+    let mut adv = router.target_channeler.cnodes.advancer_surject(start);
     while let Some(q_referent) = adv.advance(&router.target_channeler.cnodes) {
         if let Referent::CEdgeIncidence(q_cedge, Some(source_j)) =
             *router.target_channeler.cnodes.get_key(q_referent).unwrap()
@@ -261,75 +418,47 @@ fn dilute_plateau(
             cnode.alg_visit = front_visit;
             // avoid reborrow, this is cheaper
             cnode.alg_edge = (Some(q_cedge), source_j);
-            if q_cnode == exit {
+            if q_cnode == end {
                 // found our new path
                 found = true;
                 break
             }
-            let q_supernode = cnode.p_supernode.unwrap();
-            let supernode = router.target_channeler.cnodes.get_val(q_supernode).unwrap();
-            if supernode.alg_visit == backbone_visit {
-                // find new edges for the Dijkstra search
+            let mut lvl = route_lvl;
+            let mut q_cnode_consider = q_cnode;
+            while lvl <= max_backbone_lvl {
+                let cnode_consider = router
+                    .target_channeler
+                    .cnodes
+                    .get_val(q_cnode_consider)
+                    .unwrap();
+                if cnode_consider.alg_visit == backbone_visit {
+                    // find new edges for the Dijkstra search
 
-                let mut adv = router.target_channeler.cnodes.advancer_surject(q_cnode);
-                while let Some(q_referent1) = adv.advance(&router.target_channeler.cnodes) {
-                    if let Referent::CEdgeIncidence(q_cedge1, Some(source_j1)) =
-                        *router.target_channeler.cnodes.get_key(q_referent1).unwrap()
-                    {
-                        let cedge = router.target_channeler.cedges.get(q_cedge1).unwrap();
-                        priority.push(Reverse((
-                            cost.saturating_add(cedge.delay_weight.get())
-                                .saturating_add(cedge.lagrangian),
-                            q_cedge1,
-                            source_j1,
-                        )));
+                    let mut adv = router.target_channeler.cnodes.advancer_surject(q_cnode);
+                    while let Some(q_referent1) = adv.advance(&router.target_channeler.cnodes) {
+                        if let Referent::CEdgeIncidence(q_cedge1, Some(source_j1)) =
+                            *router.target_channeler.cnodes.get_key(q_referent1).unwrap()
+                        {
+                            let cedge = router.target_channeler.cedges.get(q_cedge1).unwrap();
+                            priority.push(Reverse((
+                                cost.saturating_add(cedge.delay_weight.get())
+                                    .saturating_add(cedge.lagrangian),
+                                q_cedge1,
+                                source_j1,
+                            )));
+                        }
                     }
+                }
+                if let Some(q_supernode) = cnode_consider.p_supernode {
+                    q_cnode_consider = q_supernode;
+                    lvl += 1;
+                } else {
+                    return Err(Error::OtherStr(
+                        "`route_path_on_level` called with too high of a `backbone_lvl`",
+                    ))
                 }
             }
         }
     }
-    if found {
-        let mut new_path = vec![];
-        let mut q_cnode = exit;
-        loop {
-            let cnode = router.target_channeler.cnodes.get_val_mut(q_cnode).unwrap();
-            if let (Some(q_cedge), j) = cnode.alg_edge {
-                let cedge = router.target_channeler.cedges.get(q_cedge).unwrap();
-                new_path.push(Edge {
-                    kind: EdgeKind::Transverse(q_cedge, j),
-                    to: cnode.p_this_cnode,
-                });
-                q_cnode = cedge.sources()[j];
-            } else {
-                break
-            }
-        }
-        // splice the new part into the old
-        let edges = router
-            .embeddings
-            .get(p_embedding)
-            .unwrap()
-            .target_hyperpath
-            .paths()[path_i]
-            .edges();
-        let mut completed_path = edges[..edge_i].to_vec();
-        while let Some(edge) = new_path.pop() {
-            completed_path.push(edge);
-        }
-        completed_path.extend(edges[(edge_end_i + 1)..].iter().copied());
-        // update the path
-        router
-            .embeddings
-            .get_mut(p_embedding)
-            .unwrap()
-            .target_hyperpath
-            .paths_mut()[path_i]
-            .edges = completed_path;
-    } else {
-        return Err(Error::OtherString(format!(
-            "could not find possible routing (disregarding width constraints) for embedding \
-             {p_embedding:?}, this is probably a bug with the router or channeler"
-        )));
-    }
-    Ok(())
+    Ok(found)
 }

@@ -9,18 +9,19 @@ use std::fmt::Debug;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, thiserror::Error)]
 pub enum Error {
-    // An operand points nowhere, so the DAG is broken
+    /// This indicates an invalid [triple_arena::Ptr] was used
     #[error("InvalidPtr")]
     InvalidPtr,
-    // Thrown if a `Literal`, `Invalid`, or `Opaque` node is attempted to be evaluated
+    /// If there is an `Op` that cannot be evaluated
     #[error("Unevaluatable")]
     Unevaluatable,
-    // wrong bitwidths of operands
+    /// If an operand has a bitwidth mismatch or unexpected bitwidth
     #[error("WrongBitwidth")]
     WrongBitwidth,
-    // Some other kind of brokenness, such as dependency edges not agreeing with operand edges
+    /// For miscellanious errors
     #[error("{0}")]
     OtherStr(&'static str),
+    /// For miscellanious errors
     #[error("{0}")]
     OtherString(String),
 }

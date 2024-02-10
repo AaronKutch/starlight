@@ -291,6 +291,9 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
         next_level_cnodes.push(p_next_lvl);
     }
 
+    // TODO optimize to just use `final_top_level_cnodes` in this final step,
+    // avoiding all other uses of `top_level_cnodes` in the middle
+
     // if there are multiple cnodes are left in an anticlique, concentrate them into
     // a single top level node
     if channeler.top_level_cnodes.len() > 1 {
