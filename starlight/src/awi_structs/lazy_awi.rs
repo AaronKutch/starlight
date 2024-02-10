@@ -1,5 +1,4 @@
 use std::{
-    borrow::Borrow,
     fmt,
     num::NonZeroUsize,
     ops::{Deref, Index, RangeFull},
@@ -15,6 +14,7 @@ use crate::{
     awi,
     ensemble::{BasicValue, BasicValueKind, CommonValue, Ensemble, PExternal},
     epoch::get_current_epoch,
+    misc::DisplayStr,
     Delay, Error, EvalAwi,
 };
 
@@ -245,6 +245,12 @@ impl LazyAwi {
         }
         Ok(())
     }
+
+    /// Sets a debug name for `self` that is used in debug reporting and
+    /// rendering
+    pub fn set_debug_name<S: AsRef<str>>(&self, debug_name: S) -> Result<(), Error> {
+        Ensemble::thread_local_rnode_set_debug_name(self.p_external, Some(debug_name.as_ref()))
+    }
 }
 
 impl Deref for LazyAwi {
@@ -263,7 +269,7 @@ impl Index<RangeFull> for LazyAwi {
     }
 }
 
-impl Borrow<dag::Bits> for LazyAwi {
+impl std::borrow::Borrow<dag::Bits> for LazyAwi {
     fn borrow(&self) -> &dag::Bits {
         self
     }
@@ -276,8 +282,28 @@ impl AsRef<dag::Bits> for LazyAwi {
 }
 
 impl fmt::Debug for LazyAwi {
+    /// Can only display some fields if the `Epoch` `self` was created in is
+    /// active
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "LazyAwi({:?})", self.state())
+        let mut tmp = f.debug_struct("LazyAwi");
+        tmp.field("p_external", &self.p_external());
+        if let Some(epoch) = get_current_epoch() {
+            let lock = epoch.epoch_data.borrow();
+            if let Some((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
+                if let Some(ref name) = rnode.debug_name {
+                    tmp.field("debug_name", &DisplayStr(name));
+                }
+                // only really useful for the `EvalAwi` case
+                /*if let Some(s) = lock
+                    .ensemble
+                    .get_state_debug(self.state())
+                {
+                    tmp.field("state", &DisplayStr(&s));
+                }*/
+                tmp.field("bits", &rnode.bits());
+            }
+        }
+        tmp.finish()
     }
 }
 

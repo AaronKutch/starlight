@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     num::NonZeroUsize,
     ops::{Index, IndexMut},
@@ -14,6 +15,12 @@ pub enum Direction {
     Neg1,
     /// Positive .1 direction
     Pos1,
+}
+
+impl fmt::Display for Direction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 // we forbid zero length sides because they shouldn't occur for almost all

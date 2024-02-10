@@ -3,6 +3,7 @@ mod grid;
 mod rng;
 mod small_map;
 
+pub(crate) use error::DisplayStr;
 pub use error::Error;
 pub use grid::{Direction, Grid};
 pub use rng::StarRng;

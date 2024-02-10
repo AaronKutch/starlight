@@ -268,17 +268,68 @@ impl Router {
         Ok(())
     }
 
+    /// Looks through the target ensemble for potential mapping points and their
+    /// corresponding channeling nodes
+    pub fn debug_potential_map_points(&self, skip_invalid: bool) -> String {
+        let mut s = String::new();
+        for (p_rnode, p_external, rnode) in self.target_ensemble().notary.rnodes() {
+            let mut init = false;
+            if !skip_invalid {
+                writeln!(
+                    s,
+                    "{p_rnode:?} {p_external:?} debug_name: {:?} {:#?}",
+                    rnode.debug_name, rnode.location
+                )
+                .unwrap();
+            }
+            if let Some(bits) = rnode.bits() {
+                for (i, bit) in bits.iter().copied().enumerate() {
+                    if let Some(bit) = bit {
+                        if let Some(q_cnode) = self.target_channeler().find_channeler_cnode(bit) {
+                            if skip_invalid && !init {
+                                writeln!(
+                                    s,
+                                    "{p_rnode:?} {p_external:?} debug_name: {:?} {:#?}",
+                                    rnode.debug_name, rnode.location
+                                )
+                                .unwrap();
+                                init = true;
+                            }
+                            writeln!(s, "bit {i} {q_cnode:?}").unwrap();
+                        } else if !skip_invalid {
+                            writeln!(s, "bit {i} (no corresponding channeling node)").unwrap();
+                        }
+                    } else if !skip_invalid {
+                        writeln!(s, "bit {i} (was dropped or optimized away)").unwrap();
+                    }
+                }
+            } else if !skip_invalid {
+                writeln!(s, "(`RNode` never initialized)").unwrap();
+            }
+        }
+        s
+    }
+
     pub fn debug_mapping(&self, p_mapping: PMapping) -> String {
         let (p_back, mapping) = self.mappings().get(p_mapping).unwrap();
-        let mut s = String::new();
+        let mut s = format!(
+            "{p_mapping:?} {p_back:?} Mapping {{\nprogram: {} bit {}\n",
+            mapping.program_p_external, mapping.program_bit_i
+        );
         let rnode = self
             .program_ensemble()
             .notary
             .get_rnode(mapping.program_p_external)
             .unwrap()
             .1;
+        if let Some(ref debug_name) = rnode.debug_name {
+            writeln!(s, "debug_name: {debug_name}").unwrap();
+        }
         if let Some(location) = rnode.location {
-            writeln!(s, "program side of mapping originates from {location:#?}").unwrap();
+            writeln!(s, "{location:#?}").unwrap();
+        }
+        if let Some(q_cnode) = self.target_channeler().find_channeler_cnode(*p_back) {
+            writeln!(s, "{q_cnode:?}").unwrap();
         }
         if let Some(ref source) = mapping.target_source {
             let rnode = self
@@ -287,12 +338,23 @@ impl Router {
                 .get_rnode(source.target_p_external)
                 .unwrap()
                 .1;
+            writeln!(
+                s,
+                "target source {} bit {} {}",
+                source.target_p_external, source.target_bit_i, source.target_p_equiv
+            )
+            .unwrap();
+            if let Some(ref debug_name) = rnode.debug_name {
+                writeln!(s, "debug_name: {debug_name}").unwrap();
+            }
             if let Some(location) = rnode.location {
-                writeln!(
-                    s,
-                    "target source side of mapping originates from {location:#?}"
-                )
-                .unwrap();
+                writeln!(s, "{location:#?}").unwrap();
+            }
+            if let Some(q_cnode) = self
+                .target_channeler()
+                .find_channeler_cnode(source.target_p_equiv)
+            {
+                writeln!(s, "{q_cnode:?}").unwrap();
             }
         }
         for (i, sink) in mapping.target_sinks.iter().enumerate() {
@@ -302,19 +364,34 @@ impl Router {
                 .get_rnode(sink.target_p_external)
                 .unwrap()
                 .1;
+            writeln!(
+                s,
+                "target sink {i} {} bit {} {}",
+                sink.target_p_external, sink.target_bit_i, sink.target_p_equiv
+            )
+            .unwrap();
+            if let Some(ref debug_name) = rnode.debug_name {
+                writeln!(s, "debug_name: {debug_name}").unwrap();
+            }
             if let Some(location) = rnode.location {
-                writeln!(
-                    s,
-                    "target sink {i} side of mapping originates from {location:#?}"
-                )
-                .unwrap();
+                writeln!(s, "{location:#?}").unwrap();
+            }
+            if let Some(q_cnode) = self
+                .target_channeler()
+                .find_channeler_cnode(sink.target_p_equiv)
+            {
+                writeln!(s, "{q_cnode:?}").unwrap();
             }
         }
-        writeln!(
-            s,
-            "other mapping details: {p_mapping:?} {p_back:?} {mapping:#?}"
-        )
-        .unwrap();
+        writeln!(s, "}}").unwrap();
+        s
+    }
+
+    pub fn debug_mappings(&self) -> String {
+        let mut s = String::new();
+        for p_mapping in self.mappings().ptrs() {
+            writeln!(s, "{}", self.debug_mapping(p_mapping)).unwrap();
+        }
         s
     }
 

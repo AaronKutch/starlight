@@ -27,12 +27,14 @@ pub struct RNode {
     nzbw: NonZeroUsize,
     bits: SmallVec<[Option<PBack>; 1]>,
     read_only: bool,
-    /// Location where this `RNode` was created
-    pub location: Option<Location>,
     /// Associated state that this `RNode` was initialized from
     pub associated_state: Option<PState>,
     /// If the associated state needs to be lowered before states are pruned
     pub lower_before_pruning: bool,
+    /// Location where this `RNode` was created
+    pub location: Option<Location>,
+    /// Name used for debug renders and more
+    pub debug_name: Option<String>,
 }
 
 impl Recast<PBack> for RNode {
@@ -57,8 +59,9 @@ impl RNode {
             read_only,
             bits: smallvec![],
             associated_state,
-            location,
             lower_before_pruning,
+            location,
+            debug_name: None,
         }
     }
 
@@ -432,6 +435,29 @@ impl Ensemble {
         } else {
             return Err(Error::OtherStr(
                 "could not find thread local `RNode`, probably an `EvalAwi` was used outside of \
+                 the `Epoch` it was created in",
+            ))
+        }
+        Ok(())
+    }
+
+    pub fn thread_local_rnode_set_debug_name(
+        p_external: PExternal,
+        debug_name: Option<&str>,
+    ) -> Result<(), Error> {
+        let epoch_shared = get_current_epoch().unwrap();
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+        if let Some(p_rnode) = ensemble.notary.rnodes.find_key(&p_external) {
+            ensemble
+                .notary
+                .rnodes
+                .get_val_mut(p_rnode)
+                .unwrap()
+                .debug_name = debug_name.map(|s| s.to_owned());
+        } else {
+            return Err(Error::OtherStr(
+                "could not find thread local `RNode`, probably a `LazyAwi` was used outside of \
                  the `Epoch` it was created in",
             ))
         }

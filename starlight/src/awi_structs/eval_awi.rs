@@ -9,6 +9,7 @@ use crate::{
     awi,
     ensemble::{Ensemble, PExternal},
     epoch::get_current_epoch,
+    misc::DisplayStr,
     Error,
 };
 
@@ -235,6 +236,12 @@ impl EvalAwi {
         Ok(all_unknown)
     }
 
+    /// Sets a debug name for `self` that is used in debug reporting and
+    /// rendering
+    pub fn set_debug_name<S: AsRef<str>>(&self, debug_name: S) -> Result<(), Error> {
+        Ensemble::thread_local_rnode_set_debug_name(self.p_external, Some(debug_name.as_ref()))
+    }
+
     pub fn zero(w: NonZeroUsize) -> Self {
         Self::from_bits(&dag::Awi::zero(w))
     }
@@ -274,18 +281,24 @@ impl EvalAwi {
 }
 
 impl fmt::Debug for EvalAwi {
+    /// Can only display some fields if the `Epoch` `self` was created in is
+    /// active
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut tmp = f.debug_struct("EvalAwi");
+        tmp.field("p_external", &self.p_external());
         if let Some(epoch) = get_current_epoch() {
-            if let Some(s) = epoch
-                .epoch_data
-                .borrow()
-                .ensemble
-                .get_state_debug(self.state())
-            {
-                return write!(f, "EvalAwi({s})");
+            let lock = epoch.epoch_data.borrow();
+            if let Some((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
+                if let Some(ref name) = rnode.debug_name {
+                    tmp.field("debug_name", &DisplayStr(name));
+                }
+                if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+                    tmp.field("state", &DisplayStr(&s));
+                }
+                tmp.field("bits", &rnode.bits());
             }
         }
-        write!(f, "EvalAwi({:?})", self.state())
+        tmp.finish()
     }
 }
 

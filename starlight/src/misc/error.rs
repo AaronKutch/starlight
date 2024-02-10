@@ -25,7 +25,7 @@ pub enum Error {
     OtherString(String),
 }
 
-struct DisplayStr<'a>(pub &'a str);
+pub(crate) struct DisplayStr<'a>(pub &'a str);
 impl<'a> Debug for DisplayStr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!("{}", self.0))
