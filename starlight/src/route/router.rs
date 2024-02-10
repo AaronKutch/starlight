@@ -270,29 +270,41 @@ impl Router {
 
     /// Looks through the target ensemble for potential mapping points and their
     /// corresponding channeling nodes
-    pub fn debug_potential_map_points(&self, skip_invalid: bool) -> String {
+    pub fn debug_potential_map_points(&self, locations: bool, skip_invalid: bool) -> String {
         let mut s = String::new();
         for (p_rnode, p_external, rnode) in self.target_ensemble().notary.rnodes() {
             let mut init = false;
             if !skip_invalid {
                 writeln!(
                     s,
-                    "{p_rnode:?} {p_external:?} debug_name: {:?} {:#?}",
-                    rnode.debug_name, rnode.location
+                    "{p_rnode:?} {p_external:?} debug_name: {:?}",
+                    rnode.debug_name,
                 )
                 .unwrap();
+                if locations {
+                    writeln!(s, "{:#?}", rnode.location).unwrap()
+                }
             }
             if let Some(bits) = rnode.bits() {
                 for (i, bit) in bits.iter().copied().enumerate() {
                     if let Some(bit) = bit {
+                        let bit = self
+                            .target_ensemble()
+                            .backrefs
+                            .get_val(bit)
+                            .unwrap()
+                            .p_self_equiv;
                         if let Some(q_cnode) = self.target_channeler().find_channeler_cnode(bit) {
                             if skip_invalid && !init {
                                 writeln!(
                                     s,
-                                    "{p_rnode:?} {p_external:?} debug_name: {:?} {:#?}",
-                                    rnode.debug_name, rnode.location
+                                    "{p_rnode:?} {p_external:?} debug_name: {:?}",
+                                    rnode.debug_name
                                 )
                                 .unwrap();
+                                if locations {
+                                    writeln!(s, "{:#?}", rnode.location).unwrap()
+                                }
                                 init = true;
                             }
                             writeln!(s, "bit {i} {q_cnode:?}").unwrap();
