@@ -220,7 +220,15 @@ fn dilute_plateau(
         path.edges()[edge_i - 1].to
     };
     let end = path.edges()[edge_end_i].to;
-    let mut max_backbone_lvl = router.target_channeler.cnodes.get_val(start).unwrap().lvl + 1;
+
+    // if the node is root do not have a max level, otherwise set it to the level
+    // that we will color the initial backbone with
+    let cnode = router.target_channeler.cnodes.get_val(start).unwrap();
+    let mut max_backbone_lvl = if cnode.p_supernode.is_some() {
+        Some(cnode.lvl + 1)
+    } else {
+        None
+    };
 
     // color the initial backbone which uses the concentrated path
     let backbone_visit = router.target_channeler.next_alg_visit();
@@ -239,11 +247,14 @@ fn dilute_plateau(
         if found {
             break
         }
+        if max_backbone_lvl.is_none() {
+            return Ok(false)
+        }
         // see `route_path_on_level`, we need to retry with a higher max backbone, but
         // first color the higher part of the backbone
 
         // TODO there is probably a way to optimize this
-        max_backbone_lvl += 1;
+        max_backbone_lvl = max_backbone_lvl.map(|x| x + 1);
         let embedding = router.embeddings.get(p_embedding).unwrap();
         let path = &embedding.target_hyperpath.paths()[path_i];
         for edge in &path.edges()[edge_i..edge_end_i] {
@@ -256,7 +267,7 @@ fn dilute_plateau(
             loop {
                 if let Some(q) = q_supernode {
                     let cnode = router.target_channeler.cnodes.get_val_mut(q).unwrap();
-                    if cnode.lvl == max_backbone_lvl {
+                    if cnode.lvl == max_backbone_lvl.unwrap() {
                         cnode.alg_visit = backbone_visit;
                         break
                     }
@@ -373,14 +384,14 @@ absolute, otherwise those need to be moved.
 */
 
 /// Assumes that `start` and `end` are on the same level, and `max_backbone_lvl`
-/// is at least on the same level as the `start` and `end` are on. Returns
-/// `true` if the routing was successful, leaving the path information on the
-/// `alg_edge`s starting at the `end` node. Returns an error if the
+/// is at least one level above the leval that the `start` and `end` are on.
+/// Returns `true` if the routing was successful, leaving the path information
+/// on the `alg_edge`s starting at the `end` node. Returns an error if the
 /// `max_backbone_lvl` is above the root node.
 fn route_path_on_level(
     router: &mut Router,
     backbone_visit: NonZeroU64,
-    max_backbone_lvl: u16,
+    max_backbone_lvl: Option<u16>,
     start: QCNode,
     end: QCNode,
 ) -> Result<bool, Error> {
@@ -425,37 +436,45 @@ fn route_path_on_level(
             }
             let mut lvl = route_lvl;
             let mut q_cnode_consider = q_cnode;
-            while lvl <= max_backbone_lvl {
-                let cnode_consider = router
-                    .target_channeler
-                    .cnodes
-                    .get_val(q_cnode_consider)
-                    .unwrap();
-                if cnode_consider.alg_visit == backbone_visit {
-                    // find new edges for the Dijkstra search
-
-                    let mut adv = router.target_channeler.cnodes.advancer_surject(q_cnode);
-                    while let Some(q_referent1) = adv.advance(&router.target_channeler.cnodes) {
-                        if let Referent::CEdgeIncidence(q_cedge1, Some(source_j1)) =
-                            *router.target_channeler.cnodes.get_key(q_referent1).unwrap()
-                        {
-                            let cedge = router.target_channeler.cedges.get(q_cedge1).unwrap();
-                            priority.push(Reverse((
-                                cost.saturating_add(cedge.delay_weight.get())
-                                    .saturating_add(cedge.lagrangian),
-                                q_cedge1,
-                                source_j1,
-                            )));
-                        }
+            let mut use_it = false;
+            if let Some(max_backbone_lvl) = max_backbone_lvl {
+                while lvl <= max_backbone_lvl {
+                    let cnode_consider = router
+                        .target_channeler
+                        .cnodes
+                        .get_val(q_cnode_consider)
+                        .unwrap();
+                    if cnode_consider.alg_visit == backbone_visit {
+                        use_it = true;
+                        break
+                    }
+                    if let Some(q_supernode) = cnode_consider.p_supernode {
+                        q_cnode_consider = q_supernode;
+                        lvl += 1;
+                    } else {
+                        return Err(Error::OtherStr(
+                            "`route_path_on_level` called with too high of a `backbone_lvl`",
+                        ))
                     }
                 }
-                if let Some(q_supernode) = cnode_consider.p_supernode {
-                    q_cnode_consider = q_supernode;
-                    lvl += 1;
-                } else {
-                    return Err(Error::OtherStr(
-                        "`route_path_on_level` called with too high of a `backbone_lvl`",
-                    ))
+            } else {
+                use_it = true;
+            }
+            if use_it {
+                // find new edges for the Dijkstra search
+                let mut adv = router.target_channeler.cnodes.advancer_surject(q_cnode);
+                while let Some(q_referent1) = adv.advance(&router.target_channeler.cnodes) {
+                    if let Referent::CEdgeIncidence(q_cedge1, Some(source_j1)) =
+                        *router.target_channeler.cnodes.get_key(q_referent1).unwrap()
+                    {
+                        let cedge = router.target_channeler.cedges.get(q_cedge1).unwrap();
+                        priority.push(Reverse((
+                            cost.saturating_add(cedge.delay_weight.get())
+                                .saturating_add(cedge.lagrangian),
+                            q_cedge1,
+                            source_j1,
+                        )));
+                    }
                 }
             }
         }
