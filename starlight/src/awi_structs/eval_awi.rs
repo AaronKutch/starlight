@@ -110,7 +110,7 @@ impl EvalAwi {
     );
 
     fn drop_internal(&self) {
-        if let Some(epoch) = get_current_epoch() {
+        if let Ok(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
             let res = lock.ensemble.remove_rnode(self.p_external);
             if res.is_err() {
@@ -149,7 +149,7 @@ impl EvalAwi {
             line: tmp.line(),
             col: tmp.column(),
         };
-        if let Some(epoch) = get_current_epoch() {
+        if let Ok(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
             match lock
                 .ensemble
@@ -173,7 +173,8 @@ impl EvalAwi {
             }
         } else {
             Err(Error::OtherStr(
-                "attempted to create or `future_*` an `EvalAwi` when no live `Epoch` exists",
+                "attempted to create or `future_*` an `EvalAwi` when no active `starlight::Epoch` \
+                 exists",
             ))
         }
     }
@@ -286,9 +287,9 @@ impl fmt::Debug for EvalAwi {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut tmp = f.debug_struct("EvalAwi");
         tmp.field("p_external", &self.p_external());
-        if let Some(epoch) = get_current_epoch() {
+        if let Ok(epoch) = get_current_epoch() {
             let lock = epoch.epoch_data.borrow();
-            if let Some((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
+            if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
                 if let Some(ref name) = rnode.debug_name {
                     tmp.field("debug_name", &DisplayStr(name));
                 }

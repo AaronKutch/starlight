@@ -408,14 +408,15 @@ thread_local!(
     static EPOCH_STACK: RefCell<Vec<EpochShared>> = RefCell::new(vec![]);
 );
 
-/// Returns a clone of the current `EpochShared`, or return `None` if there is
-/// none
-#[must_use]
-pub fn get_current_epoch() -> Option<EpochShared> {
-    CURRENT_EPOCH.with(|top| {
-        let top = top.borrow();
-        top.clone()
-    })
+/// Returns a clone of the current `EpochShared`, or return
+/// `Error::NoCurrentlyActiveEpoch` if there is none
+pub fn get_current_epoch() -> Result<EpochShared, Error> {
+    CURRENT_EPOCH
+        .with(|top| {
+            let top = top.borrow();
+            top.clone()
+        })
+        .ok_or(Error::NoCurrentlyActiveEpoch)
 }
 
 /// Allows access to the current epoch. Do no call recursively.
@@ -599,20 +600,20 @@ impl Drop for EpochInnerDrop {
 /// // suspend and resume points
 /// let epoch0 = Epoch::new();
 /// // `epoch0` is current
-/// let suspended_epoch0 = epoch0.suspend().unwrap();
+/// let suspended_epoch0 = epoch0.suspend();
 /// // no epoch is current
 /// let epoch1 = Epoch::new();
 /// // `epoch1` is current
 /// let epoch0 = suspended_epoch0.resume();
 /// // `epoch0` is current
 /// //drop(epoch1); // not here
-/// let suspended_epoch0 = epoch0.suspend().unwrap();
+/// let suspended_epoch0 = epoch0.suspend();
 /// // `epoch1` is current
 /// drop(epoch1);
 /// // no epoch is current
 /// let epoch0 = suspended_epoch0.resume();
 /// // `epoch0` is current
-/// let suspended_epoch0 = epoch0.suspend().unwrap();
+/// let suspended_epoch0 = epoch0.suspend();
 /// // no epoch is current
 /// let epoch1 = Epoch::new();
 /// // `epoch1` is current
@@ -711,7 +712,7 @@ impl Epoch {
     /// Checks if `self.shared()` is the same as the current epoch, and returns
     /// the `EpochShared` if so
     fn check_current(&self) -> Result<EpochShared, Error> {
-        let epoch_shared = get_current_epoch().unwrap();
+        let epoch_shared = get_current_epoch()?;
         if Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared().epoch_data) {
             Ok(self.shared().clone())
         } else {
@@ -719,15 +720,19 @@ impl Epoch {
         }
     }
 
-    /// Suspends the `Epoch` from being the current epoch temporarily. Returns
-    /// an error if `self` is not the current `Epoch`.
-    pub fn suspend(mut self) -> Result<SuspendedEpoch, Error> {
-        // TODO in the `Error` redo (probably needs a `starlight` side `Error`),
-        // there should be a variant that returns the `Epoch` to prevent it from being
-        // dropped and causing another error
+    /// Suspends the `Epoch` from being the current epoch temporarily.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` is not the current `Epoch`
+    #[track_caller]
+    pub fn suspend(mut self) -> SuspendedEpoch {
+        // In case of an error, the `Epoch` would need to drop which would cause a
+        // different panic. I would rather not inflate the `Error` enum just to contain
+        // an `Epoch` for this case, instead we will panic here.
         self.inner.epoch_shared.remove_as_current().unwrap();
         self.inner.is_suspended = true;
-        Ok(SuspendedEpoch { inner: self.inner })
+        SuspendedEpoch { inner: self.inner }
     }
 
     pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, f: F) -> O {

@@ -93,7 +93,7 @@ impl Router {
         &self,
         mapping_target: &MappingTarget,
     ) -> Result<(), Error> {
-        if let Some((_, rnode)) = self
+        if let Ok((_, rnode)) = self
             .target_ensemble
             .notary
             .get_rnode(mapping_target.target_p_external)
@@ -101,8 +101,10 @@ impl Router {
             if let Some(bits) = rnode.bits() {
                 let mut ok = false;
                 if let Some(Some(bit)) = bits.get(mapping_target.target_bit_i) {
-                    if *bit == mapping_target.target_p_equiv {
-                        ok = true;
+                    if let Some(bit) = self.target_ensemble().backrefs.get_val(*bit) {
+                        if bit.p_self_equiv == mapping_target.target_p_equiv {
+                            ok = true;
+                        }
                     }
                 }
                 if !ok {
@@ -131,7 +133,7 @@ impl Router {
         self.program_channeler.verify_integrity()?;
         // mapping validities
         for (p_mapping, program_p_equiv, mapping) in self.mappings() {
-            if let Some((_, rnode)) = self
+            if let Ok((_, rnode)) = self
                 .program_ensemble
                 .notary
                 .get_rnode(mapping.program_p_external)
@@ -139,8 +141,10 @@ impl Router {
                 if let Some(bits) = rnode.bits() {
                     let mut ok = false;
                     if let Some(Some(bit)) = bits.get(mapping.program_bit_i) {
-                        if *bit == *program_p_equiv {
-                            ok = true;
+                        if let Some(bit) = self.program_ensemble().backrefs.get_val(*bit) {
+                            if bit.p_self_equiv == *program_p_equiv {
+                                ok = true;
+                            }
                         }
                     }
                     if !ok {
@@ -415,7 +419,7 @@ impl Router {
         target: PExternal,
         is_driver: bool,
     ) -> Result<(), Error> {
-        if let Some((_, program_rnode)) = self.program_ensemble.notary.get_rnode(program) {
+        if let Ok((_, program_rnode)) = self.program_ensemble.notary.get_rnode(program) {
             let program_rnode_bits = if let Some(bits) = program_rnode.bits() {
                 bits
             } else {
@@ -425,7 +429,7 @@ impl Router {
                         .to_owned(),
                 ));
             };
-            if let Some((_, target_rnode)) = self.target_ensemble.notary.get_rnode(target) {
+            if let Ok((_, target_rnode)) = self.target_ensemble.notary.get_rnode(target) {
                 let target_rnode_bits = if let Some(bits) = target_rnode.bits() {
                     bits
                 } else {

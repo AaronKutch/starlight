@@ -1,6 +1,8 @@
 use core::fmt;
 use std::fmt::Debug;
 
+use crate::ensemble::PExternal;
+
 // TODO in regular cases add errors that lazily produce a formatted output. Keep
 // things using `OtherStr` and `OtherString` if they are special cases like
 // improper `Epoch` management or internal failures or things like lowering that
@@ -18,6 +20,16 @@ pub enum Error {
     /// If an operand has a bitwidth mismatch or unexpected bitwidth
     #[error("WrongBitwidth")]
     WrongBitwidth,
+    /// If an operation that needs an active `Epoch` is called when none are
+    /// active
+    #[error("there is no `starlight::Epoch` that is currently active")]
+    NoCurrentlyActiveEpoch,
+    /// If an `RNode` was requested that cannot be found
+    #[error(
+        "could not find thread local `RNode` corresponding to {0:?}, probably an `EvalAwi` or \
+         `LazyAwi` was used outside of the `Epoch` it was created in"
+    )]
+    InvalidPExternal(PExternal),
     /// For miscellanious errors
     #[error("{0}")]
     OtherStr(&'static str),
@@ -35,15 +47,6 @@ impl<'a> Debug for DisplayStr<'a> {
 
 impl Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidPtr => write!(f, "InvalidPtr"),
-            Self::Unevaluatable => write!(f, "Unevaluatable"),
-            Self::WrongBitwidth => write!(f, "WrongBitwidth"),
-            Self::OtherStr(arg0) => f.debug_tuple("OtherStr").field(&DisplayStr(arg0)).finish(),
-            Self::OtherString(arg0) => f
-                .debug_tuple("OtherString")
-                .field(&DisplayStr(arg0))
-                .finish(),
-        }
+        fmt::Display::fmt(self, f)
     }
 }

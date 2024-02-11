@@ -137,16 +137,32 @@ impl Notary {
         (res, p_external)
     }
 
-    #[must_use]
-    pub fn get_rnode(&self, p_external: PExternal) -> Option<(PRNode, &RNode)> {
-        let p_rnode = self.rnodes.find_key(&p_external)?;
-        Some((p_rnode, self.rnodes.get_val(p_rnode).unwrap()))
+    /// Finds the `(PRNode, &RNode)` pair corresponding to `p_external`
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::InvalidPExternal(p_external)` if `p_external` could not
+    /// be found
+    pub fn get_rnode(&self, p_external: PExternal) -> Result<(PRNode, &RNode), Error> {
+        if let Some(p_rnode) = self.rnodes.find_key(&p_external) {
+            Ok((p_rnode, self.rnodes.get_val(p_rnode).unwrap()))
+        } else {
+            Err(Error::InvalidPExternal(p_external))
+        }
     }
 
-    #[must_use]
-    pub fn get_rnode_mut(&mut self, p_external: PExternal) -> Option<(PRNode, &mut RNode)> {
-        let p_rnode = self.rnodes.find_key(&p_external)?;
-        Some((p_rnode, self.rnodes.get_val_mut(p_rnode).unwrap()))
+    /// Finds the `(PRNode, &mut RNode)` pair corresponding to `p_external`
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::InvalidPExternal(p_external)` if `p_external` could not
+    /// be found
+    pub fn get_rnode_mut(&mut self, p_external: PExternal) -> Result<(PRNode, &mut RNode), Error> {
+        if let Some(p_rnode) = self.rnodes.find_key(&p_external) {
+            Ok((p_rnode, self.rnodes.get_val_mut(p_rnode).unwrap()))
+        } else {
+            Err(Error::InvalidPExternal(p_external))
+        }
     }
 
     #[must_use]
@@ -257,17 +273,11 @@ impl Ensemble {
     }
 
     pub fn get_thread_local_rnode_nzbw(p_external: PExternal) -> Result<NonZeroUsize, Error> {
-        let epoch_shared = get_current_epoch().unwrap();
+        let epoch_shared = get_current_epoch()?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
-        if let Some((_, rnode)) = ensemble.notary.get_rnode(p_external) {
-            Ok(rnode.nzbw)
-        } else {
-            Err(Error::OtherStr(
-                "could not find thread local `RNode`, probably an `EvalAwi` or `LazyAwi` was used \
-                 outside of the `Epoch` it was created in",
-            ))
-        }
+        let (_, rnode) = ensemble.notary.get_rnode(p_external)?;
+        Ok(rnode.nzbw)
     }
 
     /// Note: `make_const` cannot be true at the same time as the basic type is
@@ -277,48 +287,42 @@ impl Ensemble {
         common_value: CommonValue<'_>,
         make_const: bool,
     ) -> Result<(), Error> {
-        let epoch_shared = get_current_epoch().unwrap();
+        let epoch_shared = get_current_epoch()?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
-        if let Some(p_rnode) = ensemble.notary.rnodes.find_key(&p_external) {
-            drop(lock);
-            // `restart_request` not needed if an initialization happens here, because we
-            // are in change phase and any change later will fix the process
-            Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, true)?;
-            let mut lock = epoch_shared.epoch_data.borrow_mut();
-            let ensemble = &mut lock.ensemble;
-            if !ensemble.notary.rnodes[p_rnode].bits.is_empty() {
-                if ensemble.notary.rnodes[p_rnode].bits.len() != common_value.bw() {
-                    return Err(Error::WrongBitwidth);
-                }
-                for bit_i in 0..common_value.bw() {
-                    let p_back = ensemble.notary.rnodes[p_rnode].bits[bit_i];
-                    if let Some(p_back) = p_back {
-                        let bit = common_value.get(bit_i).unwrap();
-                        let bit = if make_const {
-                            if let Some(bit) = bit {
-                                Value::Const(bit)
-                            } else {
-                                Value::ConstUnknown
-                            }
-                        } else if let Some(bit) = bit {
-                            Value::Dynam(bit)
+        let (p_rnode, _) = ensemble.notary.get_rnode(p_external)?;
+        drop(lock);
+        // `restart_request` not needed if an initialization happens here, because we
+        // are in change phase and any change later will fix the process
+        Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, true)?;
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+        if !ensemble.notary.rnodes[p_rnode].bits.is_empty() {
+            if ensemble.notary.rnodes[p_rnode].bits.len() != common_value.bw() {
+                return Err(Error::WrongBitwidth);
+            }
+            for bit_i in 0..common_value.bw() {
+                let p_back = ensemble.notary.rnodes[p_rnode].bits[bit_i];
+                if let Some(p_back) = p_back {
+                    let bit = common_value.get(bit_i).unwrap();
+                    let bit = if make_const {
+                        if let Some(bit) = bit {
+                            Value::Const(bit)
                         } else {
-                            Value::Unknown
-                        };
-                        // if an error occurs, no event is inserted and we do not insert anything
-                        // here, the change is treated as having never occured
-                        ensemble.change_value(p_back, bit, NonZeroU64::new(1).unwrap())?;
-                    }
+                            Value::ConstUnknown
+                        }
+                    } else if let Some(bit) = bit {
+                        Value::Dynam(bit)
+                    } else {
+                        Value::Unknown
+                    };
+                    // if an error occurs, no event is inserted and we do not insert anything
+                    // here, the change is treated as having never occured
+                    ensemble.change_value(p_back, bit, NonZeroU64::new(1).unwrap())?;
                 }
             }
-            // else the state was pruned
-        } else {
-            return Err(Error::OtherStr(
-                "could not find thread local `RNode`, probably a `LazyAwi` was used outside of \
-                 the `Epoch` it was created in",
-            ))
         }
+        // else the state was pruned
         Ok(())
     }
 
@@ -326,9 +330,10 @@ impl Ensemble {
         p_external: PExternal,
         bit_i: usize,
     ) -> Result<Value, Error> {
-        let epoch_shared = get_current_epoch().unwrap();
+        let epoch_shared = get_current_epoch()?;
         let lock = epoch_shared.epoch_data.borrow();
-        let init = if let Some((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_external) {
+        // first check if it already exists in current epoch
+        let init = if let Ok((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_external) {
             drop(lock);
             Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, false)?
         } else {
@@ -341,26 +346,20 @@ impl Ensemble {
             // cases where we need to do this to clear events before the value is requested
             lock.ensemble.restart_request_phase()?;
         }
-        let p_back = if let Some((_, rnode)) = lock.ensemble.notary.get_rnode(p_external) {
-            if bit_i >= rnode.bits.len() {
-                return Err(Error::OtherStr(
-                    "something went wrong with an rnode bitwidth",
-                ));
-            }
-            if let Some(p_back) = rnode.bits[bit_i] {
-                p_back
-            } else {
-                return Err(Error::OtherStr(
-                    "something went wrong, found `RNode` for evaluator but a bit was pruned",
-                ))
-            }
-        } else {
+        // then start returning errors about not being the right epoch
+        let (_, rnode) = lock.ensemble.notary.get_rnode(p_external)?;
+        if bit_i >= rnode.bits.len() {
             return Err(Error::OtherStr(
-                "could not find thread local `RNode`, probably an `EvalAwi` was used outside of \
-                 the `Epoch` it was created in",
+                "something went wrong with an rnode bitwidth",
+            ));
+        }
+        if let Some(p_back) = rnode.bits[bit_i] {
+            lock.ensemble.request_value(p_back)
+        } else {
+            Err(Error::OtherStr(
+                "something went wrong, found `RNode` for evaluator but a bit was pruned",
             ))
-        };
-        lock.ensemble.request_value(p_back)
+        }
     }
 
     pub fn tnode_drive_thread_local_rnode(
@@ -370,9 +369,10 @@ impl Ensemble {
         driver_bit_i: usize,
         delay: Delay,
     ) -> Result<(), Error> {
-        let epoch_shared = get_current_epoch().unwrap();
+        let epoch_shared = get_current_epoch()?;
+        // first check if it already exists in current epoch
         let lock = epoch_shared.epoch_data.borrow_mut();
-        let mut init = if let Some((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_source) {
+        let mut init = if let Ok((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_source) {
             drop(lock);
             Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, false)?
         } else {
@@ -380,7 +380,7 @@ impl Ensemble {
             false
         };
         let lock = epoch_shared.epoch_data.borrow_mut();
-        init |= if let Some((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_driver) {
+        init |= if let Ok((p_rnode, _)) = lock.ensemble.notary.get_rnode(p_driver) {
             drop(lock);
             Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, false)?
         } else {
@@ -391,53 +391,41 @@ impl Ensemble {
         if init {
             lock.ensemble.restart_request_phase()?;
         }
-        if let Some((_, source_rnode)) = lock.ensemble.notary.get_rnode(p_source) {
-            if source_bit_i >= source_rnode.bits.len() {
-                return Err(Error::OtherStr(
-                    "something went wrong with an rnode bitwidth",
-                ));
-            }
-            let source_p_back = if let Some(p_back) = source_rnode.bits[source_bit_i] {
-                p_back
-            } else {
-                return Err(Error::OtherStr(
-                    "something went wrong, found `RNode` for `TNode` driving but a bit was pruned",
-                ))
-            };
-            if let Some((_, driver_rnode)) = lock.ensemble.notary.get_rnode(p_driver) {
-                if driver_bit_i >= driver_rnode.bits.len() {
-                    return Err(Error::OtherStr(
-                        "something went wrong with an rnode bitwidth",
-                    ));
-                }
-                let driver_p_back = if let Some(p_back) = driver_rnode.bits[driver_bit_i] {
-                    p_back
-                } else {
-                    return Err(Error::OtherStr(
-                        "something went wrong, found `RNode` for `TNode` driving but a bit was \
-                         pruned",
-                    ))
-                };
-
-                // now connect with `TNode`
-                let p_tnode = lock
-                    .ensemble
-                    .make_tnode(source_p_back, driver_p_back, delay)
-                    .unwrap();
-                // initial drive
-                lock.ensemble.eval_tnode(p_tnode).unwrap();
-            } else {
-                return Err(Error::OtherStr(
-                    "could not find thread local `RNode`, probably an `EvalAwi` was used outside \
-                     of the `Epoch` it was created in",
-                ))
-            }
+        // then start returning errors about not being the right epoch
+        let (_, source_rnode) = lock.ensemble.notary.get_rnode(p_source)?;
+        if source_bit_i >= source_rnode.bits.len() {
+            return Err(Error::OtherStr(
+                "something went wrong with an rnode bitwidth",
+            ));
+        }
+        let source_p_back = if let Some(p_back) = source_rnode.bits[source_bit_i] {
+            p_back
         } else {
             return Err(Error::OtherStr(
-                "could not find thread local `RNode`, probably an `EvalAwi` was used outside of \
-                 the `Epoch` it was created in",
+                "something went wrong, found `RNode` for `TNode` driving but a bit was pruned",
             ))
+        };
+        let (_, driver_rnode) = lock.ensemble.notary.get_rnode(p_driver)?;
+        if driver_bit_i >= driver_rnode.bits.len() {
+            return Err(Error::OtherStr(
+                "something went wrong with an rnode bitwidth",
+            ));
         }
+        let driver_p_back = if let Some(p_back) = driver_rnode.bits[driver_bit_i] {
+            p_back
+        } else {
+            return Err(Error::OtherStr(
+                "something went wrong, found `RNode` for `TNode` driving but a bit was pruned",
+            ))
+        };
+
+        // now connect with `TNode`
+        let p_tnode = lock
+            .ensemble
+            .make_tnode(source_p_back, driver_p_back, delay)
+            .unwrap();
+        // initial drive
+        lock.ensemble.eval_tnode(p_tnode).unwrap();
         Ok(())
     }
 
@@ -445,22 +433,16 @@ impl Ensemble {
         p_external: PExternal,
         debug_name: Option<&str>,
     ) -> Result<(), Error> {
-        let epoch_shared = get_current_epoch().unwrap();
+        let epoch_shared = get_current_epoch()?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
-        if let Some(p_rnode) = ensemble.notary.rnodes.find_key(&p_external) {
-            ensemble
-                .notary
-                .rnodes
-                .get_val_mut(p_rnode)
-                .unwrap()
-                .debug_name = debug_name.map(|s| s.to_owned());
-        } else {
-            return Err(Error::OtherStr(
-                "could not find thread local `RNode`, probably a `LazyAwi` was used outside of \
-                 the `Epoch` it was created in",
-            ))
-        }
+        let (p_rnode, _) = ensemble.notary.get_rnode(p_external)?;
+        ensemble
+            .notary
+            .rnodes
+            .get_val_mut(p_rnode)
+            .unwrap()
+            .debug_name = debug_name.map(|s| s.to_owned());
         Ok(())
     }
 }

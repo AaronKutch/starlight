@@ -75,7 +75,17 @@ use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Erro
 ///     assert_eq!(y.eval().unwrap(), awi!(0xc_u4));
 /// }
 /// ```
+///
+/// # Panics
+///
+/// This function is treated like a basic [awint_dag] function that panics
+/// internally if there is not an active epoch
+#[track_caller]
 pub fn delay<D: Into<Delay>>(bits: &mut Bits, delay: D) {
+    // unwrap because of panic notice and because it should have panicked earlier in
+    // the function
+    let epoch = get_current_epoch().expect("cannot use `starlight::delay` without an active epoch");
+
     let mut tmp = awi::Awi::from_u128(delay.into().amount());
     let sig = tmp.sig();
     tmp.zero_resize(NonZeroUsize::new(sig).unwrap_or(bw(1)));
@@ -93,7 +103,7 @@ pub fn delay<D: Into<Delay>>(bits: &mut Bits, delay: D) {
         // it turns out that for quiescence to calculate correctly (see the
         // `tnode_delay_opaque_quiesced` test), this needs to be done so an event knows
         // it has a `TNode` to cross
-        let epoch = get_current_epoch().unwrap();
+
         let mut lock = epoch.epoch_data.borrow_mut();
         lock.ensemble.stator.states_to_lower.push(bits.state());
     }
@@ -223,7 +233,7 @@ impl Loop {
         if self.source.bw() != driver.bw() {
             Err(Error::WrongBitwidth)
         } else {
-            let epoch = get_current_epoch().unwrap();
+            let epoch = get_current_epoch()?;
             let mut lock = epoch.epoch_data.borrow_mut();
             // add the driver to the loop source
             let op = &mut lock
@@ -269,6 +279,8 @@ impl Loop {
         } else if self.source.bw() != driver.bw() {
             Err(Error::WrongBitwidth)
         } else {
+            let epoch = get_current_epoch()?;
+
             // TODO perhaps just lower, but the plan is to base incremental compilation on
             // states. Not sure if we ever want dynamic delay.
             let mut tmp = awi::Awi::from_u128(delay.amount());
@@ -276,7 +288,6 @@ impl Loop {
             tmp.zero_resize(NonZeroUsize::new(sig).unwrap_or(bw(1)));
             let delay_awi = dag::Awi::from(&tmp).state();
 
-            let epoch = get_current_epoch().unwrap();
             let mut lock = epoch.epoch_data.borrow_mut();
             // add the driver to the loop source
             let op = &mut lock

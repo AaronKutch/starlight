@@ -43,7 +43,7 @@ impl Drop for LazyAwi {
     fn drop(&mut self) {
         // prevent invoking recursive panics and a buffer overrun
         if !panicking() {
-            if let Some(epoch) = get_current_epoch() {
+            if let Ok(epoch) = get_current_epoch() {
                 let res = epoch
                     .epoch_data
                     .borrow_mut()
@@ -168,7 +168,7 @@ impl LazyAwi {
         };
         let opaque = dag::Awi::new(w, Op::Opaque(smallvec![], Some("LazyOpaque")));
         let p_external = get_current_epoch()
-            .unwrap()
+            .expect("attempted to create a `LazyAwi` when no active `starlight::Epoch` exists")
             .epoch_data
             .borrow_mut()
             .ensemble
@@ -287,9 +287,9 @@ impl fmt::Debug for LazyAwi {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut tmp = f.debug_struct("LazyAwi");
         tmp.field("p_external", &self.p_external());
-        if let Some(epoch) = get_current_epoch() {
+        if let Ok(epoch) = get_current_epoch() {
             let lock = epoch.epoch_data.borrow();
-            if let Some((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
+            if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
                 if let Some(ref name) = rnode.debug_name {
                     tmp.field("debug_name", &DisplayStr(name));
                 }

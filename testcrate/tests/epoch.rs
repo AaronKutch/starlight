@@ -1,4 +1,4 @@
-use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi};
+use starlight::{awi, dag::*, Epoch, Error, EvalAwi, LazyAwi};
 
 #[test]
 #[should_panic]
@@ -140,7 +140,7 @@ fn epoch_shared2() {
 fn epoch_suspension0() {
     let epoch0 = Epoch::new();
     let (lazy0, eval0) = ex();
-    let epoch0 = epoch0.suspend().unwrap();
+    let epoch0 = epoch0.suspend();
     let epoch1 = Epoch::new();
     {
         use awi::*;
@@ -177,8 +177,49 @@ fn epoch_suspension0() {
 #[should_panic]
 fn epoch_suspension1() {
     let epoch0 = Epoch::new();
-    let epoch0 = epoch0.suspend().unwrap();
+    let epoch0 = epoch0.suspend();
     let epoch1 = Epoch::new();
     drop(epoch0);
     drop(epoch1);
+}
+
+#[test]
+fn fallible_epoch_inactive_errors() {
+    let epoch = Epoch::new();
+    let x = LazyAwi::opaque(bw(1));
+    let y = awi!(x);
+    let y = EvalAwi::from(&y);
+
+    // when things are from the outer epoch
+    let epoch1 = Epoch::new();
+    {
+        use awi::{assert, *};
+        assert!(matches!(
+            x.retro_(&awi!(0)),
+            Err(Error::InvalidPExternal(_))
+        ));
+        assert!(matches!(
+            x.retro_bool_(false),
+            Err(Error::InvalidPExternal(_))
+        ));
+        assert!(matches!(x.retro_u8_(0), Err(Error::InvalidPExternal(_))));
+        assert!(matches!(y.eval(), Err(Error::InvalidPExternal(_))));
+        assert!(matches!(y.eval_bool(), Err(Error::InvalidPExternal(_))));
+        assert!(matches!(y.eval_u8(), Err(Error::InvalidPExternal(_))));
+    }
+    drop(epoch1);
+
+    let epoch = epoch.suspend();
+
+    // when there is no active epoch
+    {
+        use awi::{assert_eq, *};
+        assert_eq!(x.retro_(&awi!(0)), Err(Error::NoCurrentlyActiveEpoch));
+        assert_eq!(x.retro_bool_(false), Err(Error::NoCurrentlyActiveEpoch));
+        assert_eq!(x.retro_u8_(0), Err(Error::NoCurrentlyActiveEpoch));
+        assert_eq!(y.eval(), Err(Error::NoCurrentlyActiveEpoch));
+        assert_eq!(y.eval_bool(), Err(Error::NoCurrentlyActiveEpoch));
+        assert_eq!(y.eval_u8(), Err(Error::NoCurrentlyActiveEpoch));
+    }
+    drop(epoch);
 }

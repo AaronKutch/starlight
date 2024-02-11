@@ -72,6 +72,8 @@ pub(crate) fn route(router: &mut Router) -> Result<(), Error> {
         route_level(router, max_lvl)?;
     }
 
+    // the embeddings should form a valid routing now
+
     Ok(())
 }
 
