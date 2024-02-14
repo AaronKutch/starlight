@@ -19,7 +19,7 @@ use awint::awint_dag::smallvec::{smallvec, SmallVec};
 /// ```
 /// use core::cmp::Ordering;
 ///
-/// use starlight::misc::binary_search_similar_by;
+/// use starlight::utils::binary_search_similar_by;
 ///
 /// let empty = [0u64; 0];
 /// assert_eq!(

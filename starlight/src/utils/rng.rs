@@ -216,7 +216,7 @@ impl StarRng {
     /// rapidly probe a more structured space even for large `x`.
     ///
     /// ```
-    /// use starlight::{awi::*, StarRng};
+    /// use starlight::{awi::*, utils::StarRng};
     ///
     /// let mut rng = StarRng::new(0);
     /// let mut x = awi!(0u128);

@@ -1,27 +1,9 @@
-use core::fmt;
 use std::{
     num::NonZeroUsize,
     ops::{Index, IndexMut},
 };
 
-/// Represents a direction on a grid
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Direction {
-    /// Negative .0 direction
-    Neg0,
-    /// Positive .0 direction
-    Pos0,
-    /// Negative .1 direction
-    Neg1,
-    /// Positive .1 direction
-    Pos1,
-}
-
-impl fmt::Display for Direction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
+use crate::utils::Ortho;
 
 // we forbid zero length sides because they shouldn't occur for almost all
 // reasonable use cases, and it causes too many edge cases that cause certain
@@ -159,11 +141,11 @@ impl<T> Grid<T> {
 
     /// For each case where there is not an orthogonal element to an element,
     /// this will call `f` with the element, its index, and direction. Corner
-    /// elements are called on twice, edges once. The order is by `Direction`
+    /// elements are called on twice, edges once. The order is by `Ortho`
     /// first, `for_each` ordering second.
     // TODO fix this attribute
     /// ```no_format
-    /// use starlight::misc::{Grid, Direction::*};
+    /// use starlight::misc::{Grid, Ortho::*};
     ///
     /// let grid: Grid<u64> = Grid::try_from([
     ///     [0, 1, 2, 3],
@@ -183,43 +165,43 @@ impl<T> Grid<T> {
     /// grid.for_each_edge(|t, _, dir| encountered.push((*t, dir)));
     /// assert_eq!(expected.as_slice(), encountered.as_slice());
     /// ```
-    pub fn for_each_edge<F: FnMut(&T, (usize, usize), Direction)>(&self, mut f: F) {
+    pub fn for_each_edge<F: FnMut(&T, (usize, usize), Ortho)>(&self, mut f: F) {
         let len = self.len();
         let i = 0;
         for j in 0..len.1 {
-            f(self.get((i, j)).unwrap(), (i, j), Direction::Neg0);
+            f(self.get((i, j)).unwrap(), (i, j), Ortho::Neg0);
         }
         let i = len.0 - 1;
         for j in 0..len.1 {
-            f(self.get((i, j)).unwrap(), (i, j), Direction::Pos0);
+            f(self.get((i, j)).unwrap(), (i, j), Ortho::Pos0);
         }
         let j = 0;
         for i in 0..len.0 {
-            f(self.get((i, j)).unwrap(), (i, j), Direction::Neg1);
+            f(self.get((i, j)).unwrap(), (i, j), Ortho::Neg1);
         }
         let j = len.1 - 1;
         for i in 0..len.0 {
-            f(self.get((i, j)).unwrap(), (i, j), Direction::Pos1);
+            f(self.get((i, j)).unwrap(), (i, j), Ortho::Pos1);
         }
     }
 
-    pub fn for_each_edge_mut<F: FnMut(&mut T, (usize, usize), Direction)>(&mut self, mut f: F) {
+    pub fn for_each_edge_mut<F: FnMut(&mut T, (usize, usize), Ortho)>(&mut self, mut f: F) {
         let len = self.len();
         let i = 0;
         for j in 0..len.1 {
-            f(self.get_mut((i, j)).unwrap(), (i, j), Direction::Neg0);
+            f(self.get_mut((i, j)).unwrap(), (i, j), Ortho::Neg0);
         }
         let i = len.0 - 1;
         for j in 0..len.1 {
-            f(self.get_mut((i, j)).unwrap(), (i, j), Direction::Pos0);
+            f(self.get_mut((i, j)).unwrap(), (i, j), Ortho::Pos0);
         }
         let j = 0;
         for i in 0..len.0 {
-            f(self.get_mut((i, j)).unwrap(), (i, j), Direction::Neg1);
+            f(self.get_mut((i, j)).unwrap(), (i, j), Ortho::Neg1);
         }
         let j = len.1 - 1;
         for i in 0..len.0 {
-            f(self.get_mut((i, j)).unwrap(), (i, j), Direction::Pos1);
+            f(self.get_mut((i, j)).unwrap(), (i, j), Ortho::Pos1);
         }
     }
 

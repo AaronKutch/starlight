@@ -12,7 +12,8 @@ use starlight::{
     dag,
     ensemble::LNodeKind,
     lower::meta::create_static_lut,
-    Epoch, EvalAwi, LazyAwi, StarRng,
+    utils::StarRng,
+    Epoch, EvalAwi, LazyAwi,
 };
 
 // Test static LUT simplifications, this also handles input duplication cases

@@ -174,10 +174,10 @@ mod awi_structs;
 pub mod ensemble;
 /// Internal definitions used in lowering
 pub mod lower;
-/// Miscellanious helpers
-pub mod misc;
 /// WIP routing functionality
 pub mod route;
+/// Miscellanious utilities
+pub mod utils;
 pub use awi_structs::{
     delay, epoch, Assertions, Epoch, EvalAwi, LazyAwi, Loop, Net, SuspendedEpoch,
 };
@@ -185,7 +185,7 @@ pub use awi_structs::{
 pub use awint::awint_dag::triple_arena_render;
 pub use awint::{self, awint_dag, awint_dag::triple_arena};
 pub use ensemble::Delay;
-pub use misc::{Error, StarRng};
+pub use utils::Error;
 
 /// Reexports all the regular arbitrary width integer structs, macros, common
 /// enums, and most of `core::primitive::*`. This is useful for glob importing

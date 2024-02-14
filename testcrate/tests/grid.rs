@@ -1,4 +1,4 @@
-use starlight::misc::{Direction::*, Grid};
+use starlight::utils::{Grid, Ortho::*};
 
 // copied from unit test that we do not want to format
 #[test]

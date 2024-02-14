@@ -12,13 +12,13 @@ use awint::{
 use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble::{DynamicValue, Ensemble, LNodeKind, PBack},
-    misc::SmallSet,
     route::{
         channel::Referent,
         cnode::{generate_hierarchy, InternalBehavior},
         CNode, Channeler, Configurator, PEmbedding,
     },
     triple_arena::ptr_struct,
+    utils::SmallSet,
     Error, SuspendedEpoch,
 };
 

@@ -9,7 +9,8 @@ use starlight::{
     awi,
     dag::{self},
     triple_arena::{ptr_struct, Arena},
-    Epoch, EvalAwi, LazyAwi, StarRng,
+    utils::StarRng,
+    Epoch, EvalAwi, LazyAwi,
 };
 
 // miri is just here to check that the unsized deref hacks are working

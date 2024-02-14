@@ -7,8 +7,8 @@ use std::{
 use awint::awint_dag::triple_arena::{Advancer, Ptr};
 
 use crate::{
-    misc::SmallSet,
     route::{ChannelWidths, Channeler, PEmbedding, Programmability, Referent},
+    utils::SmallSet,
     Error,
 };
 

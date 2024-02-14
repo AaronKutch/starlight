@@ -9,7 +9,7 @@ use crate::{
     awi,
     ensemble::{Ensemble, PExternal},
     epoch::get_current_epoch,
-    misc::DisplayStr,
+    utils::DisplayStr,
     Error,
 };
 

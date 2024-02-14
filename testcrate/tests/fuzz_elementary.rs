@@ -4,7 +4,8 @@ use starlight::{
     awint::{awi, dag},
     delay,
     triple_arena::{ptr_struct, Arena},
-    Epoch, EvalAwi, LazyAwi, StarRng,
+    utils::StarRng,
+    Epoch, EvalAwi, LazyAwi,
 };
 
 #[cfg(debug_assertions)]
