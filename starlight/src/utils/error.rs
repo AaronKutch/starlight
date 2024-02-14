@@ -1,5 +1,5 @@
 use core::fmt;
-use std::fmt::Debug;
+use std::{fmt::Debug, num::NonZeroU128};
 
 use crate::ensemble::PExternal;
 
@@ -11,7 +11,7 @@ use crate::ensemble::PExternal;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, thiserror::Error)]
 pub enum Error {
-    /// This indicates an invalid [triple_arena::Ptr] was used
+    /// This indicates an invalid `triple_arena::Ptr` was used
     #[error("InvalidPtr")]
     InvalidPtr,
     /// If there is an `Op` that cannot be evaluated
@@ -20,6 +20,16 @@ pub enum Error {
     /// If an operand has a bitwidth mismatch or unexpected bitwidth
     #[error("WrongBitwidth")]
     WrongBitwidth,
+    /// If something like `Out<W>` was constructed with the wrong bitwidth
+    #[error("bitwidth {0} does not match the const required bitwidth {1}")]
+    ConstBitwidthMismatch(usize, usize),
+    /// If an operand to [crate::Drive::drive] was `None` when it should contain
+    /// something
+    #[error(
+        "an operand to `crate::Drive::drive` was `None` or some other empty value, the other \
+         operand was {0:#?}"
+    )]
+    DrivenValueIsNone(Option<PExternal>),
     /// If an operation that needs an active `Epoch` is called when none are
     /// active
     #[error("there is no `starlight::Epoch` that is currently active")]
@@ -54,5 +64,12 @@ impl<'a> Debug for DisplayStr<'a> {
 impl Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt::Display::fmt(self, f)
+    }
+}
+
+pub(crate) struct HexadecimalNonZeroU128(pub NonZeroU128);
+impl fmt::Debug for HexadecimalNonZeroU128 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{:x?}", self.0))
     }
 }

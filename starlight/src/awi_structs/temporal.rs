@@ -78,8 +78,8 @@ use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Erro
 ///
 /// # Panics
 ///
-/// This function is treated like a basic [awint_dag] function that panics
-/// internally if there is not an active epoch
+/// This function is treated like a basic [awint::awint_dag] function that
+/// panics internally if there is not an active epoch
 #[track_caller]
 pub fn delay<D: Into<Delay>>(bits: &mut Bits, delay: D) {
     // unwrap because of panic notice and because it should have panicked earlier in

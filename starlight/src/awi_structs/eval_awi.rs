@@ -47,7 +47,7 @@ impl Lineage for EvalAwi {
     }
 }
 
-macro_rules! evalawi_from_impl {
+macro_rules! from_impl {
     ($($fn:ident $t:ident);*;) => {
         $(
             #[track_caller]
@@ -77,7 +77,7 @@ macro_rules! eval_primitives {
 }
 
 impl EvalAwi {
-    evalawi_from_impl!(
+    from_impl!(
         from_bool bool;
         from_u8 u8;
         from_i8 i8;
@@ -292,10 +292,10 @@ impl fmt::Debug for EvalAwi {
                 if let Some(ref name) = rnode.debug_name {
                     tmp.field("debug_name", &DisplayStr(name));
                 }
-                if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+                /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
                     tmp.field("state", &DisplayStr(&s));
-                }
-                tmp.field("bits", &rnode.bits());
+                }*/
+                //tmp.field("bits", &rnode.bits());
             }
         }
         tmp.finish()

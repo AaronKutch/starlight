@@ -1,8 +1,15 @@
-use std::num::{NonZeroU128, NonZeroU64, NonZeroUsize};
+use std::{
+    fmt,
+    num::{NonZeroU128, NonZeroU64, NonZeroUsize},
+};
 
 use awint::awint_dag::{
     smallvec::{smallvec, SmallVec},
-    triple_arena::{ptr_struct, Arena, OrdArena, Ptr, Recast, Recaster},
+    triple_arena::{
+        ptr_struct,
+        utils::{PtrGen, PtrInx},
+        Arena, OrdArena, Ptr, Recast, Recaster,
+    },
     Location, PState,
 };
 
@@ -10,15 +17,123 @@ use crate::{
     awi::*,
     ensemble::{CommonValue, Delay, Ensemble, PBack, Referent, Value},
     epoch::{get_current_epoch, EpochShared},
+    utils::{DisplayStr, HexadecimalNonZeroU128},
     Error,
 };
 
 ptr_struct!(PRNode);
 
-ptr_struct!(
+// substituted because we need a custom `Debug` impl
+/*ptr_struct!(
     PExternal[NonZeroU128]()
     doc="A UUID `Ptr` for external use that maps to an internal `PRNode`"
-);
+);*/
+
+/// A UUID `Ptr` for external use that maps to an internal `PRNode`
+#[derive(
+    core::hash::Hash,
+    core::clone::Clone,
+    core::marker::Copy,
+    core::cmp::PartialEq,
+    core::cmp::Eq,
+    core::cmp::PartialOrd,
+    core::cmp::Ord,
+)]
+pub struct PExternal {
+    // note: in this order `PartialOrd` will order primarily off of `_internal_inx`
+    #[doc(hidden)]
+    _internal_inx: NonZeroU128,
+    #[doc(hidden)]
+    _internal_gen: (),
+}
+
+unsafe impl Ptr for PExternal {
+    type Gen = ();
+    type Inx = NonZeroU128;
+
+    fn name() -> &'static str {
+        "PExternal"
+    }
+
+    #[inline]
+    fn invalid() -> Self {
+        Self {
+            _internal_inx: PtrInx::new(<Self::Inx as PtrInx>::max()),
+            _internal_gen: PtrGen::one(),
+        }
+    }
+
+    #[inline]
+    fn inx(self) -> Self::Inx {
+        self._internal_inx
+    }
+
+    #[inline]
+    fn gen(self) -> Self::Gen {
+        self._internal_gen
+    }
+
+    #[inline]
+    #[doc(hidden)]
+    fn _from_raw(_internal_inx: Self::Inx, _internal_gen: Self::Gen) -> Self {
+        Self {
+            _internal_inx,
+            _internal_gen,
+        }
+    }
+}
+
+impl core::default::Default for PExternal {
+    #[inline]
+    fn default() -> Self {
+        Ptr::invalid()
+    }
+}
+
+impl core::fmt::Display for PExternal {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl Recast<Self> for PExternal {
+    fn recast<R: Recaster<Item = Self>>(
+        &mut self,
+        recaster: &R,
+    ) -> core::result::Result<(), <R as Recaster>::Item> {
+        recaster.recast_item(self)
+    }
+}
+
+impl fmt::Debug for PExternal {
+    /// Can only display some fields if the `Epoch` `self` was created in is
+    /// active
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if f.alternate() {
+            let mut tmp = f.debug_struct("PExternal");
+            tmp.field("p_external", &HexadecimalNonZeroU128(self.inx()));
+            if let Ok(epoch) = get_current_epoch() {
+                let lock = epoch.epoch_data.borrow();
+                if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(*self) {
+                    if let Some(ref name) = rnode.debug_name {
+                        tmp.field("debug_name", &DisplayStr(name));
+                    }
+                    /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+                        tmp.field("state", &DisplayStr(&s));
+                    }
+                    tmp.field("bits", &rnode.bits());*/
+                }
+            }
+            tmp.finish()
+        } else {
+            f.write_fmt(format_args!(
+                "{}[{:x?}]",
+                <Self as Ptr>::name(),
+                Ptr::inx(*self),
+            ))
+        }
+    }
+}
 
 /// Reference/Register/Report node, used for external references kept alive
 /// after `State` pruning

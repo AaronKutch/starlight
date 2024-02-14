@@ -4,8 +4,8 @@ mod ortho;
 mod rng;
 mod small_map;
 
-pub(crate) use error::DisplayStr;
 pub use error::Error;
+pub(crate) use error::{DisplayStr, HexadecimalNonZeroU128};
 pub use grid::Grid;
 pub use ortho::{Ortho, OrthoArray};
 pub use rng::StarRng;

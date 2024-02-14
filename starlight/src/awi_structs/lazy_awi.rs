@@ -221,16 +221,24 @@ impl LazyAwi {
     }
 
     /// Temporally drives `self` with the value of an `EvalAwi`. Note that
-    /// `Loop` and `Net` implicitly warn if they are undriven, you may want to
-    /// use them instead. Returns `None` if bitwidths mismatch.
-    pub fn drive(self, rhs: &EvalAwi) -> Result<(), Error> {
-        self.drive_with_delay(rhs, Delay::zero())
+    /// errors are raised if `Loop` and `Net` are undriven, you may want to
+    /// use them instead unless this is at an interface. Returns `None` if
+    /// bitwidths mismatch.
+    pub fn drive<E: std::borrow::Borrow<EvalAwi>>(self, rhs: E) -> Result<(), Error> {
+        self.drive_with_delay(rhs.borrow(), Delay::zero())
     }
 
     /// Temporally drives `self` with the value of an `EvalAwi`, with a delay.
-    /// Note that `Loop` and `Net` implicitly warn if they are undriven, you
-    /// may want to use them instead. Returns `None` if bitwidths mismatch.
-    pub fn drive_with_delay<D: Into<Delay>>(self, rhs: &EvalAwi, delay: D) -> Result<(), Error> {
+    /// Note that errors are raised if
+    /// `Loop` and `Net` are undriven, you may want to
+    /// use them instead unless this is at an interface. Returns `None` if
+    /// bitwidths mismatch.
+    pub fn drive_with_delay<E: std::borrow::Borrow<EvalAwi>, D: Into<Delay>>(
+        self,
+        rhs: E,
+        delay: D,
+    ) -> Result<(), Error> {
+        let rhs = rhs.borrow();
         if self.try_get_nzbw()? != rhs.try_get_nzbw()? {
             return Err(Error::WrongBitwidth)
         }
@@ -294,14 +302,10 @@ impl fmt::Debug for LazyAwi {
                 if let Some(ref name) = rnode.debug_name {
                     tmp.field("debug_name", &DisplayStr(name));
                 }
-                // only really useful for the `EvalAwi` case
-                /*if let Some(s) = lock
-                    .ensemble
-                    .get_state_debug(self.state())
-                {
+                /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
                     tmp.field("state", &DisplayStr(&s));
                 }*/
-                tmp.field("bits", &rnode.bits());
+                //tmp.field("bits", &rnode.bits());
             }
         }
         tmp.finish()

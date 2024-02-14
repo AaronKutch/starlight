@@ -179,7 +179,7 @@ pub mod route;
 /// Miscellanious utilities
 pub mod utils;
 pub use awi_structs::{
-    delay, epoch, Assertions, Epoch, EvalAwi, LazyAwi, Loop, Net, SuspendedEpoch,
+    delay, epoch, Assertions, Drive, Epoch, EvalAwi, In, LazyAwi, Loop, Net, Out, SuspendedEpoch,
 };
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
