@@ -24,6 +24,12 @@ pub enum Error {
     /// active
     #[error("there is no `starlight::Epoch` that is currently active")]
     NoCurrentlyActiveEpoch,
+    /// If there is an active `Epoch` but the operation needs a different one
+    #[error(
+        "the currently active `starlight::Epoch` is not the correct one for this operation; some \
+         `Epoch` operations require that `self` is the current `Epoch`"
+    )]
+    WrongCurrentlyActiveEpoch,
     /// If an `RNode` was requested that cannot be found
     #[error(
         "could not find thread local `RNode` corresponding to {0:?}, probably an `EvalAwi` or \

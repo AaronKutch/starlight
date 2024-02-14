@@ -1,4 +1,8 @@
-use starlight::{awi, dag::*, Epoch, Error, EvalAwi, LazyAwi};
+use starlight::{
+    awi,
+    dag::{self, *},
+    Epoch, Error, EvalAwi, LazyAwi,
+};
 
 #[test]
 #[should_panic]
@@ -187,13 +191,18 @@ fn epoch_suspension1() {
 fn fallible_epoch_inactive_errors() {
     let epoch = Epoch::new();
     let x = LazyAwi::opaque(bw(1));
-    let y = awi!(x);
-    let y = EvalAwi::from(&y);
+    let b = awi!(x);
+    dag::assert!(b.lsb());
+    let y = EvalAwi::from(&b);
+    let z0 = LazyAwi::opaque(bw(2));
+    let z1 = LazyAwi::opaque(bw(2));
+    let l0 = Loop::opaque(bw(1));
+    let l1 = Loop::opaque(bw(1));
 
     // when things are from the outer epoch
     let epoch1 = Epoch::new();
     {
-        use awi::{assert, *};
+        use awi::{assert, assert_eq, *};
         assert!(matches!(
             x.retro_(&awi!(0)),
             Err(Error::InvalidPExternal(_))
@@ -206,6 +215,30 @@ fn fallible_epoch_inactive_errors() {
         assert!(matches!(y.eval(), Err(Error::InvalidPExternal(_))));
         assert!(matches!(y.eval_bool(), Err(Error::InvalidPExternal(_))));
         assert!(matches!(y.eval_u8(), Err(Error::InvalidPExternal(_))));
+        assert!(matches!(
+            z0.drive_with_delay(&y, 0),
+            Err(Error::InvalidPExternal(_))
+        ));
+        // this might be an issue, but I think this should be like a normal mimick
+        //assert!(matches!(.unwrap(), Err(Error::InvalidPExternal(_))));
+
+        epoch.verify_integrity().unwrap();
+        assert_eq!(
+            epoch.assert_assertions(true),
+            Err(Error::WrongCurrentlyActiveEpoch)
+        );
+        assert_eq!(
+            epoch.prune_unused_states(),
+            Err(Error::WrongCurrentlyActiveEpoch)
+        );
+        assert_eq!(epoch.lower(), Err(Error::WrongCurrentlyActiveEpoch));
+        assert_eq!(
+            epoch.lower_and_prune(),
+            Err(Error::WrongCurrentlyActiveEpoch)
+        );
+        assert_eq!(epoch.optimize(), Err(Error::WrongCurrentlyActiveEpoch));
+        assert_eq!(epoch.run(0), Err(Error::WrongCurrentlyActiveEpoch));
+        assert_eq!(epoch.quiesced(), Err(Error::WrongCurrentlyActiveEpoch));
     }
     drop(epoch1);
 
@@ -220,6 +253,15 @@ fn fallible_epoch_inactive_errors() {
         assert_eq!(y.eval(), Err(Error::NoCurrentlyActiveEpoch));
         assert_eq!(y.eval_bool(), Err(Error::NoCurrentlyActiveEpoch));
         assert_eq!(y.eval_u8(), Err(Error::NoCurrentlyActiveEpoch));
+        assert_eq!(
+            z1.drive_with_delay(&y, 0),
+            Err(Error::NoCurrentlyActiveEpoch)
+        );
+        assert_eq!(l0.drive(&b), Err(Error::NoCurrentlyActiveEpoch));
+        assert_eq!(
+            l1.drive_with_delay(&b, 0),
+            Err(Error::NoCurrentlyActiveEpoch)
+        );
     }
     drop(epoch);
 }

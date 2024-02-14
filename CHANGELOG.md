@@ -7,6 +7,7 @@
 - Removed `LazyInlAwi`
 - Removed the `Clone` impl for `EvalAwi` because it had questionable semantics and bad implications
 - `Epoch::suspend` now panics like it did in practice and does not return a `Result`
+- `EvalAwi`s and `LazyAwi`s no longer have any conditions under which they should panic on drop
 
 ### Additions
 - `Loop`s and `Net`s can now have an arbitrary initial value

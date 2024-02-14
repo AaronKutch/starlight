@@ -1,6 +1,7 @@
 [package]
 name = "starlight"
 # FIXME before next release make a `Argument128` `Op` variant for delays
+# FIXME make `dag::assert*` not part of the glop imports
 version = "0.3.0"
 edition = "2021"
 authors = ["Aaron Kutch <aaronkutch@att.net>"]

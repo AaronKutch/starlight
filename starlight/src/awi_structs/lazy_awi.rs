@@ -38,22 +38,11 @@ pub struct LazyAwi {
     p_external: PExternal,
 }
 
-// NOTE: when changing this also remember to change `LazyInlAwi`
 impl Drop for LazyAwi {
     fn drop(&mut self) {
         // prevent invoking recursive panics and a buffer overrun
         if !panicking() {
-            if let Ok(epoch) = get_current_epoch() {
-                let res = epoch
-                    .epoch_data
-                    .borrow_mut()
-                    .ensemble
-                    .remove_rnode(self.p_external);
-                if res.is_err() {
-                    panic!("most likely, a `LazyAwi` created in one `Epoch` was dropped in another")
-                }
-            }
-            // else the epoch has been dropped
+            self.drop_internal();
         }
     }
 }
@@ -141,6 +130,14 @@ impl LazyAwi {
         retro_uone_ Uone;
     );
 
+    fn drop_internal(&self) {
+        if let Ok(epoch) = get_current_epoch() {
+            let mut lock = epoch.epoch_data.borrow_mut();
+            let _ = lock.ensemble.remove_rnode(self.p_external);
+        }
+        // else the epoch has been dropped
+    }
+
     fn internal_as_ref(&self) -> &dag::Bits {
         &self.opaque
     }
@@ -149,8 +146,12 @@ impl LazyAwi {
         self.p_external
     }
 
+    pub fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {
+        Ensemble::get_thread_local_rnode_nzbw(self.p_external)
+    }
+
     pub fn nzbw(&self) -> NonZeroUsize {
-        Ensemble::get_thread_local_rnode_nzbw(self.p_external).unwrap()
+        self.try_get_nzbw().unwrap()
     }
 
     pub fn bw(&self) -> usize {
@@ -230,7 +231,7 @@ impl LazyAwi {
     /// Note that `Loop` and `Net` implicitly warn if they are undriven, you
     /// may want to use them instead. Returns `None` if bitwidths mismatch.
     pub fn drive_with_delay<D: Into<Delay>>(self, rhs: &EvalAwi, delay: D) -> Result<(), Error> {
-        if self.bw() != rhs.bw() {
+        if self.try_get_nzbw()? != rhs.try_get_nzbw()? {
             return Err(Error::WrongBitwidth)
         }
         let delay = delay.into();

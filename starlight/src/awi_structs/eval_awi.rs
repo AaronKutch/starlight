@@ -113,11 +113,10 @@ impl EvalAwi {
         if let Ok(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
             let res = lock.ensemble.remove_rnode(self.p_external);
-            if res.is_err() {
-                panic!("most likely, an `EvalAwi` created in one `Epoch` was dropped in another")
-            }
-            if let Some(state) = lock.ensemble.stator.states.get_mut(self.p_state) {
-                state.dec_extern_rc();
+            if res.is_ok() {
+                if let Some(state) = lock.ensemble.stator.states.get_mut(self.p_state) {
+                    state.dec_extern_rc();
+                }
             }
         }
         // else the epoch has been dropped, do nothing
@@ -127,7 +126,7 @@ impl EvalAwi {
         self.p_external
     }
 
-    fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {
+    pub fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {
         Ensemble::get_thread_local_rnode_nzbw(self.p_external)
     }
 

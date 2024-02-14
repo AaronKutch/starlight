@@ -230,10 +230,10 @@ impl Loop {
     /// configuration must form a DAG overall or else a nontermination error can
     /// be thrown later. Returns an error if `self.bw() != driver.bw()`.
     pub fn drive(self, driver: &Bits) -> Result<(), Error> {
+        let epoch = get_current_epoch()?;
         if self.source.bw() != driver.bw() {
             Err(Error::WrongBitwidth)
         } else {
-            let epoch = get_current_epoch()?;
             let mut lock = epoch.epoch_data.borrow_mut();
             // add the driver to the loop source
             let op = &mut lock
@@ -276,10 +276,11 @@ impl Loop {
         let delay = delay.into();
         if delay.is_zero() {
             self.drive(driver)
-        } else if self.source.bw() != driver.bw() {
-            Err(Error::WrongBitwidth)
         } else {
             let epoch = get_current_epoch()?;
+            if self.source.bw() != driver.bw() {
+                return Err(Error::WrongBitwidth)
+            }
 
             // TODO perhaps just lower, but the plan is to base incremental compilation on
             // states. Not sure if we ever want dynamic delay.

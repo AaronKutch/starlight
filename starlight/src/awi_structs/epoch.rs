@@ -483,7 +483,9 @@ pub fn _callback() -> EpochCallback {
                         .bits
                         .push(eval_awi);
                 } else {
-                    panic!("There needs to be an `Epoch` in scope for this to work");
+                    panic!(
+                        "there needs to be an `Epoch` in scope for assertion registration to work"
+                    );
                 }
             })
         }
@@ -497,7 +499,10 @@ pub fn _callback() -> EpochCallback {
                 .stator
                 .states
                 .get(p_state)
-                .unwrap()
+                .expect(
+                    "probably, an `awint_dag`/`starlight` mimicking type was operated on in the \
+                     wrong `Epoch`",
+                )
                 .nzbw
         })
     }
@@ -510,7 +515,10 @@ pub fn _callback() -> EpochCallback {
                 .stator
                 .states
                 .get(p_state)
-                .unwrap()
+                .expect(
+                    "probably, an `awint_dag`/`starlight` mimicking type was operated on in the \
+                     wrong `Epoch`",
+                )
                 .op
                 .clone()
         })
@@ -710,13 +718,14 @@ impl Epoch {
     }
 
     /// Checks if `self.shared()` is the same as the current epoch, and returns
-    /// the `EpochShared` if so
+    /// the `EpochShared` if so. Returns `NoCurrentlyActiveEpoch` or
+    /// `WrongCurrentlyActiveEpoch` depending on error conditions.
     fn check_current(&self) -> Result<EpochShared, Error> {
         let epoch_shared = get_current_epoch()?;
         if Rc::ptr_eq(&epoch_shared.epoch_data, &self.shared().epoch_data) {
             Ok(self.shared().clone())
         } else {
-            Err(Error::OtherStr("epoch is not the current epoch"))
+            Err(Error::WrongCurrentlyActiveEpoch)
         }
     }
 
@@ -757,14 +766,17 @@ impl Epoch {
     /// If any assertion bit evaluates to false, this returns an error. If
     /// `strict` and an assertion could not be evaluated to a known value, this
     /// also returns an error. Prunes assertions evaluated to a constant true.
+    /// Requires that `self` be the current `Epoch`.
     pub fn assert_assertions(&self, strict: bool) -> Result<(), Error> {
-        self.shared().assert_assertions(strict)
+        let epoch_shared = self.check_current()?;
+        epoch_shared.assert_assertions(strict)
     }
 
     /// Removes all states that do not lead to a live `EvalAwi`, and loosely
-    /// evaluates assertions.
+    /// evaluates assertions. Requires
+    /// that `self` be the current `Epoch`.
     pub fn prune_unused_states(&self) -> Result<(), Error> {
-        let epoch_shared = self.shared();
+        let epoch_shared = self.check_current()?;
         // get rid of constant assertions
         let _ = epoch_shared.assert_assertions(false);
         let mut lock = epoch_shared.epoch_data.borrow_mut();
