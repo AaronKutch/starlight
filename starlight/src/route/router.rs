@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
 
-use super::route;
+use super::{route, Configurator};
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
     route::{Channeler, EdgeKind, Embedding, EmbeddingKind, PEmbedding},
@@ -49,12 +49,26 @@ pub struct Router {
 impl Router {
     pub fn new(
         target_epoch: &SuspendedEpoch,
+        configurator: &Configurator,
+        program_epoch: &SuspendedEpoch,
+    ) -> Result<Self, Error> {
+        let target_channeler = Channeler::from_target(target_epoch, configurator)?;
+        let program_channeler = Channeler::from_program(program_epoch)?;
+        Ok(Self::new_from_channelers(
+            target_epoch,
+            target_channeler,
+            program_epoch,
+            program_channeler,
+        ))
+    }
+
+    /// Create the router from externally created `Channeler`s
+    pub fn new_from_channelers(
+        target_epoch: &SuspendedEpoch,
         target_channeler: Channeler<QCNode, QCEdge>,
         program_epoch: &SuspendedEpoch,
         program_channeler: Channeler<PCNode, PCEdge>,
     ) -> Self {
-        // TODO may want the primary user function to take ownership of epoch, or maybe
-        // always for memory reasons
         Self {
             target_ensemble: target_epoch.ensemble(|ensemble| ensemble.clone()),
             target_channeler,
@@ -546,14 +560,30 @@ impl Router {
 
     /// Tell the router what program input bits we want to map to what target
     /// input bits
-    pub fn map_lazy(&mut self, program: &LazyAwi, target: &LazyAwi) -> Result<(), Error> {
-        self.map_rnodes(program.p_external(), target.p_external(), true)
+    pub fn map_lazy<L0: std::borrow::Borrow<LazyAwi>, L1: std::borrow::Borrow<LazyAwi>>(
+        &mut self,
+        program: &L0,
+        target: &L1,
+    ) -> Result<(), Error> {
+        self.map_rnodes(
+            program.borrow().p_external(),
+            target.borrow().p_external(),
+            true,
+        )
     }
 
     /// Tell the router what program output bits we want to map to what target
     /// output bits
-    pub fn map_eval(&mut self, program: &EvalAwi, target: &EvalAwi) -> Result<(), Error> {
-        self.map_rnodes(program.p_external(), target.p_external(), false)
+    pub fn map_eval<E0: std::borrow::Borrow<EvalAwi>, E1: std::borrow::Borrow<EvalAwi>>(
+        &mut self,
+        program: &E0,
+        target: &E1,
+    ) -> Result<(), Error> {
+        self.map_rnodes(
+            program.borrow().p_external(),
+            target.borrow().p_external(),
+            false,
+        )
     }
 
     pub fn route(&mut self) -> Result<(), Error> {
