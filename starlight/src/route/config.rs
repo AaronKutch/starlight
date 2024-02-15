@@ -2,6 +2,7 @@ use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
 
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
+    epoch::get_current_epoch,
     Error, LazyAwi,
 };
 
@@ -37,18 +38,31 @@ impl Configurator {
         self.configurations.find_key(&p_equiv)
     }
 
+    /// Tell the router what bits it can use for programming the target. Uses
+    /// the currently active `Epoch`.
+    pub fn make_configurable<L: std::borrow::Borrow<LazyAwi>>(
+        &mut self,
+        config: &L,
+    ) -> Result<(), Error> {
+        let epoch_shared = get_current_epoch()?;
+        let lock = epoch_shared.epoch_data.borrow();
+        let ensemble = &lock.ensemble;
+        self.ensemble_make_configurable(ensemble, config)
+    }
+
     /// Tell the router what bits it can use for programming the target
-    pub fn make_configurable(
+    pub fn ensemble_make_configurable<L: std::borrow::Borrow<LazyAwi>>(
         &mut self,
         ensemble: &Ensemble,
-        config: &LazyAwi,
+        config: &L,
     ) -> Result<(), Error> {
+        let config = config.borrow();
         let p_external = config.p_external();
         let (_, rnode) = ensemble.notary.get_rnode(p_external)?;
         if let Some(bits) = rnode.bits() {
-            for (bit_i, bit) in bits.iter().enumerate() {
+            for (bit_i, bit) in bits.iter().copied().enumerate() {
                 if let Some(bit) = bit {
-                    let p_equiv = ensemble.backrefs.get_val(*bit).unwrap().p_self_equiv;
+                    let p_equiv = ensemble.backrefs.get_val(bit).unwrap().p_self_equiv;
                     let (_, replaced) = self.configurations.insert(p_equiv, Config {
                         p_external,
                         bit_i,
@@ -58,7 +72,7 @@ impl Configurator {
                     // set to the same thing
                     if replaced.is_some() {
                         return Err(Error::OtherString(format!(
-                            "`make_configurable(.., {config:?})`: found that the same bit as a \
+                            "`make_configurable({config:#?})`: found that the same bit as a \
                              previous one is configurable, this may be because \
                              `make_configurable` was called twice on the same or equivalent bit"
                         )));
@@ -67,8 +81,8 @@ impl Configurator {
             }
         } else {
             return Err(Error::OtherStr(
-                "`make_configurable(.., {config:?})`: found that the epoch has not been lowered \
-                 and preferably optimized",
+                "`make_configurable({config:#?})`: found that the epoch has not been lowered and \
+                 preferably optimized",
             ));
         }
         Ok(())

@@ -1,10 +1,14 @@
 use std::fmt::Write;
 
-use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
+use awint::{
+    awint_dag::triple_arena::{ptr_struct, OrdArena},
+    Awi,
+};
 
 use super::{route, Configurator};
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
+    epoch::get_current_epoch,
     route::{Channeler, EdgeKind, Embedding, EmbeddingKind, PEmbedding},
     triple_arena::Arena,
     Error, EvalAwi, LazyAwi, SuspendedEpoch,
@@ -47,6 +51,49 @@ pub struct Router {
 }
 
 impl Router {
+    /// Given the `SuspendedEpoch` of the target, the `Configurator` for the
+    /// target, and the `SuspendedEpoch` of the program, this creates a
+    /// `Router`.
+    ///
+    /// # Note
+    ///
+    /// Currently, the only supported way of using a `Router` is to do these
+    /// steps in order:
+    ///
+    /// 1. The target and program are independently created each by starting an
+    ///    `Epoch`, performing the mimicking descriptions, then suspending the
+    ///    epoch before starting another one. The target additionally needs to
+    ///    specify all of its configurable bits with the `Configurator` so that
+    ///    the router can understand what it is allowed to configure.
+    ///
+    /// 2. The router is created from these components. Note that it clones the
+    ///    internal `Ensemble`s of the `SuspendedEpoch`s and assumes their
+    ///    structure does not change. If you do more mimicking operations to
+    ///    them afterwards or do any special modifications beyond `retro_`
+    ///    assigning and `eval`uating, the router will not know about their new
+    ///    structure and later configures may be wrong.
+    ///
+    /// 3. `map_lazy` and `map_eval` are used to specify what inputs and outputs
+    ///    should be mapped from the program onto the target. These should not
+    ///    be called again after routing is done.
+    ///
+    /// 4. `route` is called. If an error is returned then there may be an issue
+    ///    with the setup above, a bug with the router itself, or the target may
+    ///    simply not have the necessary routability to support the program.
+    ///
+    /// 5. `get_config` can be used to get the configuration corresponding to a
+    ///    target config bit. If you want to simulate the configured target
+    ///    however, proceed to the next step.
+    ///
+    /// 5. The target epoch can be resumed, and when `config_target` is called
+    ///    it will set the `LazyAwi`s specified in the configurator. Note that
+    ///    if it found a that a bit did not need to be specified, it may set it
+    ///    to `Unknown`.
+    ///
+    /// 6. Now `transpose_retro` and `transpose_eval` can be used on program
+    ///    inputs and outputs (while still in the active target epoch), and it
+    ///    will automatically find the mapping to the target and act through the
+    ///    target.
     pub fn new(
         target_epoch: &SuspendedEpoch,
         configurator: &Configurator,
@@ -123,17 +170,17 @@ impl Router {
                 }
                 if !ok {
                     return Err(Error::OtherString(format!(
-                        "{mapping_target:?} rnode validity issue"
+                        "{mapping_target:#?} rnode validity issue"
                     )));
                 }
             } else {
                 return Err(Error::OtherString(format!(
-                    "{mapping_target:?} rnode is unlowered"
+                    "{mapping_target:#?} rnode is unlowered"
                 )));
             }
         } else {
             return Err(Error::OtherString(format!(
-                "{mapping_target:?}.target_p_external is invalid"
+                "{mapping_target:#?}.target_p_external is invalid"
             )))
         }
         Ok(())
@@ -163,17 +210,17 @@ impl Router {
                     }
                     if !ok {
                         return Err(Error::OtherString(format!(
-                            "{p_mapping} {mapping:?} rnode validity issue"
+                            "{p_mapping} {mapping:#?} rnode validity issue"
                         )));
                     }
                 } else {
                     return Err(Error::OtherString(format!(
-                        "{p_mapping} {mapping:?} rnode is unlowered"
+                        "{p_mapping} {mapping:#?} rnode is unlowered"
                     )));
                 }
             } else {
                 return Err(Error::OtherString(format!(
-                    "{p_mapping} {mapping:?}.program_p_external is invalid"
+                    "{p_mapping} {mapping:#?}.program_p_external is invalid"
                 )))
             }
 
@@ -190,14 +237,14 @@ impl Router {
                 EmbeddingKind::Edge(p_cedge) => {
                     if !self.program_channeler().cedges.contains(p_cedge) {
                         return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:?}.program is invalid"
+                            "{p_embedding} {embedding:#?}.program is invalid"
                         )))
                     }
                 }
                 EmbeddingKind::Node(p_cnode) => {
                     if !self.program_channeler().cnodes.contains(p_cnode) {
                         return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:?}.program is invalid"
+                            "{p_embedding} {embedding:#?}.program is invalid"
                         )))
                     }
                 }
@@ -205,19 +252,19 @@ impl Router {
             let hyperpath = &embedding.target_hyperpath;
             if !self.target_channeler().cnodes.contains(hyperpath.source()) {
                 return Err(Error::OtherString(format!(
-                    "{p_embedding} {embedding:?}.target_hyperpath.source is invalid"
+                    "{p_embedding} {embedding:#?}.target_hyperpath.source is invalid"
                 )))
             }
             for path in hyperpath.paths() {
                 if !self.target_channeler().cnodes.contains(path.sink()) {
                     return Err(Error::OtherString(format!(
-                        "{p_embedding} {embedding:?} path sink is invalid"
+                        "{p_embedding} {embedding:#?} path sink is invalid"
                     )))
                 }
                 for edge in path.edges() {
                     if !self.target_channeler().cnodes.contains(edge.to) {
                         return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:?} path edge.to is invalid"
+                            "{p_embedding} {embedding:#?} path edge.to is invalid"
                         )))
                     }
                     match edge.kind {
@@ -225,13 +272,13 @@ impl Router {
                             if let Some(cedge) = self.target_channeler().cedges.get(q_cedge) {
                                 if cedge.sources().get(source_i).is_none() {
                                     return Err(Error::OtherString(format!(
-                                        "{p_embedding} {embedding:?} path sink source_i is out of \
-                                         range"
+                                        "{p_embedding} {embedding:#?} path sink source_i is out \
+                                         of range"
                                     )))
                                 }
                             } else {
                                 return Err(Error::OtherString(format!(
-                                    "{p_embedding} {embedding:?} path edge.kind is invalid"
+                                    "{p_embedding} {embedding:#?} path edge.kind is invalid"
                                 )))
                             }
                         }
@@ -250,7 +297,7 @@ impl Router {
                             q = cedge.sources()[source_i];
                             if q != edge.to {
                                 return Err(Error::OtherString(format!(
-                                    "{p_embedding} {embedding:?} path {i} is broken at traversal \
+                                    "{p_embedding} {embedding:#?} path {i} is broken at traversal \
                                      edge {j}"
                                 )))
                             }
@@ -259,7 +306,7 @@ impl Router {
                             q = self.target_channeler().get_supernode(q).unwrap();
                             if q != edge.to {
                                 return Err(Error::OtherString(format!(
-                                    "{p_embedding} {embedding:?} path {i} is broken at \
+                                    "{p_embedding} {embedding:#?} path {i} is broken at \
                                      concentration edge {j}"
                                 )))
                             }
@@ -268,7 +315,7 @@ impl Router {
                             let supernode = self.target_channeler().get_supernode(edge.to).unwrap();
                             if q != supernode {
                                 return Err(Error::OtherString(format!(
-                                    "{p_embedding} {embedding:?} path {i} is broken at dilution \
+                                    "{p_embedding} {embedding:#?} path {i} is broken at dilution \
                                      edge {j}"
                                 )))
                             }
@@ -278,7 +325,7 @@ impl Router {
                 }
                 if q != path.sink() {
                     return Err(Error::OtherString(format!(
-                        "{p_embedding} {embedding:?} path {i} ending does not match sink"
+                        "{p_embedding} {embedding:#?} path {i} ending does not match sink"
                     )))
                 }
             }
@@ -295,7 +342,7 @@ impl Router {
             if !skip_invalid {
                 writeln!(
                     s,
-                    "{p_rnode:?} {p_external:?} debug_name: {:?}",
+                    "{p_rnode:?} {p_external:#?} debug_name: {:?}",
                     rnode.debug_name,
                 )
                 .unwrap();
@@ -316,7 +363,7 @@ impl Router {
                             if skip_invalid && !init {
                                 writeln!(
                                     s,
-                                    "{p_rnode:?} {p_external:?} debug_name: {:?}",
+                                    "{p_rnode:?} {p_external:#?} debug_name: {:?}",
                                     rnode.debug_name
                                 )
                                 .unwrap();
@@ -343,7 +390,7 @@ impl Router {
     pub fn debug_mapping(&self, p_mapping: PMapping) -> String {
         let (p_back, mapping) = self.mappings().get(p_mapping).unwrap();
         let mut s = format!(
-            "{p_mapping:?} {p_back:?} Mapping {{\nprogram: {} bit {}\n",
+            "{p_mapping:?} {p_back:#?} Mapping {{\nprogram: {} bit {}\n",
             mapping.program_p_external, mapping.program_bit_i
         );
         let rnode = self
@@ -457,8 +504,8 @@ impl Router {
                 let len1 = target_rnode_bits.len();
                 if len0 != len1 {
                     return Err(Error::OtherString(format!(
-                        "when mapping bits, found that the bitwidths of {program:?} ({len0}) and \
-                         {target:?} ({len1}) differ"
+                        "when mapping bits, found that the bitwidths of {program:#?} ({len0}) and \
+                         {target:#?} ({len1}) differ"
                     )));
                 }
                 for (bit_i, the_two) in program_rnode_bits
@@ -494,7 +541,7 @@ impl Router {
                                     if mapping.target_source.is_some() {
                                         return Err(Error::OtherString(format!(
                                             "Tried to map multiple program drivers for the same \
-                                             program `RNode` {:?}, probably called \
+                                             program `RNode` {:#?}, probably called \
                                              `Router::map_*` twice on the same program `LazyAwi`",
                                             program
                                         )));
@@ -507,7 +554,7 @@ impl Router {
                                         {
                                             return Err(Error::OtherString(format!(
                                                 "Tried to map multiple program value sinks for \
-                                                 the same program `RNode` {:?}, probably called \
+                                                 the same program `RNode` {:#?}, probably called \
                                                  `Router::map_*` twice on the same program \
                                                  `EvalAwi`",
                                                 program
@@ -539,7 +586,7 @@ impl Router {
                         _ => {
                             // maybe it should just be a no-op? haven't encountered a case yet
                             return Err(Error::OtherString(format!(
-                                "when mapping bits {program:?} and {target:?}, one or the other \
+                                "when mapping bits {program:#?} and {target:#?}, one or the other \
                                  bits were optimized away inconsistently"
                             )));
                         }
@@ -548,12 +595,12 @@ impl Router {
                 Ok(())
             } else {
                 Err(Error::OtherString(format!(
-                    "when mapping bits, could not find {target:?} in the target `Ensemble`"
+                    "when mapping bits, could not find {target:#?} in the target `Ensemble`"
                 )))
             }
         } else {
             Err(Error::OtherString(format!(
-                "when mapping bits, could not find {program:?} in the program `Ensemble`"
+                "when mapping bits, could not find {program:#?} in the program `Ensemble`"
             )))
         }
     }
@@ -586,8 +633,52 @@ impl Router {
         )
     }
 
+    /// After all mappings have been done, this function should be called to
+    /// perform the routing algorithms to determine how the target can be
+    /// configured to match the functionality of the program.
+    ///
+    /// # Errors
+    ///
+    /// If the routing is infeasible an error is returned.
     pub fn route(&mut self) -> Result<(), Error> {
         self.initialize_embeddings()?;
         route(self)
+    }
+
+    /// After routing is done, this function can be called to find the
+    /// configuration that the router determined. Note that if a bit is not
+    /// necessarily set to anything, it will show as zero.
+    ///
+    /// # Errors
+    ///
+    /// - If the target epoch is not active or `config` is from the wrong
+    ///   `Epoch`
+    /// - If `config` was not registered in the `Configurator` used for the
+    ///   router
+    #[allow(unused)]
+    pub fn get_config<L: std::borrow::Borrow<LazyAwi>>(&self, config: &L) -> Result<Awi, Error> {
+        let config = config.borrow();
+        let epoch_shared = get_current_epoch()?;
+        let lock = epoch_shared.epoch_data.borrow();
+        let ensemble = &lock.ensemble;
+
+        let p_external = config.p_external();
+        let (_, rnode) = ensemble.notary.get_rnode(p_external)?;
+        let mut res = Awi::zero(rnode.nzbw());
+        if let Some(bits) = rnode.bits() {
+            for (bit_i, bit) in bits.iter().copied().enumerate() {
+                if let Some(bit) = bit {
+                    let q_cnode = self.target_channeler().find_channeler_cnode(bit).unwrap();
+                    todo!()
+                    //self.target_channeler().cnodes.get_val(q_cnode).unwrap().
+                }
+            }
+        } else {
+            return Err(Error::OtherStr(
+                "`get_config({config:#?})`: the config is in the target epoch, but either routing \
+                 has not been done or the target was improperly mutated",
+            ));
+        }
+        Ok(res)
     }
 }
