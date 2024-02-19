@@ -39,6 +39,7 @@ pub struct State {
     /// The number of other `State`s, and only other `State`s, that reference
     /// this one through the `Op`s
     pub rc: usize,
+    /// The number of `RNode`s referencing this state
     pub extern_rc: usize,
     /// If the `State` has been lowered to elementary `State`s (`Static-`
     /// operations and roots). Note that a DFS might set this before actually
@@ -193,7 +194,7 @@ impl Ensemble {
 
     /// Triggers a cascade of state removals if `pruning_allowed()` and
     /// their reference counts are zero
-    pub fn remove_state(&mut self, p_state: PState) -> Result<(), Error> {
+    pub fn remove_state_if_pruning_allowed(&mut self, p_state: PState) -> Result<(), Error> {
         if !self.stator.states.contains(p_state) {
             return Err(Error::InvalidPtr);
         }
@@ -225,6 +226,9 @@ impl Ensemble {
     }
 
     pub fn force_remove_all_states(&mut self) -> Result<(), Error> {
+        // set associated states to none to help prevent issues when there are no
+        // generation counters
+        self.remove_all_rnode_associated_states();
         for (_, mut state) in self.stator.states.drain() {
             for p_self_state in state.p_self_bits.drain(..) {
                 if let Some(p_self_state) = p_self_state {
@@ -243,16 +247,28 @@ impl Ensemble {
             .map(|state| format!("{p_state} {state:#?}"))
     }
 
-    pub fn dec_rc(&mut self, p_state: PState) -> Result<(), Error> {
+    pub fn state_dec_extern_rc(&mut self, p_state: PState) -> Result<(), Error> {
+        if let Some(state) = self.stator.states.get_mut(p_state) {
+            state.extern_rc = if let Some(x) = state.extern_rc.checked_sub(1) {
+                x
+            } else {
+                return Err(Error::OtherStr("tried to subtract a 0 reference count"))
+            };
+            self.remove_state_if_pruning_allowed(p_state)?;
+            Ok(())
+        } else {
+            Err(Error::InvalidPtr)
+        }
+    }
+
+    pub fn state_dec_rc(&mut self, p_state: PState) -> Result<(), Error> {
         if let Some(state) = self.stator.states.get_mut(p_state) {
             state.rc = if let Some(x) = state.rc.checked_sub(1) {
                 x
             } else {
                 return Err(Error::OtherStr("tried to subtract a 0 reference count"))
             };
-            if state.pruning_allowed() {
-                self.remove_state(p_state)?;
-            }
+            self.remove_state_if_pruning_allowed(p_state)?;
             Ok(())
         } else {
             Err(Error::InvalidPtr)
@@ -263,10 +279,7 @@ impl Ensemble {
     pub fn prune_unused_states(&mut self) -> Result<(), Error> {
         let mut adv = self.stator.states.advancer();
         while let Some(p_state) = adv.advance(&self.stator.states) {
-            let state = &self.stator.states[p_state];
-            if state.pruning_allowed() {
-                self.remove_state(p_state).unwrap();
-            }
+            self.remove_state_if_pruning_allowed(p_state).unwrap();
         }
         Ok(())
     }
@@ -289,7 +302,7 @@ impl Ensemble {
                 let len = state.op.operands_len();
                 for i in 0..len {
                     let source = self.stator.states[p_state].op.operands()[i];
-                    self.dec_rc(source).unwrap();
+                    self.state_dec_rc(source).unwrap();
                 }
                 // if the `op` is manually replaced outside of the specially handled lowering
                 // `Copy` replacements, we need to check the values or else this change could be
@@ -331,7 +344,7 @@ impl Ensemble {
                     // anything
                     let state = self.stator.states.get_mut(p_state).unwrap();
                     debug_assert_eq!(state.rc, 0);
-                    self.remove_state(p_state).unwrap();
+                    self.remove_state_if_pruning_allowed(p_state).unwrap();
                     Ok(())
                 } else {
                     unreachable!()
@@ -458,7 +471,7 @@ impl Ensemble {
             let mut lock = epoch_shared.epoch_data.borrow_mut();
             if let Some(p_rnode) = adv.advance(lock.ensemble.notary.rnodes()) {
                 // only lower state trees attached to rnodes that need lowering
-                let rnode = &lock.ensemble.notary.rnodes()[p_rnode];
+                let rnode = lock.ensemble.notary.rnodes.get_val_mut(p_rnode).unwrap();
                 if rnode.lower_before_pruning {
                     drop(lock);
                     Ensemble::initialize_rnode_if_needed(epoch_shared, p_rnode, true)?;

@@ -215,12 +215,17 @@ impl EpochShared {
     /// This function should not be called more than once per `self.p_self`.
     pub fn drop_associated(&self) -> Result<(), Error> {
         let mut lock = self.epoch_data.borrow_mut();
-        if let Some(ours) = lock.responsible_for.remove(self.p_self) {
+        if let Some(mut ours) = lock.responsible_for.remove(self.p_self) {
+            let assertion_bits = mem::take(&mut ours.assertions.bits);
+            drop(lock);
+            // drop the `EvalAwi`s
+            drop(assertion_bits);
+            let mut lock = self.epoch_data.borrow_mut();
             for p_state in ours.states_inserted.iter().copied() {
-                let _ = lock.ensemble.remove_state(p_state);
+                let _ = lock.ensemble.remove_state_if_pruning_allowed(p_state);
             }
             drop(lock);
-            // drop the `EvalAwi`s of the assertions after unlocking
+            // drop the rest
             drop(ours);
 
             let mut lock = self.epoch_data.borrow_mut();
@@ -269,7 +274,7 @@ impl EpochShared {
     /// Returns a clone of the assertions currently associated with `self`
     pub fn assertions(&self) -> Assertions {
         let p_self = self.p_self;
-        // need to indirectly clone
+        // need to indirectly clone to avoid double borrow
         let epoch_data = self.epoch_data.borrow();
         let bits = &epoch_data
             .responsible_for
@@ -277,14 +282,14 @@ impl EpochShared {
             .unwrap()
             .assertions
             .bits;
-        let mut states = vec![];
+        let mut p_externals = vec![];
         for bit in bits {
-            states.push(bit.state())
+            p_externals.push(bit.p_external());
         }
         drop(epoch_data);
         let mut cloned = vec![];
-        for p_state in states {
-            cloned.push(EvalAwi::from_state(p_state))
+        for bit in p_externals {
+            cloned.push(EvalAwi::try_clone_from(bit).unwrap());
         }
         Assertions { bits: cloned }
     }
@@ -317,32 +322,22 @@ impl EpochShared {
                 .unwrap()
                 .assertions
                 .bits[i];
-            let p_state = eval_awi.state();
             let p_external = eval_awi.p_external();
             drop(epoch_data);
             let val = Ensemble::request_thread_local_rnode_value(p_external, 0)?;
             if let Some(val) = val.known_value() {
                 if !val {
-                    let epoch_data = self.epoch_data.borrow();
-                    let s = epoch_data.ensemble.get_state_debug(p_state);
-                    if let Some(s) = s {
-                        return Err(Error::OtherString(format!(
-                            "an assertion bit evaluated to false, failed on {p_external} {:?}",
-                            s
-                        )))
-                    } else {
-                        return Err(Error::OtherString(format!(
-                            "an assertion bit evaluated to false, failed on {p_external} {p_state}"
-                        )))
-                    }
+                    return Err(Error::OtherString(format!(
+                        "an assertion bit evaluated to false, failed on {p_external:#?}"
+                    )))
                 }
             } else if unknown.is_none() {
                 // get the earliest failure to evaluate, should be closest to the root cause.
                 // Wait for all bits to be checked for falsity
-                unknown = Some((p_external, p_state));
+                unknown = Some(p_external);
             }
             if (val == Value::ConstUnknown) && strict && unknown.is_none() {
-                unknown = Some((p_external, p_state));
+                unknown = Some(p_external);
             }
             if val.is_const() {
                 // remove the assertion
@@ -362,21 +357,11 @@ impl EpochShared {
             }
         }
         if strict {
-            if let Some((p_external, p_state)) = unknown {
-                let epoch_data = self.epoch_data.borrow();
-                let s = epoch_data.ensemble.get_state_debug(p_state);
-                if let Some(s) = s {
-                    return Err(Error::OtherString(format!(
-                        "an assertion bit could not be evaluated to a known value, failed on \
-                         {p_external} {}",
-                        s
-                    )))
-                } else {
-                    return Err(Error::OtherString(format!(
-                        "an assertion bit could not be evaluated to a known value, failed on \
-                         {p_external} {p_state}"
-                    )))
-                }
+            if let Some(p_external) = unknown {
+                return Err(Error::OtherString(format!(
+                    "an assertion bit could not be evaluated to a known value, failed on \
+                     {p_external:#?}"
+                )))
             }
         }
         Ok(())
@@ -789,6 +774,7 @@ impl Epoch {
     /// that `self` be the current `Epoch`.
     pub fn lower(&self) -> Result<(), Error> {
         let epoch_shared = self.check_current()?;
+        Ensemble::handle_states_to_lower(&epoch_shared)?;
         Ensemble::lower_for_rnodes(&epoch_shared)?;
         let _ = epoch_shared.assert_assertions(false);
         Ok(())
@@ -799,6 +785,7 @@ impl Epoch {
     /// be the current `Epoch`.
     pub fn lower_and_prune(&self) -> Result<(), Error> {
         let epoch_shared = self.check_current()?;
+        Ensemble::handle_states_to_lower(&epoch_shared)?;
         Ensemble::lower_for_rnodes(&epoch_shared)?;
         // get rid of constant assertions
         let _ = epoch_shared.assert_assertions(false);
@@ -810,6 +797,7 @@ impl Epoch {
     /// that `self` be the current `Epoch`.
     pub fn optimize(&self) -> Result<(), Error> {
         let epoch_shared = self.check_current()?;
+        Ensemble::handle_states_to_lower(&epoch_shared)?;
         Ensemble::lower_for_rnodes(&epoch_shared).unwrap();
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         lock.ensemble.optimize_all().unwrap();

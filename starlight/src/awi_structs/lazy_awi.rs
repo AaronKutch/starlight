@@ -8,6 +8,7 @@ use std::{
 use awint::{
     awint_dag::{dag, smallvec::smallvec, Lineage, Location, Op, PState},
     awint_internals::forward_debug_fmt,
+    dag::Awi,
 };
 
 use crate::{
@@ -17,9 +18,6 @@ use crate::{
     utils::DisplayStr,
     Delay, Error, EvalAwi,
 };
-
-// do not implement `Clone` for this, we would need a separate `LazyCellAwi`
-// type
 
 // Note: `mem::forget` can be used on `LazyAwi`s, but in this crate it should
 // only be done in special cases like if a `EpochShared` is being force dropped
@@ -34,8 +32,9 @@ use crate::{
 /// Upon being dropped, this will remove special references being kept by the
 /// current `Epoch`
 pub struct LazyAwi {
-    opaque: dag::Awi,
     p_external: PExternal,
+    // this is only used for `internal_as_ref` to work
+    tmp_dag: dag::Awi,
 }
 
 impl Drop for LazyAwi {
@@ -44,12 +43,6 @@ impl Drop for LazyAwi {
         if !panicking() {
             self.drop_internal();
         }
-    }
-}
-
-impl Lineage for LazyAwi {
-    fn state(&self) -> PState {
-        self.opaque.state()
     }
 }
 
@@ -130,34 +123,6 @@ impl LazyAwi {
         retro_uone_ Uone;
     );
 
-    fn drop_internal(&self) {
-        if let Ok(epoch) = get_current_epoch() {
-            let mut lock = epoch.epoch_data.borrow_mut();
-            let _ = lock.ensemble.remove_rnode(self.p_external);
-        }
-        // else the epoch has been dropped
-    }
-
-    fn internal_as_ref(&self) -> &dag::Bits {
-        &self.opaque
-    }
-
-    pub fn p_external(&self) -> PExternal {
-        self.p_external
-    }
-
-    pub fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {
-        Ensemble::get_thread_local_rnode_nzbw(self.p_external)
-    }
-
-    pub fn nzbw(&self) -> NonZeroUsize {
-        self.try_get_nzbw().unwrap()
-    }
-
-    pub fn bw(&self) -> usize {
-        self.nzbw().get()
-    }
-
     /// Initializes a `LazyAwi` with an unknown dynamic value
     #[track_caller]
     pub fn opaque(w: NonZeroUsize) -> Self {
@@ -175,7 +140,74 @@ impl LazyAwi {
             .ensemble
             .make_rnode_for_pstate(opaque.state(), Some(location), false, false)
             .unwrap();
-        Self { opaque, p_external }
+        Self {
+            p_external,
+            tmp_dag: opaque,
+        }
+    }
+
+    pub fn p_external(&self) -> PExternal {
+        self.p_external
+    }
+
+    /// Gets the associated `PState`, returns an error if the active `Epoch` is
+    /// not correct or the `Epoch` was pruned.
+    pub fn try_get_p_state(&self) -> Result<PState, Error> {
+        let epoch = get_current_epoch()?;
+        let lock = epoch.epoch_data.borrow();
+        let (_, rnode) = lock.ensemble.notary.get_rnode(self.p_external())?;
+        if let Some(p_state) = rnode.associated_state {
+            Ok(p_state)
+        } else {
+            Err(Error::StatePruned(self.p_external()))
+        }
+    }
+
+    pub(crate) fn try_clone_from(p_external: PExternal, p_state: PState) -> Result<Self, Error> {
+        let epoch = get_current_epoch()?;
+        let mut lock = epoch.epoch_data.borrow_mut();
+        let _ = lock.ensemble.rnode_inc_rc(p_external)?;
+        Ok(Self {
+            p_external,
+            tmp_dag: Awi::from_state(p_state),
+        })
+    }
+
+    /// Clones `self`, returning a perfectly equivalent `LazyAwi` that will have
+    /// the same `retro_` effects. Note however that this should not be used
+    /// when you can instead clone states derived from this like
+    /// `Awi::from(&self)`. Errors can occur if an equivalent `LazyAwi` has
+    /// `retro_const_*` or `drive` called on it and then more operations are
+    /// used. Returns an error if the active `Epoch` is not correct.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        LazyAwi::try_clone_from(self.p_external(), self.tmp_dag.state())
+    }
+
+    fn drop_internal(&self) {
+        if let Ok(epoch) = get_current_epoch() {
+            let mut lock = epoch.epoch_data.borrow_mut();
+            let _ = lock.ensemble.rnode_dec_rc(self.p_external());
+        }
+    }
+
+    #[track_caller]
+    fn internal_as_ref(&self) -> &dag::Bits {
+        // guards against inter-epoch usage
+        let p_state = self.try_get_p_state().unwrap();
+        assert_eq!(p_state, self.tmp_dag.state());
+        &self.tmp_dag
+    }
+
+    pub fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {
+        Ensemble::get_thread_local_rnode_nzbw(self.p_external)
+    }
+
+    pub fn nzbw(&self) -> NonZeroUsize {
+        self.try_get_nzbw().unwrap()
+    }
+
+    pub fn bw(&self) -> usize {
+        self.nzbw().get()
     }
 
     /// Retroactively-assigns by `rhs`. Returns an error if bitwidths mismatch
@@ -245,7 +277,7 @@ impl LazyAwi {
         let delay = delay.into();
         for i in 0..self.bw() {
             Ensemble::tnode_drive_thread_local_rnode(
-                self.p_external,
+                self.p_external(),
                 i,
                 rhs.p_external(),
                 i,
@@ -258,13 +290,14 @@ impl LazyAwi {
     /// Sets a debug name for `self` that is used in debug reporting and
     /// rendering
     pub fn set_debug_name<S: AsRef<str>>(&self, debug_name: S) -> Result<(), Error> {
-        Ensemble::thread_local_rnode_set_debug_name(self.p_external, Some(debug_name.as_ref()))
+        Ensemble::thread_local_rnode_set_debug_name(self.p_external(), Some(debug_name.as_ref()))
     }
 }
 
 impl Deref for LazyAwi {
     type Target = dag::Bits;
 
+    #[track_caller]
     fn deref(&self) -> &Self::Target {
         self.internal_as_ref()
     }
@@ -273,18 +306,21 @@ impl Deref for LazyAwi {
 impl Index<RangeFull> for LazyAwi {
     type Output = dag::Bits;
 
+    #[track_caller]
     fn index(&self, _i: RangeFull) -> &dag::Bits {
         self
     }
 }
 
 impl std::borrow::Borrow<dag::Bits> for LazyAwi {
+    #[track_caller]
     fn borrow(&self) -> &dag::Bits {
         self
     }
 }
 
 impl AsRef<dag::Bits> for LazyAwi {
+    #[track_caller]
     fn as_ref(&self) -> &dag::Bits {
         self
     }
@@ -297,15 +333,16 @@ impl fmt::Debug for LazyAwi {
         let mut tmp = f.debug_struct("LazyAwi");
         tmp.field("p_external", &self.p_external());
         if let Ok(epoch) = get_current_epoch() {
-            let lock = epoch.epoch_data.borrow();
-            if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
-                if let Some(ref name) = rnode.debug_name {
-                    tmp.field("debug_name", &DisplayStr(name));
+            if let Ok(lock) = epoch.epoch_data.try_borrow() {
+                if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
+                    if let Some(ref name) = rnode.debug_name {
+                        tmp.field("debug_name", &DisplayStr(name));
+                    }
+                    /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+                        tmp.field("state", &DisplayStr(&s));
+                    }*/
+                    //tmp.field("bits", &rnode.bits());
                 }
-                /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                    tmp.field("state", &DisplayStr(&s));
-                }*/
-                //tmp.field("bits", &rnode.bits());
             }
         }
         tmp.finish()

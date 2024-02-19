@@ -241,7 +241,7 @@ fn lut_optimization() {
                 for input in inputs.iter() {
                     match input {
                         Bool(b) => p_state_inputs.push(Awi::from_bool(*b).state()),
-                        Lazy(b) => p_state_inputs.push(b.state()),
+                        Lazy(b) => p_state_inputs.push(b.try_get_p_state().unwrap()),
                     }
                 }
 

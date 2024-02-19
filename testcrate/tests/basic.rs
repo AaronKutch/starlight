@@ -11,8 +11,10 @@ fn lazy_awi() {
     let epoch = Epoch::new();
 
     let x = LazyAwi::opaque(bw(1));
+    epoch.verify_integrity().unwrap();
     let mut a = awi!(x);
     a.not_();
+    epoch.verify_integrity().unwrap();
     let y = EvalAwi::from(a);
 
     {

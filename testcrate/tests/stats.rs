@@ -94,3 +94,42 @@ fn stats_different_prunings() {
         drop(epoch);
     }
 }
+
+#[test]
+fn stats_loop_net() {
+    let epoch = Epoch::new();
+    let mut net = Net::opaque(bw(1));
+    for i in 0..2 {
+        let mut port = awi!(0u1);
+        port.usize_(i);
+        net.push(&port).unwrap();
+    }
+    // purposely have one more bit
+    let lazy = LazyAwi::opaque(bw(2));
+    let eval_net = EvalAwi::from(&net);
+    let res = net.drive(&lazy);
+    let eval_res = EvalAwi::from_bool(res.is_none());
+    {
+        use awi::*;
+        epoch.ensemble(|ensemble| awi::assert_eq!(ensemble.stator.states.len(), 38));
+        epoch.prune_unused_states().unwrap();
+        epoch.ensemble(|ensemble| awi::assert_eq!(ensemble.stator.states.len(), 16));
+        epoch.lower().unwrap();
+        epoch.ensemble(|ensemble| awi::assert_eq!(ensemble.stator.states.len(), 12));
+        epoch.ensemble(|ensemble| awi::assert_eq!(ensemble.backrefs.len_vals(), 8));
+        epoch.ensemble(|ensemble| awi::assert_eq!(ensemble.backrefs.len_keys(), 34));
+        epoch.optimize().unwrap();
+        epoch.ensemble(|ensemble| awi::assert_eq!(ensemble.backrefs.len_vals(), 5));
+        epoch.ensemble(|ensemble| awi::assert_eq!(ensemble.backrefs.len_keys(), 15));
+        for i in 0..2 {
+            let mut inx = Awi::zero(bw(2));
+            inx.usize_(i);
+            lazy.retro_(&inx).unwrap();
+            awi::assert_eq!(eval_res.eval().unwrap().to_bool(), i >= 2);
+            if i < 2 {
+                awi::assert_eq!(eval_net.eval().unwrap().to_usize(), i);
+            }
+        }
+    }
+    drop(epoch);
+}

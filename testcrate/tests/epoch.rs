@@ -77,6 +77,7 @@ fn epoch_shared0() {
     let epoch0 = Epoch::new();
     let (lazy0, eval0) = ex();
     let epoch1 = Epoch::shared_with(&epoch0);
+    epoch1.verify_integrity().unwrap();
     awi::assert_eq!(
         epoch0.ensemble(|ensemble| ensemble.notary.rnodes().len()),
         3
@@ -85,10 +86,13 @@ fn epoch_shared0() {
         epoch1.ensemble(|ensemble| ensemble.notary.rnodes().len()),
         3
     );
+    epoch1.verify_integrity().unwrap();
     awi::assert_eq!(epoch0.assertions().bits.len(), 1);
     awi::assert!(epoch1.assertions().bits.is_empty());
+    epoch1.verify_integrity().unwrap();
     drop(lazy0);
     drop(eval0);
+    epoch1.verify_integrity().unwrap();
     awi::assert_eq!(
         epoch0.ensemble(|ensemble| ensemble.notary.rnodes().len()),
         1
@@ -98,7 +102,9 @@ fn epoch_shared0() {
         1
     );
     awi::assert_eq!(epoch0.assertions().bits.len(), 1);
+    epoch1.verify_integrity().unwrap();
     drop(epoch0);
+    epoch1.verify_integrity().unwrap();
     awi::assert!(epoch1.assertions().bits.is_empty());
     awi::assert!(epoch1.ensemble(|ensemble| ensemble.notary.rnodes().is_empty()));
     epoch1.prune_unused_states().unwrap();

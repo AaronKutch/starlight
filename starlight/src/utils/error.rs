@@ -42,10 +42,21 @@ pub enum Error {
     WrongCurrentlyActiveEpoch,
     /// If an `RNode` was requested that cannot be found
     #[error(
-        "could not find thread local `RNode` corresponding to {0:?}, probably an `EvalAwi` or \
+        "could not find thread local `RNode` corresponding to {0:#?}, probably an `EvalAwi` or \
          `LazyAwi` was used outside of the `Epoch` it was created in"
     )]
     InvalidPExternal(PExternal),
+    /// If the associated state of an `RNode` was requested but could not be
+    /// found
+    #[error(
+        "could not find associated thread local state corresponding to {0:#?}, probably an \
+         `EvalAwi` or `LazyAwi` was attempted to be used for mimicking operations but the `Epoch` \
+         was already pruned or optimized"
+    )]
+    StatePruned(PExternal),
+    /// Could not find something in a `Corresponder`
+    #[error("could not find {0:#?} in the `Corresponder`")]
+    CorrespondenceNotFound(PExternal),
     /// For miscellanious errors
     #[error("{0}")]
     OtherStr(&'static str),

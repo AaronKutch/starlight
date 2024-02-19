@@ -113,15 +113,16 @@ impl fmt::Debug for PExternal {
             let mut tmp = f.debug_struct("PExternal");
             tmp.field("p_external", &HexadecimalNonZeroU128(self.inx()));
             if let Ok(epoch) = get_current_epoch() {
-                let lock = epoch.epoch_data.borrow();
-                if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(*self) {
-                    if let Some(ref name) = rnode.debug_name {
-                        tmp.field("debug_name", &DisplayStr(name));
+                if let Ok(lock) = epoch.epoch_data.try_borrow() {
+                    if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(*self) {
+                        if let Some(ref name) = rnode.debug_name {
+                            tmp.field("debug_name", &DisplayStr(name));
+                        }
+                        /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+                            tmp.field("state", &DisplayStr(&s));
+                        }
+                        tmp.field("bits", &rnode.bits());*/
                     }
-                    /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                        tmp.field("state", &DisplayStr(&s));
-                    }
-                    tmp.field("bits", &rnode.bits());*/
                 }
             }
             tmp.finish()
@@ -142,6 +143,8 @@ pub struct RNode {
     nzbw: NonZeroUsize,
     bits: SmallVec<[Option<PBack>; 1]>,
     read_only: bool,
+    /// Number of references like `LazyAwi`s and `ExtAwi`s
+    pub extern_rc: u64,
     /// Associated state that this `RNode` was initialized from
     pub associated_state: Option<PState>,
     /// If the associated state needs to be lowered before states are pruned
@@ -165,6 +168,7 @@ impl RNode {
     pub fn new(
         nzbw: NonZeroUsize,
         read_only: bool,
+        extern_rc: u64,
         location: Option<Location>,
         associated_state: Option<PState>,
         lower_before_pruning: bool,
@@ -173,6 +177,7 @@ impl RNode {
             nzbw,
             read_only,
             bits: smallvec![],
+            extern_rc,
             associated_state,
             lower_before_pruning,
             location,
@@ -211,7 +216,7 @@ impl RNode {
 /// Used for managing external references
 #[derive(Debug, Clone)]
 pub struct Notary {
-    rnodes: OrdArena<PRNode, PExternal, RNode>,
+    pub(crate) rnodes: OrdArena<PRNode, PExternal, RNode>,
     next_external: NonZeroU128,
 }
 
@@ -287,6 +292,7 @@ impl Notary {
 }
 
 impl Ensemble {
+    /// Makes a new `RNode` with `extern_rc = 1`
     pub fn make_rnode_for_pstate(
         &mut self,
         p_state: PState,
@@ -294,11 +300,13 @@ impl Ensemble {
         read_only: bool,
         lower_before_pruning: bool,
     ) -> Result<PExternal, Error> {
-        if let Some(state) = self.stator.states.get(p_state) {
+        if let Some(state) = self.stator.states.get_mut(p_state) {
+            state.inc_extern_rc();
             let nzbw = state.nzbw;
             let (_, p_external) = self.notary.insert_rnode(RNode::new(
                 nzbw,
                 read_only,
+                1,
                 location,
                 Some(p_state),
                 lower_before_pruning,
@@ -354,9 +362,10 @@ impl Ensemble {
         p_rnode: PRNode,
         allow_pruned: bool,
     ) -> Result<bool, Error> {
-        let lock = epoch_shared.epoch_data.borrow();
-        let rnode = &lock.ensemble.notary.rnodes()[p_rnode];
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let rnode = lock.ensemble.notary.rnodes.get_val_mut(p_rnode).unwrap();
         if rnode.lower_before_pruning {
+            rnode.lower_before_pruning = false;
             let p_state = rnode.associated_state.unwrap();
             if lock.ensemble.stator.states.contains(p_state) {
                 drop(lock);
@@ -372,18 +381,50 @@ impl Ensemble {
             .initialize_rnode_if_needed_no_lowering(p_rnode, allow_pruned)
     }
 
-    pub fn remove_rnode(&mut self, p_external: PExternal) -> Result<(), Error> {
-        if let Some(p_rnode) = self.notary.rnodes.find_key(&p_external) {
-            let rnode = self.notary.rnodes.remove(p_rnode).unwrap().1;
-            for p_back in rnode.bits {
-                if let Some(p_back) = p_back {
-                    let referent = self.backrefs.remove_key(p_back).unwrap().0;
-                    debug_assert!(matches!(referent, Referent::ThisRNode(_)));
-                }
+    /// This unconditionally removes the `RNode`, you may want `rnode_dec_rc`
+    /// instead
+    pub fn remove_rnode(&mut self, p_rnode: PRNode) {
+        let rnode = self.notary.rnodes.remove(p_rnode).unwrap().1;
+        if let Some(p_state) = rnode.associated_state {
+            self.state_dec_extern_rc(p_state).unwrap();
+        }
+        for p_back in rnode.bits {
+            if let Some(p_back) = p_back {
+                let referent = self.backrefs.remove_key(p_back).unwrap().0;
+                debug_assert!(matches!(referent, Referent::ThisRNode(_)));
             }
-            Ok(())
-        } else {
-            Err(Error::InvalidPtr)
+        }
+    }
+
+    /// Increments the `extern_rc` of the `RNode` pointed to by `p_external`
+    pub fn rnode_inc_rc(&mut self, p_external: PExternal) -> Result<PRNode, Error> {
+        let (p_rnode, rnode) = self.notary.get_rnode_mut(p_external)?;
+        rnode.extern_rc = rnode.extern_rc.checked_add(1).unwrap();
+        Ok(p_rnode)
+    }
+
+    /// Decrements the `extern_rc` of the `RNode` pointed to by `p_external`,
+    /// removing it if the count drops to zero
+    pub fn rnode_dec_rc(&mut self, p_external: PExternal) -> Result<(), Error> {
+        let (p_rnode, rnode) = self.notary.get_rnode_mut(p_external)?;
+        rnode.extern_rc = rnode.extern_rc.checked_sub(1).unwrap();
+        if rnode.extern_rc == 0 {
+            self.remove_rnode(p_rnode);
+        }
+        Ok(())
+    }
+
+    /// Sets all `associated_state`s to `None`
+    pub fn remove_all_rnode_associated_states(&mut self) {
+        let mut states_to_dec_rc = vec![];
+        for rnode in self.notary.rnodes.vals_mut() {
+            if let Some(p_state) = rnode.associated_state {
+                states_to_dec_rc.push(p_state);
+                rnode.associated_state = None;
+            }
+        }
+        for p_state in states_to_dec_rc {
+            self.state_dec_extern_rc(p_state).unwrap();
         }
     }
 

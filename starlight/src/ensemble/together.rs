@@ -362,18 +362,30 @@ impl Ensemble {
             }
         }
         // state reference counts
-        let mut counts = Arena::<PState, usize>::new();
-        counts.clone_from_with(&self.stator.states, |_, _| 0);
+        let mut counts = Arena::<PState, (usize, usize)>::new();
+        counts.clone_from_with(&self.stator.states, |_, _| (0, 0));
         for state in self.stator.states.vals() {
             for operand in state.op.operands() {
-                counts[*operand] = counts[operand].checked_add(1).unwrap();
+                counts[*operand].0 = counts[operand].0.checked_add(1).unwrap();
+            }
+        }
+        for rnode in self.notary.rnodes().vals() {
+            if let Some(p_state) = rnode.associated_state {
+                counts[p_state].1 = counts[p_state].1.checked_add(1).unwrap();
             }
         }
         for (p_state, state) in &self.stator.states {
-            if state.rc != counts[p_state] {
-                return Err(Error::OtherStr(
-                    "{p_state} {state:?} reference count mismatch",
-                ))
+            if state.rc != counts[p_state].0 {
+                return Err(Error::OtherString(format!(
+                    "{p_state} {state:?} reference count mismatch, expected {}",
+                    counts[p_state].0
+                )))
+            }
+            if state.extern_rc != counts[p_state].1 {
+                return Err(Error::OtherString(format!(
+                    "{p_state} {state:?} extern reference count mismatch, expected {}",
+                    counts[p_state].1
+                )))
             }
         }
 

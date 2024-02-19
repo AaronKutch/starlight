@@ -34,12 +34,6 @@ impl<const W: usize> Into<LazyAwi> for In<W> {
     }
 }
 
-impl<const W: usize> Lineage for In<W> {
-    fn state(&self) -> PState {
-        self.0.state()
-    }
-}
-
 macro_rules! retro_primitives {
     ($($f:ident $x:ident $w:expr);*;) => {
         $(
@@ -201,6 +195,7 @@ impl<const W: usize> In<W> {
 impl<const W: usize> Deref for In<W> {
     type Target = dag::Bits;
 
+    #[track_caller]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -209,18 +204,21 @@ impl<const W: usize> Deref for In<W> {
 impl<const W: usize> Index<RangeFull> for In<W> {
     type Output = dag::Bits;
 
+    #[track_caller]
     fn index(&self, _i: RangeFull) -> &dag::Bits {
         self
     }
 }
 
 impl<const W: usize> std::borrow::Borrow<dag::Bits> for In<W> {
+    #[track_caller]
     fn borrow(&self) -> &dag::Bits {
         self
     }
 }
 
 impl<const W: usize> AsRef<dag::Bits> for In<W> {
+    #[track_caller]
     fn as_ref(&self) -> &dag::Bits {
         self
     }
@@ -233,15 +231,16 @@ impl<const W: usize> fmt::Debug for In<W> {
         let mut tmp = f.debug_struct(&format!("In<{W}>"));
         tmp.field("p_external", &self.p_external());
         if let Ok(epoch) = get_current_epoch() {
-            let lock = epoch.epoch_data.borrow();
-            if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
-                if let Some(ref name) = rnode.debug_name {
-                    tmp.field("debug_name", &DisplayStr(name));
+            if let Ok(lock) = epoch.epoch_data.try_borrow() {
+                if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
+                    if let Some(ref name) = rnode.debug_name {
+                        tmp.field("debug_name", &DisplayStr(name));
+                    }
+                    /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+                        tmp.field("state", &DisplayStr(&s));
+                    }*/
+                    //tmp.field("bits", &rnode.bits());
                 }
-                /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                    tmp.field("state", &DisplayStr(&s));
-                }*/
-                //tmp.field("bits", &rnode.bits());
             }
         }
         tmp.finish()
@@ -265,12 +264,6 @@ impl<const W: usize> std::borrow::Borrow<EvalAwi> for Out<W> {
 impl<const W: usize> Into<EvalAwi> for Out<W> {
     fn into(self) -> EvalAwi {
         self.0
-    }
-}
-
-impl<const W: usize> Lineage for Out<W> {
-    fn state(&self) -> PState {
-        self.0.state()
     }
 }
 
@@ -414,15 +407,16 @@ impl<const W: usize> fmt::Debug for Out<W> {
         let mut tmp = f.debug_struct("EvalAwi");
         tmp.field("p_external", &self.p_external());
         if let Ok(epoch) = get_current_epoch() {
-            let lock = epoch.epoch_data.borrow();
-            if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
-                if let Some(ref name) = rnode.debug_name {
-                    tmp.field("debug_name", &DisplayStr(name));
+            if let Ok(lock) = epoch.epoch_data.try_borrow() {
+                if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
+                    if let Some(ref name) = rnode.debug_name {
+                        tmp.field("debug_name", &DisplayStr(name));
+                    }
+                    /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+                        tmp.field("state", &DisplayStr(&s));
+                    }*/
+                    //tmp.field("bits", &rnode.bits());
                 }
-                /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                    tmp.field("state", &DisplayStr(&s));
-                }*/
-                //tmp.field("bits", &rnode.bits());
             }
         }
         tmp.finish()
