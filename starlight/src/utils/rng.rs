@@ -197,14 +197,6 @@ impl StarRng {
         slice.get_mut(inx)
     }
 
-    // TODO I think what I need is public "or,and,xor"_ones functions for `Bits`
-    // that the macros should probably also be using for common zero and umax cases
-    // and for the potential repeat cases. This would also eliminate padding
-    // needs in several places such as here
-
-    // TODO for the matching macro we probably want a general comparison that can
-    // match a partial range against a full range, and a partial against a partial
-
     /// This performs one step of a fuzzer where a random width of ones is
     /// rotated randomly and randomly ORed, ANDed, or XORed to `x`. `pad` needs
     /// to have the same bitwidth as `x`.

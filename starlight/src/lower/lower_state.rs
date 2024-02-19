@@ -240,6 +240,7 @@ impl Ensemble {
                             };
                             if no_op {
                                 // TODO should I add the extra arg to `Lut` to fix this edge case?
+                                // or `Unknown` it?
                                 lock.ensemble.stator.states[p_state].op = Opaque(smallvec![], None);
                                 lock.ensemble.state_dec_rc(inx).unwrap();
                             } else {
@@ -258,9 +259,11 @@ impl Ensemble {
                             let lit_u = lit.to_usize();
                             if lit_u >= lock.ensemble.stator.states[bits].nzbw.get() {
                                 // TODO I realize now that no-op `get` specifically is fundamentally
-                                // ill-defined to some extend because it returns `Option<bool>`, it
+                                // ill-defined to some extent because it returns `Option<bool>`, it
                                 // must be asserted against, this
                                 // provides the next best thing
+
+                                // or TODO does it just cause `Unknown`?
                                 lock.ensemble.stator.states[p_state].op = Opaque(smallvec![], None);
                                 lock.ensemble.state_dec_rc(bits).unwrap();
                             } else {
@@ -334,8 +337,7 @@ impl Ensemble {
                         }
                     };
                     // shouldn't be adding additional assertions
-                    // TODO after migrating the old lowering tests to a starlight-like system, make
-                    // sure there are none using assertions assert!(temporary.
+                    // TODO make sure there is no meta lowering using assertions assert!(temporary.
                     // assertions_empty());
                     let states = temporary.take_states_added();
                     temporary.remove_as_current().unwrap();

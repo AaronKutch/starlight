@@ -34,7 +34,7 @@ use crate::{
 pub struct LazyAwi {
     p_external: PExternal,
     // this is only used for `internal_as_ref` to work
-    tmp_dag: dag::Awi,
+    tmp_dag: Option<dag::Awi>,
 }
 
 impl Drop for LazyAwi {
@@ -142,7 +142,7 @@ impl LazyAwi {
             .unwrap();
         Self {
             p_external,
-            tmp_dag: opaque,
+            tmp_dag: Some(opaque),
         }
     }
 
@@ -163,13 +163,16 @@ impl LazyAwi {
         }
     }
 
-    pub(crate) fn try_clone_from(p_external: PExternal, p_state: PState) -> Result<Self, Error> {
+    pub(crate) fn try_clone_from(
+        p_external: PExternal,
+        p_state: Option<PState>,
+    ) -> Result<Self, Error> {
         let epoch = get_current_epoch()?;
         let mut lock = epoch.epoch_data.borrow_mut();
         let _ = lock.ensemble.rnode_inc_rc(p_external)?;
         Ok(Self {
             p_external,
-            tmp_dag: Awi::from_state(p_state),
+            tmp_dag: p_state.map(Awi::from_state),
         })
     }
 
@@ -180,7 +183,11 @@ impl LazyAwi {
     /// `retro_const_*` or `drive` called on it and then more operations are
     /// used. Returns an error if the active `Epoch` is not correct.
     pub fn try_clone(&self) -> Result<Self, Error> {
-        LazyAwi::try_clone_from(self.p_external(), self.tmp_dag.state())
+        if let Some(ref x) = self.tmp_dag {
+            LazyAwi::try_clone_from(self.p_external(), Some(x.state()))
+        } else {
+            LazyAwi::try_clone_from(self.p_external(), None)
+        }
     }
 
     fn drop_internal(&self) {
@@ -192,10 +199,18 @@ impl LazyAwi {
 
     #[track_caller]
     fn internal_as_ref(&self) -> &dag::Bits {
-        // guards against inter-epoch usage
+        // is not perfect without gen counters, but helps guard against inter-epoch
+        // usage
         let p_state = self.try_get_p_state().unwrap();
-        assert_eq!(p_state, self.tmp_dag.state());
-        &self.tmp_dag
+        if let Some(ref tmp) = self.tmp_dag {
+            assert_eq!(p_state, tmp.state());
+            tmp
+        } else {
+            panic!(
+                "probably, a `LazyAwi` from a `Corresponder` was attempted to be used for \
+                 mimicking operations"
+            );
+        }
     }
 
     pub fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {

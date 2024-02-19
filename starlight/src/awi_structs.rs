@@ -11,5 +11,3 @@ pub use eval_awi::EvalAwi;
 pub use inout::{In, Out};
 pub use lazy_awi::LazyAwi;
 pub use temporal::{delay, Loop, Net};
-
-// TODO `In<BW>`, `Out<W>`, `InOut<W>` (?) shorthand wrappers

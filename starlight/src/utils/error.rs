@@ -3,12 +3,6 @@ use std::{fmt::Debug, num::NonZeroU128};
 
 use crate::ensemble::PExternal;
 
-// TODO in regular cases add errors that lazily produce a formatted output. Keep
-// things using `OtherStr` and `OtherString` if they are special cases like
-// improper `Epoch` management or internal failures or things like lowering that
-// will be changed in the future. Conversely, add special variants for things
-// users might match against
-
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, thiserror::Error)]
 pub enum Error {
     /// This indicates an invalid `triple_arena::Ptr` was used
@@ -57,6 +51,11 @@ pub enum Error {
     /// Could not find something in a `Corresponder`
     #[error("could not find {0:#?} in the `Corresponder`")]
     CorrespondenceNotFound(PExternal),
+    #[error(
+        "when trying to transpose {0:#?}, found that the correspondence is not between exactly \
+         two things"
+    )]
+    CorrespondenceNotATranspose(PExternal),
     /// For miscellanious errors
     #[error("{0}")]
     OtherStr(&'static str),

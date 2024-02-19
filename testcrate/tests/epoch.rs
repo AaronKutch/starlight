@@ -158,14 +158,11 @@ fn epoch_suspension0() {
         awi::assert!(eval0.eval().is_err());
     }
     let (lazy1, eval1) = ex();
-    // TODO probably should create `RNode` and `PState` arenas with generations
-    // starting at random offsets to help prevent collisions
-    /*{
+    {
         use awi::*;
-        lazy1.retro_(&awi!(01)).unwrap();
-        awi::assert_eq!(eval1.eval().unwrap(), awi!(10));
-        epoch1.assert_assertions(true).unwrap();
-    }*/
+        awi::assert!(lazy0.retro_(&awi!(01)).is_err());
+        awi::assert!(eval0.eval().is_err());
+    }
     {
         use awi::*;
         lazy1.retro_(&awi!(01)).unwrap();
@@ -174,6 +171,11 @@ fn epoch_suspension0() {
     }
     drop(epoch1);
     let epoch0 = epoch0.resume();
+    {
+        use awi::*;
+        awi::assert!(lazy1.retro_(&awi!(01)).is_err());
+        awi::assert!(eval1.eval().is_err());
+    }
     {
         use awi::*;
         lazy0.retro_(&awi!(01)).unwrap();
