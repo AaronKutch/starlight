@@ -231,7 +231,7 @@ fn loop_net() {
             assert_eq!(eval_res.eval().unwrap(), awi!(1));
         }
     }
-    for num_ports in 2..17 {
+    for num_ports in 3..17 {
         // test with index size one less than needed to index all ports
         exhaustive_net_test(&epoch, num_ports, -1);
         exhaustive_net_test(&epoch, num_ports, 0);

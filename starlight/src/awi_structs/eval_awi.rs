@@ -59,10 +59,11 @@ macro_rules! eval_primitives {
             /// match the bitwidth of the primitive
             pub fn $f(&self) -> Result<$x, Error> {
                 let awi = self.eval()?;
-                if awi.bw() == $w {
+                let awi_w = awi.bw();
+                if awi_w == $w {
                     Ok(awi.$to_x())
                 } else {
-                    Err(Error::WrongBitwidth)
+                    Err(Error::ConstBitwidthMismatch(awi_w, $w))
                 }
             }
         )*

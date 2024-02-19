@@ -454,8 +454,10 @@ impl Ensemble {
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
         if !ensemble.notary.rnodes[p_rnode].bits.is_empty() {
-            if ensemble.notary.rnodes[p_rnode].bits.len() != common_value.bw() {
-                return Err(Error::WrongBitwidth);
+            let lhs_w = ensemble.notary.rnodes[p_rnode].bits.len();
+            let rhs_w = common_value.bw();
+            if lhs_w != rhs_w {
+                return Err(Error::BitwidthMismatch(lhs_w, rhs_w));
             }
             for bit_i in 0..common_value.bw() {
                 let p_back = ensemble.notary.rnodes[p_rnode].bits[bit_i];

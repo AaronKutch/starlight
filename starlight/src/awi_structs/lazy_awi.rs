@@ -271,11 +271,13 @@ impl LazyAwi {
         delay: D,
     ) -> Result<(), Error> {
         let rhs = rhs.borrow();
-        if self.try_get_nzbw()? != rhs.try_get_nzbw()? {
-            return Err(Error::WrongBitwidth)
+        let lhs_w = self.try_get_nzbw()?;
+        let rhs_w = rhs.try_get_nzbw()?;
+        if lhs_w != rhs_w {
+            return Err(Error::BitwidthMismatch(lhs_w.get(), rhs_w.get()))
         }
         let delay = delay.into();
-        for i in 0..self.bw() {
+        for i in 0..lhs_w.get() {
             Ensemble::tnode_drive_thread_local_rnode(
                 self.p_external(),
                 i,

@@ -39,8 +39,10 @@ impl Ensemble {
                     ))
                 }
             }
-            if self.stator.states[p_state].nzbw != self.stator.states[operands[0]].nzbw {
-                return Err(Error::WrongBitwidth)
+            let lhs_w = self.stator.states[p_state].nzbw.get();
+            let rhs_w = self.stator.states[operands[0]].nzbw.get();
+            if lhs_w != rhs_w {
+                return Err(Error::BitwidthMismatch(lhs_w, rhs_w))
             }
         }
 

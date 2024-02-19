@@ -18,8 +18,8 @@ pub enum Error {
     #[error("Unevaluatable")]
     Unevaluatable,
     /// If an operand has a bitwidth mismatch or unexpected bitwidth
-    #[error("WrongBitwidth")]
-    WrongBitwidth,
+    #[error("bitwidth mismatch: lhs: {0}, rhs: {1}")]
+    BitwidthMismatch(usize, usize),
     /// If something like `Out<W>` was constructed with the wrong bitwidth
     #[error("bitwidth {0} does not match the const required bitwidth {1}")]
     ConstBitwidthMismatch(usize, usize),

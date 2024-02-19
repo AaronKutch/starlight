@@ -231,8 +231,10 @@ impl Loop {
     /// be thrown later. Returns an error if `self.bw() != driver.bw()`.
     pub fn drive(self, driver: &Bits) -> Result<(), Error> {
         let epoch = get_current_epoch()?;
-        if self.source.bw() != driver.bw() {
-            Err(Error::WrongBitwidth)
+        let lhs_w = self.source.bw();
+        let rhs_w = driver.bw();
+        if lhs_w != rhs_w {
+            Err(Error::BitwidthMismatch(lhs_w, rhs_w))
         } else {
             let mut lock = epoch.epoch_data.borrow_mut();
             // add the driver to the loop source
@@ -278,8 +280,10 @@ impl Loop {
             self.drive(driver)
         } else {
             let epoch = get_current_epoch()?;
-            if self.source.bw() != driver.bw() {
-                return Err(Error::WrongBitwidth)
+            let lhs_w = self.source.bw();
+            let rhs_w = driver.bw();
+            if lhs_w != rhs_w {
+                return Err(Error::BitwidthMismatch(lhs_w, rhs_w))
             }
 
             // TODO perhaps just lower, but the plan is to base incremental compilation on
