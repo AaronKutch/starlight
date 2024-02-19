@@ -186,13 +186,47 @@ fn epoch_suspension0() {
 }
 
 #[test]
-#[should_panic]
 fn epoch_suspension1() {
     let epoch0 = Epoch::new();
     let epoch0 = epoch0.suspend();
     let epoch1 = Epoch::new();
     drop(epoch0);
     drop(epoch1);
+}
+
+#[test]
+fn epoch_suspension2() {
+    let epoch0 = Epoch::new();
+    let epoch0 = epoch0.suspend();
+    let epoch1 = Epoch::new();
+    let epoch1 = epoch1.suspend();
+
+    let epoch0 = epoch0.resume();
+    let epoch1 = epoch1.resume();
+    let epoch1 = epoch1.suspend();
+    let epoch0 = epoch0.suspend();
+
+    let epoch1 = epoch1.resume();
+    let epoch0 = epoch0.resume();
+    let epoch0 = epoch0.suspend();
+    let epoch1 = epoch1.suspend();
+
+    drop(epoch0);
+    drop(epoch1);
+}
+
+#[test]
+#[should_panic]
+fn epoch_suspension3() {
+    let epoch0 = Epoch::new();
+    let epoch0 = epoch0.suspend();
+    let epoch1 = Epoch::new();
+    let epoch1 = epoch1.suspend();
+
+    let epoch0 = epoch0.resume();
+    let epoch1 = epoch1.resume();
+    let _epoch0 = epoch0.suspend();
+    let _epoch1 = epoch1.suspend();
 }
 
 #[test]

@@ -9,6 +9,7 @@
 - `Epoch::suspend` now panics like it did in practice and does not return a `Result`
 - `EvalAwi`s and `LazyAwi`s no longer have any conditions under which they should panic on drop
 - Regrouped some things into a `utils` module
+- Changed what is allowed around `Epoch` suspensions and dropping
 - many other improvements
 
 ### Additions

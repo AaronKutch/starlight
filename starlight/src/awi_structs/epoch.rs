@@ -14,7 +14,7 @@ use std::{
 
 use awint::{
     awint_dag::{
-        epoch::{EpochCallback, EpochKey},
+        epoch::{EpochCallback, EpochKey,_get_epoch_stack},
         triple_arena::{ptr_struct, Arena},
         Lineage, Location, Op, PState,
     },
@@ -49,6 +49,7 @@ ptr_struct!(PEpochShared);
 /// Data stored  in `EpochData` per each live `EpochShared`
 #[derive(Debug)]
 pub struct PerEpochShared {
+    // this is used primarily in shared epoch situations like the meta lowerer where there is a subroutine where states are created that can be removed when the subroutine is done
     pub states_inserted: Vec<PState>,
     pub assertions: Assertions,
 }
@@ -87,6 +88,7 @@ impl Drop for EpochData {
                 mem::forget(eval_awi);
             }
         }
+        // do nothing with the `EpochKey`
     }
 }
 
@@ -134,10 +136,10 @@ impl Debug for EpochShared {
 }
 
 impl EpochShared {
-    /// Creates a new `EpochData` and registers a new `EpochCallback`.
+    /// Creates a new `EpochData` that is not registered anywhere yet.
     pub fn new() -> Self {
         let mut epoch_data = EpochData {
-            epoch_key: Some(_callback().push_on_epoch_stack()),
+            epoch_key: None,
             ensemble: Ensemble::new(),
             responsible_for: Arena::new(),
         };
@@ -148,7 +150,7 @@ impl EpochShared {
         }
     }
 
-    /// Does _not_ register a new `EpochCallback`, instead adds a new
+    /// Does _not_ register anything, instead adds a new
     /// `PerEpochShared` to the current `EpochData` of `other`
     pub fn shared_with(other: &Self) -> Self {
         let p_self = other
@@ -163,8 +165,13 @@ impl EpochShared {
     }
 
     /// Sets `self` as the current `EpochShared` with respect to the starlight
-    /// stack (does not affect whatever the `awint_dag` stack is doing)
+    /// stack and also registers a new `EpochCallback` for the `awint_dag` stack if not already registered
     pub fn set_as_current(&self) {
+        let mut lock = self.epoch_data.borrow_mut();
+        if lock.epoch_key.is_none() {
+            lock.epoch_key = Some(_callback().push_on_epoch_stack());
+        }
+        drop(lock);
         CURRENT_EPOCH.with(|top| {
             let mut current = top.borrow_mut();
             if let Some(current) = current.take() {
@@ -178,9 +185,9 @@ impl EpochShared {
     }
 
     /// Removes `self` as the current `EpochShared` with respect to the
-    /// starlight stack. Returns an error if there is no current `EpochShared`
+    /// starlight stack. Calls `EpochKey::pop_off_epoch_stack` when `responsible_for.is_empty()`, meaning that `drop_associated` should be called before this function if needed. Returns an error if there is no current `EpochShared`
     /// or `self.epoch_data` did not match the current.
-    pub fn remove_as_current(&self) -> Result<(), &'static str> {
+    pub fn remove_as_current(&self) -> Result<(), Error> {
         EPOCH_STACK.with(|top| {
             let mut stack = top.borrow_mut();
             let next_current = stack.pop();
@@ -192,25 +199,43 @@ impl EpochShared {
                         Ok(())
                     } else {
                         // return the error how most users will trigger it
-                        Err(
+                        Err(Error::OtherStr(
                             "tried to drop or suspend an `Epoch` out of stacklike order before \
                              dropping or suspending the current `Epoch`",
-                        )
+                        ))
                     }
                 } else {
-                    Err(
+                    Err(Error::OtherStr(
                         "`remove_as_current` encountered no current `EpochShared`, which should \
                          not be possible if an `Epoch` still exists",
-                    )
+                    ))
                 }
             })
-        })
+        })?;
+        let mut lock = self.epoch_data.borrow_mut();
+        if lock.responsible_for.is_empty() {
+            // we are the last `EpochShared`
+            match lock.epoch_key.take().unwrap().pop_off_epoch_stack() {
+                Ok(()) => Ok(()),
+                Err((self_gen, top_gen)) => {
+                    Err(Error::OtherString(format!(
+                        "The last `starlight::Epoch` or `starlight::SuspendedEpoch` of a \
+                         group of one or more shared `Epoch`s was dropped out of stacklike \
+                         order, such that an `awint_dag::epoch::EpochKey` with generation {} \
+                         was attempted to be dropped before the current key with generation \
+                         {}. This may be because explicit `drop`s of `Epoch`s should be used \
+                         in a different order.",
+                        self_gen, top_gen
+                    )))
+                }
+            }
+        } else {
+            Ok(())
+        }
     }
 
     /// Removes states and drops assertions from the `Ensemble` that were
-    /// associated with this particular `EpochShared`. This also deregisters the
-    /// `EpochCallback` if this was the last `EpochShared` with a
-    /// `PerEpochShared` in the `EpochData`.
+    /// associated with this particular `EpochShared`.
     ///
     /// This function should not be called more than once per `self.p_self`.
     pub fn drop_associated(&self) -> Result<(), Error> {
@@ -220,6 +245,7 @@ impl EpochShared {
             drop(lock);
             // drop the `EvalAwi`s
             drop(assertion_bits);
+            // the virtual cleanup with `states_inserted` happens here
             let mut lock = self.epoch_data.borrow_mut();
             for p_state in ours.states_inserted.iter().copied() {
                 let _ = lock.ensemble.remove_state_if_pruning_allowed(p_state);
@@ -227,25 +253,6 @@ impl EpochShared {
             drop(lock);
             // drop the rest
             drop(ours);
-
-            let mut lock = self.epoch_data.borrow_mut();
-            if lock.responsible_for.is_empty() {
-                // we are the last `EpochShared`
-                match lock.epoch_key.take().unwrap().pop_off_epoch_stack() {
-                    Ok(()) => (),
-                    Err((self_gen, top_gen)) => {
-                        return Err(Error::OtherString(format!(
-                            "The last `starlight::Epoch` or `starlight::SuspendedEpoch` of a \
-                             group of one or more shared `Epoch`s was dropped out of stacklike \
-                             order, such that an `awint_dag::epoch::EpochKey` with generation {} \
-                             was attempted to be dropped before the current key with generation \
-                             {}. This may be because explicit `drop`s of `Epoch`s should be used \
-                             in a different order.",
-                            self_gen, top_gen
-                        )));
-                    }
-                }
-            }
             Ok(())
         } else {
             Err(Error::OtherStr(
@@ -402,6 +409,24 @@ pub fn get_current_epoch() -> Result<EpochShared, Error> {
             top.clone()
         })
         .ok_or(Error::NoCurrentlyActiveEpoch)
+}
+
+pub fn debug_epoch_stack() {
+    println!("awint epoch stack: {:?}", _get_epoch_stack());
+    CURRENT_EPOCH.with(|top| {
+        let top = top.borrow();
+        if let Some(x) = top.as_ref() {
+            println!("starlight current: {x:?}");
+        } else {
+            println!("no current epoch on starlight stack");
+        }
+    });
+    EPOCH_STACK.with(|top| {
+        let top = top.borrow();
+        for (i, x) in top.iter().rev().enumerate() {
+            println!("starlight stack depth {i}+1: {x:?}");
+        }
+    });
 }
 
 /// Allows access to the current epoch. Do no call recursively.
@@ -589,8 +614,8 @@ impl Drop for EpochInnerDrop {
 /// // `epoch0` is current
 /// drop(epoch0);
 ///
-/// // suspended epochs work the same with respect to
-/// // suspend and resume points
+/// // suspended epochs work the same with
+/// // respect tosuspend and resume points
 /// let epoch0 = Epoch::new();
 /// // `epoch0` is current
 /// let suspended_epoch0 = epoch0.suspend();
@@ -604,17 +629,17 @@ impl Drop for EpochInnerDrop {
 /// // `epoch1` is current
 /// drop(epoch1);
 /// // no epoch is current
+/// // use `SuspendedEpoch`s to restart at any point
 /// let epoch0 = suspended_epoch0.resume();
 /// // `epoch0` is current
 /// let suspended_epoch0 = epoch0.suspend();
 /// // no epoch is current
 /// let epoch1 = Epoch::new();
 /// // `epoch1` is current
-/// // be aware that dropping the suspended version also counts
-/// //drop(suspended_epoch0);
-/// drop(epoch1);
-/// // no epoch is current
+/// // could be done at any later point except
+/// // in some shared cases
 /// drop(suspended_epoch0);
+/// drop(epoch1);
 ///
 /// // these could be dropped in any order relative to one
 /// // another because they share the same `Ensemble` and
