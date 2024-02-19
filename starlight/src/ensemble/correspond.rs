@@ -1,4 +1,5 @@
 use core::fmt;
+use std::num::NonZeroUsize;
 
 use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, SurjectArena};
 
@@ -10,7 +11,7 @@ ptr_struct!(PMeta(); PCorrespond());
 /// between different `Epoch`s.
 pub struct Corresponder {
     a: OrdArena<PMeta, PExternal, PCorrespond>,
-    c: SurjectArena<PCorrespond, PMeta, ()>,
+    c: SurjectArena<PCorrespond, PMeta, NonZeroUsize>,
 }
 
 impl Clone for Corresponder {
@@ -39,17 +40,22 @@ impl Corresponder {
         }
     }
 
-    fn get_or_insert_lazy<L: std::borrow::Borrow<LazyAwi>>(&mut self, l: &L) -> PCorrespond {
+    fn get_or_insert_lazy<L: std::borrow::Borrow<LazyAwi>>(
+        &mut self,
+        l: &L,
+    ) -> (PCorrespond, NonZeroUsize) {
         let l = l.borrow();
         let p = l.p_external();
-        if let Some(p_meta) = self.a.find_key(&p) {
-            *self.a.get_val(p_meta).unwrap()
-        } else {
-            self.c.insert_with(|p_c| (self.a.insert(p, p_c).0, ()))
-        }
+        let w = l.nzbw();
+        (
+            if let Some(p_meta) = self.a.find_key(&p) {
+                *self.a.get_val(p_meta).unwrap()
+            } else {
+                self.c.insert_with(|p_c| (self.a.insert(p, p_c).0, w))
+            },
+            w,
+        )
     }
-
-    // FIXME bitwidth mismatches
 
     /// Corresponds `l0` with `l1`. This relationship is bidirectional, and if
     /// something is corresponded more than once, everything ever corresponded
@@ -58,21 +64,33 @@ impl Corresponder {
         &mut self,
         l0: &L0,
         l1: &L1,
-    ) {
-        let p_c0 = self.get_or_insert_lazy(l0);
-        let p_c1 = self.get_or_insert_lazy(l1);
-        // not insert_key because this could be two sets getting corresponded
-        let _ = self.c.union(p_c0, p_c1);
+    ) -> Result<(), Error> {
+        let (p_c0, w0) = self.get_or_insert_lazy(l0);
+        let (p_c1, w1) = self.get_or_insert_lazy(l1);
+        if w0 != w1 {
+            Err(Error::BitwidthMismatch(w0.get(), w1.get()))
+        } else {
+            // not insert_key because this could be two sets getting corresponded
+            let _ = self.c.union(p_c0, p_c1);
+            Ok(())
+        }
     }
 
-    fn get_or_insert_eval<E: std::borrow::Borrow<EvalAwi>>(&mut self, e: &E) -> PCorrespond {
+    fn get_or_insert_eval<E: std::borrow::Borrow<EvalAwi>>(
+        &mut self,
+        e: &E,
+    ) -> (PCorrespond, NonZeroUsize) {
         let e = e.borrow();
         let p = e.p_external();
-        if let Some(p_meta) = self.a.find_key(&p) {
-            *self.a.get_val(p_meta).unwrap()
-        } else {
-            self.c.insert_with(|p_c| (self.a.insert(p, p_c).0, ()))
-        }
+        let w = e.nzbw();
+        (
+            if let Some(p_meta) = self.a.find_key(&p) {
+                *self.a.get_val(p_meta).unwrap()
+            } else {
+                self.c.insert_with(|p_c| (self.a.insert(p, p_c).0, w))
+            },
+            w,
+        )
     }
 
     /// Corresponds `e0` with `e1`. This relationship is bidirectional, and if
@@ -82,10 +100,15 @@ impl Corresponder {
         &mut self,
         e0: &E0,
         e1: &E1,
-    ) {
-        let p_c0 = self.get_or_insert_eval(e0);
-        let p_c1 = self.get_or_insert_eval(e1);
-        let _ = self.c.union(p_c0, p_c1);
+    ) -> Result<(), Error> {
+        let (p_c0, w0) = self.get_or_insert_eval(e0);
+        let (p_c1, w1) = self.get_or_insert_eval(e1);
+        if w0 != w1 {
+            Err(Error::BitwidthMismatch(w0.get(), w1.get()))
+        } else {
+            let _ = self.c.union(p_c0, p_c1);
+            Ok(())
+        }
     }
 
     /// Returns a vector of `LazyAwi`s for everything that was

@@ -40,12 +40,22 @@ fn correspond_within() {
 
     let program_x = LazyAwi::opaque(bw(8));
     let program_z = EvalAwi::opaque(bw(8));
+    let mismatch_a = LazyAwi::opaque(bw(4));
+    let mismatch_b = EvalAwi::opaque(bw(4));
 
     {
         use awi::*;
         let mut corresponder = Corresponder::new();
-        corresponder.correspond_lazy(&program_x, &target_x);
-        corresponder.correspond_eval(&target_z, &program_z);
+        corresponder.correspond_lazy(&program_x, &target_x).unwrap();
+        corresponder.correspond_eval(&target_z, &program_z).unwrap();
+        awi::assert!(matches!(
+            corresponder.correspond_lazy(&mismatch_a, &program_x),
+            Err(Error::BitwidthMismatch(_, _))
+        ));
+        awi::assert!(matches!(
+            corresponder.correspond_eval(&mismatch_b, &program_z),
+            Err(Error::BitwidthMismatch(_, _))
+        ));
 
         corresponder
             .transpose_lazy(&program_x)
@@ -97,9 +107,9 @@ fn correspond_inbetween() {
     {
         use awi::*;
         let mut corresponder = Corresponder::new();
-        corresponder.correspond_lazy(&program_x, &target_x);
-        corresponder.correspond_lazy(&target_y, &program_y);
-        corresponder.correspond_eval(&target_z, &program_z);
+        corresponder.correspond_lazy(&program_x, &target_x).unwrap();
+        corresponder.correspond_lazy(&target_y, &program_y).unwrap();
+        corresponder.correspond_eval(&target_z, &program_z).unwrap();
 
         let target_epoch = target_epoch.resume();
 
