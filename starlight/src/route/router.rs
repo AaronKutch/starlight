@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use awint::{
-    awint_dag::triple_arena::{ptr_struct, OrdArena},
+    awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena},
     Awi,
 };
 
@@ -11,7 +11,7 @@ use crate::{
     epoch::get_current_epoch,
     route::{Channeler, EdgeKind, Embedding, EmbeddingKind, PEmbedding},
     triple_arena::Arena,
-    Error, EvalAwi, LazyAwi, SuspendedEpoch,
+    Corresponder, Error, LazyAwi, SuspendedEpoch,
 };
 
 ptr_struct!(PCNode; PCEdge; QCNode; QCEdge);
@@ -66,16 +66,18 @@ impl Router {
     ///    specify all of its configurable bits with the `Configurator` so that
     ///    the router can understand what it is allowed to configure.
     ///
-    /// 2. The router is created from these components. Note that it clones the
+    /// 2. A `Configurator` is created to correspond input/output pins on the
+    ///    program with input/output pins on the target. One program `EvalAwi`
+    ///    can be corresponded with multiple `EvalAwi`s on the target if it
+    ///    should be copied, but in every other case the correspondences should
+    ///    be one-to-one.
+    ///
+    /// 3. The router is created from these components. Note that it clones the
     ///    internal `Ensemble`s of the `SuspendedEpoch`s and assumes their
     ///    structure does not change. If you do more mimicking operations to
     ///    them afterwards or do any special modifications beyond `retro_`
     ///    assigning and `eval`uating, the router will not know about their new
     ///    structure and later configures may be wrong.
-    ///
-    /// 3. `map_lazy` and `map_eval` are used to specify what inputs and outputs
-    ///    should be mapped from the program onto the target. These should not
-    ///    be called again after routing is done.
     ///
     /// 4. `route` is called. If an error is returned then there may be an issue
     ///    with the setup above, a bug with the router itself, or the target may
@@ -85,31 +87,76 @@ impl Router {
     ///    target config bit. If you want to simulate the configured target
     ///    however, proceed to the next step.
     ///
-    /// 5. The target epoch can be resumed, and when `config_target` is called
+    /// 6. The target epoch can be resumed, and when `config_target` is called
     ///    it will set the `LazyAwi`s specified in the configurator. Note that
     ///    if it found a that a bit did not need to be specified, it may set it
     ///    to `Unknown`.
     ///
-    /// 6. Now `transpose_retro` and `transpose_eval` can be used on program
-    ///    inputs and outputs (while still in the active target epoch), and it
-    ///    will automatically find the mapping to the target and act through the
-    ///    target.
+    /// 7. Now `transpose*` functions can be used with the configurator to
+    ///    transpose any desired program operations onto the target.
     pub fn new(
         target_epoch: &SuspendedEpoch,
         configurator: &Configurator,
         program_epoch: &SuspendedEpoch,
+        corresponder: &Corresponder,
     ) -> Result<Self, Error> {
         let target_channeler = Channeler::from_target(target_epoch, configurator)?;
         let program_channeler = Channeler::from_program(program_epoch)?;
-        Ok(Self::new_from_channelers(
+        let mut router = Self::new_from_channelers(
             target_epoch,
             target_channeler,
             program_epoch,
             program_channeler,
-        ))
+        );
+        // use the corresponder to find `map_rnodes` points, coordinating from the
+        // program side since it should be one-to-many at most from that direction
+        let mut adv = router.program_ensemble().notary.rnodes().advancer();
+        while let Some(p_rnode) = adv.advance(router.program_ensemble().notary.rnodes()) {
+            let (program_p_external, program_rnode) = router
+                .program_ensemble()
+                .notary
+                .rnodes()
+                .get(p_rnode)
+                .unwrap();
+            let program_p_external = *program_p_external;
+            let is_driver = !program_rnode.read_only();
+            if let Ok(correspondences) = corresponder.correspondences(program_p_external) {
+                for target_p_external in correspondences {
+                    if let Some(target_p_rnode) = router
+                        .target_ensemble()
+                        .notary
+                        .rnodes()
+                        .find_key(&target_p_external)
+                    {
+                        let target_rnode = router
+                            .target_ensemble()
+                            .notary
+                            .rnodes()
+                            .get_val(target_p_rnode)
+                            .unwrap();
+                        if (!is_driver) != target_rnode.read_only() {
+                            return Err(Error::OtherString(format!(
+                                "in `Router::new()`, it appears that a correspondence is between \
+                                 a `LazyAwi` and a `EvalAwi` which shouldn't be possible, the two \
+                                 sides were {program_p_external:#?} and {target_p_external:#?}"
+                            )));
+                        }
+                        router.map_rnodes(program_p_external, target_p_external, is_driver)?;
+                    } else {
+                        return Err(Error::OtherString(format!(
+                            "in `Router::new()`, found a correspondence with program `RNode` \
+                             {program_p_external:#?} that is not contained in the target, the \
+                             correspondence was {target_p_external:#?}"
+                        )))
+                    }
+                }
+            }
+        }
+        Ok(router)
     }
 
-    /// Create the router from externally created `Channeler`s
+    /// Create the router from externally created `Channeler`s and no automatic
+    /// mappings
     pub fn new_from_channelers(
         target_epoch: &SuspendedEpoch,
         target_channeler: Channeler<QCNode, QCEdge>,
@@ -473,7 +520,7 @@ impl Router {
     }
 
     /// Tell the router what program input bits we want to map to what target
-    /// input bits
+    /// input bits. This is automatically handled by `Router::new`
     pub fn map_rnodes(
         &mut self,
         program: PExternal,
@@ -603,34 +650,6 @@ impl Router {
                 "when mapping bits, could not find {program:#?} in the program `Ensemble`"
             )))
         }
-    }
-
-    /// Tell the router what program input bits we want to map to what target
-    /// input bits
-    pub fn map_lazy<L0: std::borrow::Borrow<LazyAwi>, L1: std::borrow::Borrow<LazyAwi>>(
-        &mut self,
-        program: &L0,
-        target: &L1,
-    ) -> Result<(), Error> {
-        self.map_rnodes(
-            program.borrow().p_external(),
-            target.borrow().p_external(),
-            true,
-        )
-    }
-
-    /// Tell the router what program output bits we want to map to what target
-    /// output bits
-    pub fn map_eval<E0: std::borrow::Borrow<EvalAwi>, E1: std::borrow::Borrow<EvalAwi>>(
-        &mut self,
-        program: &E0,
-        target: &E1,
-    ) -> Result<(), Error> {
-        self.map_rnodes(
-            program.borrow().p_external(),
-            target.borrow().p_external(),
-            false,
-        )
     }
 
     /// After all mappings have been done, this function should be called to

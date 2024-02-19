@@ -198,6 +198,25 @@ impl Corresponder {
             Err(Error::CorrespondenceNotATranspose(tmp.p_external()))
         }
     }
+
+    /// Returns all correspondences with `p_external`
+    pub fn correspondences(&self, p_external: PExternal) -> Result<Vec<PExternal>, Error> {
+        if let Some(p_meta) = self.a.find_key(&p_external) {
+            let p_start = *self.a.get_val(p_meta).unwrap();
+            let mut adv = self.c.advancer_surject(p_start);
+            let mut v = vec![];
+            while let Some(p_correspond) = adv.advance(&self.c) {
+                let p_meta = *self.c.get_key(p_correspond).unwrap();
+                let p_tmp = *self.a.get_key(p_meta).unwrap();
+                if p_tmp != p_external {
+                    v.push(p_tmp);
+                }
+            }
+            Ok(v)
+        } else {
+            Err(Error::CorrespondenceNotFound(p_external))
+        }
+    }
 }
 
 impl Default for Corresponder {

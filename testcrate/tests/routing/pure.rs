@@ -1,6 +1,6 @@
 //! pure routing with no combinatorics
 
-use starlight::{self, route::Router, Epoch, In, Out, SuspendedEpoch};
+use starlight::{self, route::Router, Corresponder, Epoch, In, Out, SuspendedEpoch};
 
 use super::FabricTargetInterface;
 
@@ -31,14 +31,23 @@ fn route_pure() {
     let (target, target_configurator, target_epoch) = FabricTargetInterface::target((2, 2));
     let (program, program_epoch) = SimpleCopyProgramInterface::program();
 
-    let mut router = Router::new(&target_epoch, &target_configurator, &program_epoch).unwrap();
     let input_i = 0;
     let output_i = 0;
-    router
-        .map_lazy(&program.input, &target.inputs[input_i])
+    let mut corresponder = Corresponder::new();
+    corresponder
+        .correspond_lazy(&program.input, &target.inputs[input_i])
         .unwrap();
-    router
-        .map_eval(&program.output, &target.outputs[output_i])
+    corresponder
+        .correspond_eval(&program.output, &target.outputs[output_i])
         .unwrap();
+
+    let mut router = Router::new(
+        &target_epoch,
+        &target_configurator,
+        &program_epoch,
+        &corresponder,
+    )
+    .unwrap();
+
     router.route().unwrap();
 }
