@@ -52,8 +52,13 @@ pub enum Error {
     #[error("could not find {0:#?} in the `Corresponder`")]
     CorrespondenceNotFound(PExternal),
     #[error(
-        "when trying to transpose {0:#?}, found that the correspondence is not between exactly \
-         two things"
+        "when trying to transpose {0:#?}, found no corresponding `EvalAwi` or `LazyAwi` for the \
+         currently active `Epoch`"
+    )]
+    CorrespondenceEmpty(PExternal),
+    #[error(
+        "when trying to transpose {0:#?}, found that the correspondence is to more than one \
+         `EvalAwi` or `LazyAwi`"
     )]
     CorrespondenceNotATranspose(PExternal),
     /// For miscellanious errors

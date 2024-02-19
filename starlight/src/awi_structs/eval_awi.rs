@@ -236,6 +236,10 @@ impl EvalAwi {
         Ensemble::thread_local_rnode_set_debug_name(self.p_external, Some(debug_name.as_ref()))
     }
 
+    pub fn opaque(w: NonZeroUsize) -> Self {
+        Self::from_bits(&dag::Awi::opaque(w))
+    }
+
     pub fn zero(w: NonZeroUsize) -> Self {
         Self::from_bits(&dag::Awi::zero(w))
     }

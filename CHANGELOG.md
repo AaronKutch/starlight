@@ -16,6 +16,7 @@
 - `Loop`s and `Net`s can now have an arbitrary initial value
 - Added `Grid`, `Ortho`, and `OrthoArray`
 - Added `In` and `Out` const width `RNode` structs
+- Added the `Corresponder`
 
 ## [0.3.0] - 2024-01-22
 ### Fixes

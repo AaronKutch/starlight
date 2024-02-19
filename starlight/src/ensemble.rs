@@ -1,3 +1,4 @@
+mod correspond;
 #[cfg(feature = "debug")]
 mod debug;
 mod lnode;
@@ -10,6 +11,7 @@ mod tnode;
 mod together;
 mod value;
 
+pub use correspond::Corresponder;
 pub use lnode::{LNode, LNodeKind, PLNode};
 pub use optimize::{Optimizer, POpt};
 pub use rnode::{Notary, PExternal, PRNode, RNode};

@@ -14,7 +14,7 @@ use std::{
 
 use awint::{
     awint_dag::{
-        epoch::{EpochCallback, EpochKey,_get_epoch_stack},
+        epoch::{EpochCallback, EpochKey, _get_epoch_stack},
         triple_arena::{ptr_struct, Arena},
         Lineage, Location, Op, PState,
     },
@@ -49,7 +49,8 @@ ptr_struct!(PEpochShared);
 /// Data stored  in `EpochData` per each live `EpochShared`
 #[derive(Debug)]
 pub struct PerEpochShared {
-    // this is used primarily in shared epoch situations like the meta lowerer where there is a subroutine where states are created that can be removed when the subroutine is done
+    // this is used primarily in shared epoch situations like the meta lowerer where there is a
+    // subroutine where states are created that can be removed when the subroutine is done
     pub states_inserted: Vec<PState>,
     pub assertions: Assertions,
 }
@@ -165,7 +166,8 @@ impl EpochShared {
     }
 
     /// Sets `self` as the current `EpochShared` with respect to the starlight
-    /// stack and also registers a new `EpochCallback` for the `awint_dag` stack if not already registered
+    /// stack and also registers a new `EpochCallback` for the `awint_dag` stack
+    /// if not already registered
     pub fn set_as_current(&self) {
         let mut lock = self.epoch_data.borrow_mut();
         if lock.epoch_key.is_none() {
@@ -185,8 +187,11 @@ impl EpochShared {
     }
 
     /// Removes `self` as the current `EpochShared` with respect to the
-    /// starlight stack. Calls `EpochKey::pop_off_epoch_stack` when `responsible_for.is_empty()`, meaning that `drop_associated` should be called before this function if needed. Returns an error if there is no current `EpochShared`
-    /// or `self.epoch_data` did not match the current.
+    /// starlight stack. Calls `EpochKey::pop_off_epoch_stack` when
+    /// `responsible_for.is_empty()`, meaning that `drop_associated` should be
+    /// called before this function if needed. Returns an error if there is no
+    /// current `EpochShared` or `self.epoch_data` did not match the
+    /// current.
     pub fn remove_as_current(&self) -> Result<(), Error> {
         EPOCH_STACK.with(|top| {
             let mut stack = top.borrow_mut();
@@ -217,17 +222,14 @@ impl EpochShared {
             // we are the last `EpochShared`
             match lock.epoch_key.take().unwrap().pop_off_epoch_stack() {
                 Ok(()) => Ok(()),
-                Err((self_gen, top_gen)) => {
-                    Err(Error::OtherString(format!(
-                        "The last `starlight::Epoch` or `starlight::SuspendedEpoch` of a \
-                         group of one or more shared `Epoch`s was dropped out of stacklike \
-                         order, such that an `awint_dag::epoch::EpochKey` with generation {} \
-                         was attempted to be dropped before the current key with generation \
-                         {}. This may be because explicit `drop`s of `Epoch`s should be used \
-                         in a different order.",
-                        self_gen, top_gen
-                    )))
-                }
+                Err((self_gen, top_gen)) => Err(Error::OtherString(format!(
+                    "The last `starlight::Epoch` or `starlight::SuspendedEpoch` of a group of one \
+                     or more shared `Epoch`s was dropped out of stacklike order, such that an \
+                     `awint_dag::epoch::EpochKey` with generation {} was attempted to be dropped \
+                     before the current key with generation {}. This may be because explicit \
+                     `drop`s of `Epoch`s should be used in a different order.",
+                    self_gen, top_gen
+                ))),
             }
         } else {
             Ok(())
