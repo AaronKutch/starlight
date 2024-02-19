@@ -299,7 +299,7 @@ impl Ensemble {
         location: Option<Location>,
         read_only: bool,
         lower_before_pruning: bool,
-    ) -> Result<PExternal, Error> {
+    ) -> Result<(PExternal, NonZeroUsize), Error> {
         if let Some(state) = self.stator.states.get_mut(p_state) {
             state.inc_extern_rc();
             let nzbw = state.nzbw;
@@ -311,7 +311,7 @@ impl Ensemble {
                 Some(p_state),
                 lower_before_pruning,
             ));
-            Ok(p_external)
+            Ok((p_external, nzbw))
         } else {
             Err(Error::OtherString(format!(
                 "state {p_state} has been pruned or is from a different epoch"

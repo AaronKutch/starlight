@@ -33,6 +33,8 @@ use crate::{
 /// current `Epoch`
 pub struct LazyAwi {
     p_external: PExternal,
+    // needed for things like `Configurator`s that need the bitwidth outside of an `Epoch`
+    nzbw: NonZeroUsize,
     // this is only used for `internal_as_ref` to work
     tmp_dag: Option<dag::Awi>,
 }
@@ -139,9 +141,11 @@ impl LazyAwi {
             .borrow_mut()
             .ensemble
             .make_rnode_for_pstate(opaque.state(), Some(location), false, false)
-            .unwrap();
+            .unwrap()
+            .0;
         Self {
             p_external,
+            nzbw: w,
             tmp_dag: Some(opaque),
         }
     }
@@ -169,9 +173,17 @@ impl LazyAwi {
     ) -> Result<Self, Error> {
         let epoch = get_current_epoch()?;
         let mut lock = epoch.epoch_data.borrow_mut();
-        let _ = lock.ensemble.rnode_inc_rc(p_external)?;
+        let p_rnode = lock.ensemble.rnode_inc_rc(p_external)?;
+        let w = lock
+            .ensemble
+            .notary
+            .rnodes()
+            .get_val(p_rnode)
+            .unwrap()
+            .nzbw();
         Ok(Self {
             p_external,
+            nzbw: w,
             tmp_dag: p_state.map(Awi::from_state),
         })
     }
@@ -213,12 +225,8 @@ impl LazyAwi {
         }
     }
 
-    pub fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {
-        Ensemble::get_thread_local_rnode_nzbw(self.p_external)
-    }
-
     pub fn nzbw(&self) -> NonZeroUsize {
-        self.try_get_nzbw().unwrap()
+        self.nzbw
     }
 
     pub fn bw(&self) -> usize {
@@ -286,13 +294,13 @@ impl LazyAwi {
         delay: D,
     ) -> Result<(), Error> {
         let rhs = rhs.borrow();
-        let lhs_w = self.try_get_nzbw()?;
-        let rhs_w = rhs.try_get_nzbw()?;
+        let lhs_w = self.bw();
+        let rhs_w = rhs.bw();
         if lhs_w != rhs_w {
-            return Err(Error::BitwidthMismatch(lhs_w.get(), rhs_w.get()))
+            return Err(Error::BitwidthMismatch(lhs_w, rhs_w))
         }
         let delay = delay.into();
-        for i in 0..lhs_w.get() {
+        for i in 0..lhs_w {
             Ensemble::tnode_drive_thread_local_rnode(
                 self.p_external(),
                 i,
@@ -343,26 +351,36 @@ impl AsRef<dag::Bits> for LazyAwi {
     }
 }
 
+pub(crate) fn format_auto_awi(
+    name: &str,
+    p_external: PExternal,
+    nzbw: NonZeroUsize,
+    f: &mut fmt::Formatter<'_>,
+) -> fmt::Result {
+    let mut tmp = f.debug_struct(name);
+    tmp.field("p_external", &p_external);
+    tmp.field("nzbw", &nzbw);
+    if let Ok(epoch) = get_current_epoch() {
+        if let Ok(lock) = epoch.epoch_data.try_borrow() {
+            if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(p_external) {
+                if let Some(ref debug_name) = rnode.debug_name {
+                    tmp.field("debug_name", &DisplayStr(debug_name));
+                }
+                /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+                    tmp.field("state", &DisplayStr(&s));
+                }*/
+                //tmp.field("bits", &rnode.bits());
+            }
+        }
+    }
+    tmp.finish()
+}
+
 impl fmt::Debug for LazyAwi {
     /// Can only display some fields if the `Epoch` `self` was created in is
     /// active
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut tmp = f.debug_struct("LazyAwi");
-        tmp.field("p_external", &self.p_external());
-        if let Ok(epoch) = get_current_epoch() {
-            if let Ok(lock) = epoch.epoch_data.try_borrow() {
-                if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
-                    if let Some(ref name) = rnode.debug_name {
-                        tmp.field("debug_name", &DisplayStr(name));
-                    }
-                    /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                        tmp.field("state", &DisplayStr(&s));
-                    }*/
-                    //tmp.field("bits", &rnode.bits());
-                }
-            }
-        }
-        tmp.finish()
+        format_auto_awi("LazyAwi", self.p_external(), self.nzbw(), f)
     }
 }
 

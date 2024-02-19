@@ -230,12 +230,13 @@ fn epoch_suspension3() {
 }
 
 #[test]
-fn fallible_epoch_inactive_errors() {
+fn epoch_fallible_inactive_errors() {
     let epoch = Epoch::new();
     let x = LazyAwi::opaque(bw(1));
     let b = awi!(x);
     dag::assert!(b.lsb());
     let y = EvalAwi::from(&b);
+    let y1 = EvalAwi::opaque(bw(2));
     let z0 = LazyAwi::opaque(bw(2));
     let z1 = LazyAwi::opaque(bw(2));
     let l0 = Loop::opaque(bw(1));
@@ -258,7 +259,7 @@ fn fallible_epoch_inactive_errors() {
         assert!(matches!(y.eval_bool(), Err(Error::InvalidPExternal(_))));
         assert!(matches!(y.eval_u8(), Err(Error::InvalidPExternal(_))));
         assert!(matches!(
-            z0.drive_with_delay(&y, 0),
+            z0.drive_with_delay(&y1, 0),
             Err(Error::InvalidPExternal(_))
         ));
         // this might be an issue, but I think this should be like a normal mimick
@@ -296,7 +297,7 @@ fn fallible_epoch_inactive_errors() {
         assert_eq!(y.eval_bool(), Err(Error::NoCurrentlyActiveEpoch));
         assert_eq!(y.eval_u8(), Err(Error::NoCurrentlyActiveEpoch));
         assert_eq!(
-            z1.drive_with_delay(&y, 0),
+            z1.drive_with_delay(&y1, 0),
             Err(Error::NoCurrentlyActiveEpoch)
         );
         assert_eq!(l0.drive(&b), Err(Error::NoCurrentlyActiveEpoch));

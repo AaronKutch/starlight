@@ -62,7 +62,6 @@ fn correspond_within() {
             awi!(42u8)
         );
         awi::assert_eq!(target_z.eval().unwrap(), awi!(42u8));
-
     }
     drop(epoch);
 }

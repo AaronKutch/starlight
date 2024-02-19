@@ -184,7 +184,7 @@ pub use awi_structs::{
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
 pub use awint::{self, awint_dag, awint_dag::triple_arena};
-pub use ensemble::{Delay, Corresponder};
+pub use ensemble::{Corresponder, Delay};
 pub use utils::Error;
 
 /// Reexports all the regular arbitrary width integer structs, macros, common

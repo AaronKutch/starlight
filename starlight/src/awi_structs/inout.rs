@@ -9,12 +9,11 @@ use awint::{
     awint_internals::USIZE_BITS,
 };
 
+use super::lazy_awi::format_auto_awi;
 use crate::{
     awi::{self, *},
     dag,
     ensemble::PExternal,
-    epoch::get_current_epoch,
-    utils::DisplayStr,
     Delay, Error, EvalAwi, LazyAwi,
 };
 
@@ -116,10 +115,6 @@ impl<const W: usize> In<W> {
 
     pub fn p_external(&self) -> PExternal {
         self.0.p_external()
-    }
-
-    pub fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {
-        self.0.try_get_nzbw()
     }
 
     pub fn nzbw(&self) -> NonZeroUsize {
@@ -228,22 +223,7 @@ impl<const W: usize> fmt::Debug for In<W> {
     /// Can only display some fields if the `Epoch` `self` was created in is
     /// active
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut tmp = f.debug_struct(&format!("In<{W}>"));
-        tmp.field("p_external", &self.p_external());
-        if let Ok(epoch) = get_current_epoch() {
-            if let Ok(lock) = epoch.epoch_data.try_borrow() {
-                if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
-                    if let Some(ref name) = rnode.debug_name {
-                        tmp.field("debug_name", &DisplayStr(name));
-                    }
-                    /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                        tmp.field("state", &DisplayStr(&s));
-                    }*/
-                    //tmp.field("bits", &rnode.bits());
-                }
-            }
-        }
-        tmp.finish()
+        format_auto_awi(&format!("In<{W}>"), self.p_external(), self.nzbw(), f)
     }
 }
 
@@ -345,10 +325,6 @@ impl<const W: usize> Out<W> {
         self.0.p_external()
     }
 
-    pub fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {
-        self.0.try_get_nzbw()
-    }
-
     pub fn nzbw(&self) -> NonZeroUsize {
         self.0.nzbw()
     }
@@ -404,22 +380,7 @@ impl<const W: usize> fmt::Debug for Out<W> {
     /// Can only display some fields if the `Epoch` `self` was created in is
     /// active
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut tmp = f.debug_struct("EvalAwi");
-        tmp.field("p_external", &self.p_external());
-        if let Ok(epoch) = get_current_epoch() {
-            if let Ok(lock) = epoch.epoch_data.try_borrow() {
-                if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(self.p_external()) {
-                    if let Some(ref name) = rnode.debug_name {
-                        tmp.field("debug_name", &DisplayStr(name));
-                    }
-                    /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                        tmp.field("state", &DisplayStr(&s));
-                    }*/
-                    //tmp.field("bits", &rnode.bits());
-                }
-            }
-        }
-        tmp.finish()
+        format_auto_awi(&format!("Out<{W}>"), self.p_external(), self.nzbw(), f)
     }
 }
 
