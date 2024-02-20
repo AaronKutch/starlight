@@ -70,7 +70,7 @@
 //! // if we later retroactively assign this to an unequal value, the
 //! // `assert_assertions_strict` call will error and show the location of the
 //! // assertion that errored
-//! dag::assert_eq!(Awi::from(&input), awi!(0101));
+//! mimick::assert_eq!(Awi::from(&input), awi!(0101));
 //!
 //! // step the state machine forward
 //! m.update(&input).unwrap();
@@ -100,7 +100,7 @@
 //!     // could use for various purposes
 //!     epoch.ensemble(|ensemble| {
 //!         for state in ensemble.stator.states.vals() {
-//!             awi::assert!(state.lowered_to_lnodes);
+//!             assert!(state.lowered_to_lnodes);
 //!         }
 //!     });
 //!
@@ -110,19 +110,20 @@
 //!     // during the current `Epoch`)
 //!     epoch.assert_assertions(true).unwrap();
 //!     // evaluate the outputs
-//!     awi::assert_eq!(output_counter.eval().unwrap(), awi!(0011));
-//!     awi::assert_eq!(output_data.eval().unwrap(), awi!(0xa505_u16));
+//!     assert_eq!(output_counter.eval().unwrap(), awi!(0011));
+//!     assert_eq!(output_data.eval().unwrap(), awi!(0xa505_u16));
 //!
 //!     // reassign and reevaluate
 //!     input.retro_(&awi!(1011)).unwrap();
-//!     awi::assert!(epoch.assert_assertions(true).is_err());
-//!     awi::assert_eq!(output_data.eval().unwrap(), awi!(0x7b0b_u16));
+//!     assert!(epoch.assert_assertions(true).is_err());
+//!     assert_eq!(output_data.eval().unwrap(), awi!(0x7b0b_u16));
 //! }
 //! drop(epoch);
 //! ```
 //!
 //! ```rust
 //! use starlight::{dag, awi, Epoch, EvalAwi};
+//!
 //! use dag::*;
 //!
 //! let epoch = Epoch::new();
@@ -159,7 +160,7 @@
 //!
 //! {
 //!     use awi::*;
-//!     awi::assert_eq!(output_eval.eval().unwrap(), awi!(01010101));
+//!     assert_eq!(output_eval.eval().unwrap(), awi!(01010101));
 //! }
 //! drop(epoch);
 //! ```
@@ -204,8 +205,6 @@ pub mod dag {
         Result::{Err, Ok},
         *,
     };
-
-    pub use crate::{Loop, Net};
 }
 
 // TODO use modified Lagrangians that appear different to nets with different

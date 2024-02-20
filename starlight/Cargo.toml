@@ -1,7 +1,6 @@
 [package]
 name = "starlight"
 # FIXME before next release make a `Argument128` `Op` variant for delays
-# FIXME make `dag::assert*` not part of the glop imports
 # FIXME NonZeroU32 flags and generationless
 version = "0.3.0"
 edition = "2021"
@@ -15,8 +14,8 @@ keywords = ["dag", "rtl", "hdl"]
 categories = ["algorithms"]
 
 [dependencies]
-#awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
-awint = { version = "0.16", default-features = false, features = ["rand_support", "dag"] }
+awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
+#awint = { version = "0.16", default-features = false, features = ["rand_support", "dag"] }
 rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
 rand_xoshiro = { version = "0.6", default-features = false }
 thiserror = "1.0"

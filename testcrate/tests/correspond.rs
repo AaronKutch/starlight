@@ -15,9 +15,9 @@ fn correspond_clone() {
         use awi::*;
 
         x_clone.retro_(&awi!(3u8)).unwrap();
-        awi::assert_eq!(y.eval_u8().unwrap(), 57);
+        assert_eq!(y.eval_u8().unwrap(), 57);
         x.retro_(&awi!(10u8)).unwrap();
-        awi::assert_eq!(y.eval_u8().unwrap(), 64);
+        assert_eq!(y.eval_u8().unwrap(), 64);
     }
 
     drop(epoch);
@@ -48,11 +48,11 @@ fn correspond_within() {
         let mut corresponder = Corresponder::new();
         corresponder.correspond_lazy(&program_x, &target_x).unwrap();
         corresponder.correspond_eval(&target_z, &program_z).unwrap();
-        awi::assert!(matches!(
+        assert!(matches!(
             corresponder.correspond_lazy(&mismatch_a, &program_x),
             Err(Error::BitwidthMismatch(_, _))
         ));
-        awi::assert!(matches!(
+        assert!(matches!(
             corresponder.correspond_eval(&mismatch_b, &program_z),
             Err(Error::BitwidthMismatch(_, _))
         ));
@@ -63,7 +63,7 @@ fn correspond_within() {
             .retro_(&awi!(7u8))
             .unwrap();
         target_y.retro_(&awi!(6u8)).unwrap();
-        awi::assert_eq!(
+        assert_eq!(
             corresponder
                 .transpose_eval(&program_z)
                 .unwrap()
@@ -71,7 +71,7 @@ fn correspond_within() {
                 .unwrap(),
             awi!(42u8)
         );
-        awi::assert_eq!(target_z.eval().unwrap(), awi!(42u8));
+        assert_eq!(target_z.eval().unwrap(), awi!(42u8));
     }
     drop(epoch);
 }
@@ -113,11 +113,11 @@ fn correspond_inbetween() {
 
         let target_epoch = target_epoch.resume();
 
-        awi::assert!(matches!(
+        assert!(matches!(
             corresponder.transpose_lazy(&target_x),
             Err(Error::CorrespondenceEmpty(_))
         ));
-        awi::assert!(matches!(
+        assert!(matches!(
             corresponder.transpose_eval(&target_z),
             Err(Error::CorrespondenceEmpty(_))
         ));
@@ -132,7 +132,7 @@ fn correspond_inbetween() {
             .unwrap()
             .retro_(&awi!(6u8))
             .unwrap();
-        awi::assert_eq!(
+        assert_eq!(
             corresponder
                 .transpose_eval(&program_z)
                 .unwrap()
@@ -140,17 +140,17 @@ fn correspond_inbetween() {
                 .unwrap(),
             awi!(42u8)
         );
-        awi::assert_eq!(target_z.eval().unwrap(), awi!(42u8));
+        assert_eq!(target_z.eval().unwrap(), awi!(42u8));
 
         let target_epoch = target_epoch.suspend();
 
         let program_epoch = program_epoch.resume();
 
-        awi::assert!(matches!(
+        assert!(matches!(
             corresponder.transpose_lazy(&program_x),
             Err(Error::CorrespondenceEmpty(_))
         ));
-        awi::assert!(matches!(
+        assert!(matches!(
             corresponder.transpose_eval(&program_z),
             Err(Error::CorrespondenceEmpty(_))
         ));
@@ -165,7 +165,7 @@ fn correspond_inbetween() {
             .unwrap()
             .retro_(&awi!(8u8))
             .unwrap();
-        awi::assert_eq!(
+        assert_eq!(
             corresponder
                 .transpose_eval(&target_z)
                 .unwrap()
@@ -173,7 +173,7 @@ fn correspond_inbetween() {
                 .unwrap(),
             awi!(128u8)
         );
-        awi::assert_eq!(program_z.eval().unwrap(), awi!(128u8));
+        assert_eq!(program_z.eval().unwrap(), awi!(128u8));
 
         let program_epoch = program_epoch.suspend();
 

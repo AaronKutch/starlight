@@ -1,12 +1,13 @@
 use std::num::NonZeroUsize;
 
-use starlight::{awi, dag::*, ensemble::Delay, Epoch, EvalAwi, LazyAwi, Loop};
+use starlight::{awi, dag, ensemble::Delay, Epoch, EvalAwi, LazyAwi, Loop, Net};
 
 // be careful not to change existing tests too much, these test a lot of
 // ordering and nonoptimization cases
 
 #[test]
 fn loop_zero_delay() {
+    use dag::*;
     let epoch = Epoch::new();
     let looper = Loop::uone(bw(2));
     let mut x = awi!(looper);
@@ -23,30 +24,30 @@ fn loop_zero_delay() {
     {
         use awi::*;
 
-        awi::assert_eq!(eval0.eval().unwrap(), awi!(01));
-        awi::assert_eq!(eval1.eval().unwrap(), awi!(01));
+        assert_eq!(eval0.eval().unwrap(), awi!(01));
+        assert_eq!(eval1.eval().unwrap(), awi!(01));
         epoch.run(Delay::from(1)).unwrap();
-        awi::assert_eq!(eval0.eval().unwrap(), awi!(01));
-        awi::assert_eq!(eval1.eval().unwrap(), awi!(01));
+        assert_eq!(eval0.eval().unwrap(), awi!(01));
+        assert_eq!(eval1.eval().unwrap(), awi!(01));
 
         epoch.optimize().unwrap();
 
         or_ctrl.retro_(&awi!(11)).unwrap();
 
-        awi::assert_eq!(eval1.eval().unwrap(), awi!(11));
-        awi::assert_eq!(eval0.eval().unwrap(), awi!(11));
+        assert_eq!(eval1.eval().unwrap(), awi!(11));
+        assert_eq!(eval0.eval().unwrap(), awi!(11));
         epoch.run(Delay::from(1)).unwrap();
-        awi::assert_eq!(eval0.eval().unwrap(), awi!(11));
-        awi::assert_eq!(eval1.eval().unwrap(), awi!(11));
+        assert_eq!(eval0.eval().unwrap(), awi!(11));
+        assert_eq!(eval1.eval().unwrap(), awi!(11));
 
         or_ctrl.retro_(&awi!(00)).unwrap();
         and_ctrl.retro_(&awi!(10)).unwrap();
 
-        awi::assert_eq!(eval1.eval().unwrap(), awi!(10));
-        awi::assert_eq!(eval0.eval().unwrap(), awi!(10));
+        assert_eq!(eval1.eval().unwrap(), awi!(10));
+        assert_eq!(eval0.eval().unwrap(), awi!(10));
         epoch.run(Delay::from(1)).unwrap();
-        awi::assert_eq!(eval0.eval().unwrap(), awi!(10));
-        awi::assert_eq!(eval1.eval().unwrap(), awi!(10));
+        assert_eq!(eval0.eval().unwrap(), awi!(10));
+        assert_eq!(eval1.eval().unwrap(), awi!(10));
 
         or_ctrl.retro_(&awi!(11)).unwrap();
         and_ctrl.retro_(&awi!(11)).unwrap();
@@ -60,20 +61,20 @@ fn loop_zero_delay() {
         and_ctrl.retro_unknown_().unwrap();
         epoch.run(Delay::from(1)).unwrap();
 
-        awi::assert!(eval0.eval_is_all_unknown().unwrap());
-        awi::assert!(eval1.eval_is_all_unknown().unwrap());
+        assert!(eval0.eval_is_all_unknown().unwrap());
+        assert!(eval1.eval_is_all_unknown().unwrap());
         epoch.run(Delay::from(1)).unwrap();
-        awi::assert!(eval0.eval_is_all_unknown().unwrap());
-        awi::assert!(eval1.eval_is_all_unknown().unwrap());
+        assert!(eval0.eval_is_all_unknown().unwrap());
+        assert!(eval1.eval_is_all_unknown().unwrap());
 
         // after the `and_`
         or_ctrl.retro_(&awi!(11)).unwrap();
 
-        awi::assert_eq!(eval1.eval().unwrap(), awi!(11));
-        awi::assert_eq!(eval0.eval().unwrap(), awi!(11));
+        assert_eq!(eval1.eval().unwrap(), awi!(11));
+        assert_eq!(eval0.eval().unwrap(), awi!(11));
         epoch.run(Delay::from(1)).unwrap();
-        awi::assert_eq!(eval0.eval().unwrap(), awi!(11));
-        awi::assert_eq!(eval1.eval().unwrap(), awi!(11));
+        assert_eq!(eval0.eval().unwrap(), awi!(11));
+        assert_eq!(eval1.eval().unwrap(), awi!(11));
 
         or_ctrl.retro_(&awi!(11)).unwrap();
         and_ctrl.retro_(&awi!(11)).unwrap();
@@ -82,19 +83,20 @@ fn loop_zero_delay() {
 
         xor_ctrl.retro_(&awi!(11)).unwrap();
 
-        awi::assert!(eval0.eval().is_err());
-        awi::assert!(eval1.eval().is_err());
-        awi::assert!(epoch.run(Delay::from(1)).is_err());
+        assert!(eval0.eval().is_err());
+        assert!(eval1.eval().is_err());
+        assert!(epoch.run(Delay::from(1)).is_err());
         // make sure no combination drops events
-        awi::assert!(eval0.eval().is_err());
-        awi::assert!(eval1.eval().is_err());
-        awi::assert!(epoch.run(Delay::from(1)).is_err());
+        assert!(eval0.eval().is_err());
+        assert!(eval1.eval().is_err());
+        assert!(epoch.run(Delay::from(1)).is_err());
     }
     drop(epoch);
 }
 
 #[test]
 fn loop_invert() {
+    use dag::*;
     let epoch = Epoch::new();
     let looper = Loop::zero(bw(1));
     let mut x = awi!(looper);
@@ -106,7 +108,7 @@ fn loop_invert() {
     looper.drive_with_delay(&x, 1).unwrap();
 
     {
-        use awi::{assert_eq, *};
+        use awi::*;
 
         let eval_x = EvalAwi::from(&x);
         assert_eq!(eval_x.eval().unwrap(), awi!(1));
@@ -121,6 +123,7 @@ fn loop_invert() {
 // tests an incrementing counter
 #[test]
 fn loop_incrementer() {
+    use dag::*;
     let epoch = Epoch::new();
     let looper = Loop::zero(bw(4));
     let val = EvalAwi::from(&looper);
@@ -130,7 +133,7 @@ fn loop_incrementer() {
 
     {
         for i in 0..16 {
-            awi::assert_eq!(i, val.eval().unwrap().to_usize());
+            assert_eq!(i, val.eval().unwrap().to_usize());
             epoch.run(Delay::from(1)).unwrap();
         }
     }
@@ -139,6 +142,7 @@ fn loop_incrementer() {
 
 #[test]
 fn loop_net4() {
+    use dag::*;
     let epoch = Epoch::new();
     let mut net = Net::opaque(bw(4));
     net.push(&awi!(0xa_u4)).unwrap();
@@ -150,7 +154,7 @@ fn loop_net4() {
     net.drive(&inx).unwrap();
 
     {
-        use awi::{assert_eq, *};
+        use awi::*;
         inx.retro_(&awi!(0_u2)).unwrap();
         assert_eq!(val.eval().unwrap(), awi!(0xa_u4));
 
@@ -167,6 +171,7 @@ fn loop_net4() {
 }
 
 fn exhaustive_net_test(epoch: &Epoch, num_ports: awi::usize, diff: awi::isize) {
+    use dag::*;
     let mut net = Net::opaque(bw(5));
     for i in 0..num_ports {
         let mut port = awi!(0u5);
@@ -186,9 +191,9 @@ fn exhaustive_net_test(epoch: &Epoch, num_ports: awi::usize, diff: awi::isize) {
             let mut inx = Awi::zero(w);
             inx.usize_(i);
             lazy.retro_(&inx).unwrap();
-            awi::assert_eq!(eval_res.eval().unwrap().to_bool(), i >= num_ports);
+            assert_eq!(eval_res.eval().unwrap().to_bool(), i >= num_ports);
             if i < num_ports {
-                awi::assert_eq!(eval_net.eval().unwrap().to_usize(), i);
+                assert_eq!(eval_net.eval().unwrap().to_usize(), i);
             }
         }
     }
@@ -196,16 +201,14 @@ fn exhaustive_net_test(epoch: &Epoch, num_ports: awi::usize, diff: awi::isize) {
 
 #[test]
 fn loop_net_no_ports() {
+    use dag::*;
     let epoch = Epoch::new();
     // done separately because it results in an undriven `Loop`
+    let net = Net::opaque(bw(5));
+    let res = net.drive(&awi!(0));
     {
-        let net = Net::opaque(bw(5));
-        let res = net.drive(&awi!(0));
-        {
-            use awi::assert;
-            // always none
-            assert!(res.is_none_at_runtime());
-        }
+        // always none
+        assert!(res.is_none_at_runtime());
     }
     drop(epoch);
 }
@@ -215,6 +218,7 @@ fn loop_net() {
     let epoch = Epoch::new();
     // one port
     {
+        use dag::*;
         let mut net = Net::opaque(bw(5));
         net.push(&awi!(0xa_u5)).unwrap();
         let lazy = LazyAwi::opaque(bw(1));
@@ -222,7 +226,7 @@ fn loop_net() {
         let res = net.drive(&lazy);
         let eval_res = EvalAwi::from_bool(res.is_none());
         {
-            use awi::{assert_eq, *};
+            use awi::*;
             lazy.retro_bool_(false).unwrap();
             assert_eq!(eval_res.eval().unwrap(), awi!(0));
             assert_eq!(eval_net.eval().unwrap(), awi!(0xa_u5));

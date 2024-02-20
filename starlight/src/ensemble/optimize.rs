@@ -585,7 +585,7 @@ impl Ensemble {
                 self.preinvestigate_equiv(p_back)?;
             }
         }
-        while let Some(p_optimization) = self.optimizer.optimizations.min() {
+        while let Some(p_optimization) = self.optimizer.optimizations.first() {
             self.optimize(p_optimization)?;
         }
         self.recast_all_internal_ptrs()

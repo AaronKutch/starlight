@@ -687,6 +687,12 @@ impl Router {
         if let Some(bits) = rnode.bits() {
             for (bit_i, bit) in bits.iter().copied().enumerate() {
                 if let Some(bit) = bit {
+                    let bit = self
+                        .target_ensemble()
+                        .backrefs
+                        .get_val(bit)
+                        .unwrap()
+                        .p_self_equiv;
                     let q_cnode = self.target_channeler().find_channeler_cnode(bit).unwrap();
                     todo!()
                     //self.target_channeler().cnodes.get_val(q_cnode).unwrap().

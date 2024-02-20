@@ -13,11 +13,11 @@ use awint::{
         PState,
     },
     bw,
-    dag::{awi, inlawi, Awi, Bits, InlAwi},
 };
+use dag::{awi, inlawi, Awi, Bits, InlAwi};
 
 use super::meta::*;
-use crate::{awi, Error};
+use crate::{awi, dag, Error};
 
 pub trait LowerManagement<P: Ptr + DummyDefault> {
     fn graft(&mut self, output_and_operands: &[PState]);

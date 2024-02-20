@@ -281,7 +281,13 @@ impl Ensemble {
     /// `Request`, this will always run the event clearing
     pub fn restart_request_phase(&mut self) -> Result<(), Error> {
         // TODO think more about this, handle redundant change cases
-        let mut event_gas = self.backrefs.len_keys();
+
+        // FIXME there are certainly constructed cases where the initial priority
+        // ordering is bad and can lead to repeated cascades. We know from the halting
+        // problem that this is an impossible problem to solve in general, but there
+        // might be a good approximate way to detect nonhalting. In either case we need
+        // a way to specify event gas.
+        let mut event_gas = self.backrefs.len_keys() * 4;
         while let Some(event) = self.evaluator.pop_event() {
             let res = self.handle_event(event);
             if res.is_err() {

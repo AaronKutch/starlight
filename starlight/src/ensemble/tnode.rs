@@ -172,13 +172,13 @@ impl Delayer {
 
     #[must_use]
     pub fn peek_next_event_time(&self) -> Option<Delay> {
-        let p_min = self.delayed_events.min()?;
+        let p_min = self.delayed_events.first()?;
         self.delayed_events.get_key(p_min).copied()
     }
 
     #[must_use]
     pub fn pop_next_simultaneous_events(&mut self) -> Option<(Delay, SimultaneousEvents)> {
-        let p_min = self.delayed_events.min()?;
+        let p_min = self.delayed_events.first()?;
         self.delayed_events.remove(p_min)
     }
 }

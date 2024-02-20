@@ -574,10 +574,10 @@ impl Drop for EpochInnerDrop {
 /// created will be kept until the struct is dropped, in which case the capacity
 /// for those states are reclaimed and their `PState`s are invalidated.
 ///
-/// Additionally, assertion bits from [crate::dag::assert],
-/// [crate::dag::assert_eq], [crate::dag::Option::unwrap], etc are
-/// associated with the top level `Epoch` alive at the time they are
-/// created. Use [Epoch::assertions] to acquire these.
+/// Additionally, assertion bits [crate::dag::mimick::assert_eq],
+/// [crate::dag::Option::unwrap], etc are associated with the top level `Epoch`
+/// alive at the time they are created. Use [Epoch::assertions] to acquire
+/// these.
 ///
 /// # Custom Drop
 ///

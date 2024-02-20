@@ -14,7 +14,7 @@ fn tnode_simple() {
     let x3 = EvalAwi::from(&x2);
     x2.drive(&x1).unwrap();
     {
-        use awi::{assert_eq, *};
+        use awi::*;
         assert_eq!(x3.eval().unwrap(), awi!(0));
         x0.retro_umax_().unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(1));
@@ -37,7 +37,7 @@ fn tnode_simple_quiescence() {
     let x3 = EvalAwi::from(&x2);
     x2.drive(&x1).unwrap();
     {
-        use awi::{assert, assert_eq, *};
+        use awi::*;
         // because there is no delay or infinite looping
         assert!(epoch.quiesced().unwrap());
         assert_eq!(x3.eval().unwrap(), awi!(0));
@@ -67,7 +67,7 @@ fn tnode_loop() {
     x2.drive(&x1).unwrap();
     x0.drive_with_delay(&x3, 1).unwrap();
     {
-        use awi::{assert_eq, *};
+        use awi::*;
         assert_eq!(x3.eval().unwrap(), awi!(1));
         epoch.run(Delay::from(1)).unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(0));
@@ -93,7 +93,7 @@ fn tnode_loop_quiescence() {
     x2.drive(&x1).unwrap();
     x0.drive_with_delay(&x3, 1).unwrap();
     {
-        use awi::{assert, assert_eq, *};
+        use awi::*;
         assert!(!epoch.quiesced().unwrap());
         assert_eq!(x3.eval().unwrap(), awi!(1));
         assert!(!epoch.quiesced().unwrap());
@@ -123,7 +123,7 @@ fn tnode_delay() {
     delay(&mut x, 10);
     let y = EvalAwi::from(&x);
     {
-        use awi::{assert, assert_eq, *};
+        use awi::*;
         assert!(y.eval().is_err());
         assert!(!epoch.quiesced().unwrap());
         epoch.run(9).unwrap();
@@ -145,7 +145,7 @@ fn tnode_delay_lowered() {
     delay(&mut y, 3);
     let y = EvalAwi::from(&y);
     {
-        use awi::{assert_eq, *};
+        use awi::*;
         epoch.lower_and_prune().unwrap();
         x.retro_(&awi!(0xa_u4)).unwrap();
         epoch.run(3).unwrap();
@@ -163,7 +163,7 @@ fn tnode_delay_opaque_quiesced_lowered() {
     delay(&mut y, 10);
     let y = EvalAwi::from(&y);
     {
-        use awi::{assert, assert_eq, *};
+        use awi::*;
         epoch.lower().unwrap();
         // check that we are immediately quiesced when the driver was already opaque
         assert!(epoch.quiesced().unwrap());
@@ -188,7 +188,7 @@ fn tnode_delay_opaque_quiesced() {
     delay(&mut y, 10);
     let y = EvalAwi::from(&y);
     {
-        use awi::{assert, assert_eq, *};
+        use awi::*;
         // check that we are immediately quiesced when the driver was already opaque
         assert!(epoch.quiesced().unwrap());
         // one more cycle

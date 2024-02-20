@@ -299,8 +299,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         arena
     }
 
-    pub fn render_to_svgs_in_dir(&self, lvl: usize, out_file: PathBuf) -> Result<(), Error> {
-        let dir = match out_file.canonicalize() {
+    pub fn render_to_svgs_in_dir(&self, lvl: usize, out_dir: PathBuf) -> Result<(), Error> {
+        let dir = match out_dir.canonicalize() {
             Ok(o) => {
                 if !o.is_dir() {
                     return Err(Error::OtherStr("need a directory not a file"));

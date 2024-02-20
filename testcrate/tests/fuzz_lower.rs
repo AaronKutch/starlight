@@ -6,8 +6,7 @@ use std::{
 };
 
 use starlight::{
-    awi,
-    dag::{self},
+    awi, dag,
     triple_arena::{ptr_struct, Arena},
     utils::StarRng,
     Epoch, EvalAwi, LazyAwi,

@@ -274,10 +274,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         // for each equivalence make a `CNode` with associated `EnsembleBackref`, unless
         // it is one of the configurable bits
         for equiv in ensemble.backrefs.vals() {
-            if configurator
-                .configurations
-                .find_key(&equiv.p_self_equiv)
-                .is_none()
+            if true
+                || configurator
+                    .configurations
+                    .find_key(&equiv.p_self_equiv)
+                    .is_none()
             {
                 let p_cnode = channeler.make_top_level_cnode(vec![], 0, InternalBehavior::empty());
                 let replaced = channeler

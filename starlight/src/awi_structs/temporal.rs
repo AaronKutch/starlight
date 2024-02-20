@@ -3,10 +3,9 @@ use std::{borrow::Borrow, num::NonZeroUsize, ops::Deref};
 use awint::{
     awint_dag::{smallvec::smallvec, Lineage, Op, PState},
     bw,
-    dag::{self, awi, Awi, Bits, InlAwi},
 };
 
-use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Error};
+use crate::{awi, dag, epoch::get_current_epoch, lower::meta::general_mux, Delay, Error};
 
 /// Delays the temporal value propogation of `bits` by `delay`.
 ///
@@ -21,9 +20,10 @@ use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Erro
 /// function changes `bits` into its future value.
 ///
 /// ```
-/// use dag::*;
 /// use starlight::{awi, dag, delay, Epoch, EvalAwi, LazyAwi};
 /// let epoch = Epoch::new();
+///
+/// use dag::*;
 ///
 /// let mut a = awi!(0xa_u4);
 /// let a_before = EvalAwi::from(&a);
@@ -31,7 +31,7 @@ use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Erro
 /// delay(&mut a, 10);
 /// let a_after = EvalAwi::from(&a);
 /// {
-///     use awi::{assert, assert_eq, *};
+///     use awi::*;
 ///     // `a_before` with no delay in between it and the
 ///     // `0xa_u4` value immediately evaluates
 ///     assert_eq!(a_before.eval().unwrap(), awi!(0xa_u4));
@@ -57,7 +57,7 @@ use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Erro
 /// delay(&mut y, 10);
 /// let y = EvalAwi::from(&x);
 /// {
-///     use awi::{assert, assert_eq, *};
+///     use awi::*;
 ///
 ///     // immediate quiescence since the driver is already opaque
 ///     assert!(epoch.quiesced().unwrap());
@@ -81,7 +81,7 @@ use crate::{awi, epoch::get_current_epoch, lower::meta::general_mux, Delay, Erro
 /// This function is treated like a basic [awint::awint_dag] function that
 /// panics internally if there is not an active epoch
 #[track_caller]
-pub fn delay<D: Into<Delay>>(bits: &mut Bits, delay: D) {
+pub fn delay<D: Into<Delay>>(bits: &mut dag::Bits, delay: D) {
     // unwrap because of panic notice and because it should have panicked earlier in
     // the function
     let epoch = get_current_epoch().expect("cannot use `starlight::delay` without an active epoch");
@@ -117,7 +117,8 @@ pub fn delay<D: Into<Delay>>(bits: &mut Bits, delay: D) {
 /// retroactively change the temporal value of the loop.
 ///
 /// ```
-/// use starlight::{awi, dag::*, Epoch, EvalAwi, Loop};
+/// use dag::*;
+/// use starlight::{awi, dag, Epoch, EvalAwi, Loop};
 /// let epoch = Epoch::new();
 ///
 /// let looper = Loop::zero(bw(4));
@@ -134,7 +135,7 @@ pub fn delay<D: Into<Delay>>(bits: &mut Bits, delay: D) {
 ///     for i in 0..16 {
 ///         // check that the evaluated value is equal to
 ///         // this loop iteration number
-///         awi::assert_eq!(i, val.eval().unwrap().to_usize());
+///         assert_eq!(i, val.eval().unwrap().to_usize());
 ///         // run simulation for 1 delay step
 ///         epoch.run(1).unwrap();
 ///     }
@@ -146,7 +147,7 @@ pub fn delay<D: Into<Delay>>(bits: &mut Bits, delay: D) {
 #[derive(Debug)] // do not implement `Clone`, but maybe implement a `duplicate` function that
                  // explicitly duplicates drivers and loopbacks?
 pub struct Loop {
-    source: Awi,
+    source: dag::Awi,
 }
 
 macro_rules! loop_basic_value {
@@ -154,7 +155,7 @@ macro_rules! loop_basic_value {
         $(
             /// Creates a `Loop` with the intial temporal value and bitwidth `w`
             pub fn $fn(w: NonZeroUsize) -> Self {
-                Self::from_state(Awi::$fn(w).state())
+                Self::from_state(dag::Awi::$fn(w).state())
             }
         )*
     }
@@ -200,7 +201,7 @@ impl Loop {
     /// If an `Epoch` does not exist or the `PState` was pruned
     pub fn from_state(p_state: PState) -> Self {
         let w = p_state.get_nzbw();
-        let source = Awi::new(
+        let source = dag::Awi::new(
             w,
             Op::Opaque(smallvec![p_state], Some("UndrivenLoopSource")),
         );
@@ -229,7 +230,7 @@ impl Loop {
     /// `Loop`s temporal value. There is no delay with this method, so
     /// configuration must form a DAG overall or else a nontermination error can
     /// be thrown later. Returns an error if `self.bw() != driver.bw()`.
-    pub fn drive(self, driver: &Bits) -> Result<(), Error> {
+    pub fn drive(self, driver: &dag::Bits) -> Result<(), Error> {
         let epoch = get_current_epoch()?;
         let lhs_w = self.source.bw();
         let rhs_w = driver.bw();
@@ -274,7 +275,11 @@ impl Loop {
     /// Consumes `self`, looping back with the value of `driver` to change the
     /// `Loop`s temporal value in a iterative temporal evaluation. Includes a
     /// delay `delay`. Returns an error if `self.bw() != driver.bw()`.
-    pub fn drive_with_delay<D: Into<Delay>>(self, driver: &Bits, delay: D) -> Result<(), Error> {
+    pub fn drive_with_delay<D: Into<Delay>>(
+        self,
+        driver: &dag::Bits,
+        delay: D,
+    ) -> Result<(), Error> {
         let delay = delay.into();
         if delay.is_zero() {
             self.drive(driver)
@@ -344,21 +349,21 @@ impl Loop {
 }
 
 impl Deref for Loop {
-    type Target = Bits;
+    type Target = dag::Bits;
 
     fn deref(&self) -> &Self::Target {
         &self.source
     }
 }
 
-impl Borrow<Bits> for Loop {
-    fn borrow(&self) -> &Bits {
+impl Borrow<dag::Bits> for Loop {
+    fn borrow(&self) -> &dag::Bits {
         &self.source
     }
 }
 
-impl AsRef<Bits> for Loop {
-    fn as_ref(&self) -> &Bits {
+impl AsRef<dag::Bits> for Loop {
+    fn as_ref(&self) -> &dag::Bits {
         &self.source
     }
 }
@@ -376,7 +381,7 @@ impl AsRef<Bits> for Loop {
 #[derive(Debug)]
 pub struct Net {
     source: Loop,
-    ports: Vec<Awi>,
+    ports: Vec<dag::Awi>,
 }
 
 macro_rules! net_basic_value {
@@ -384,7 +389,7 @@ macro_rules! net_basic_value {
         $(
             /// Creates a `Net` with the intial temporal value and port bitwidth `w`
             pub fn $fn(w: NonZeroUsize) -> Self {
-                Self::from_state(Awi::$fn(w).state())
+                Self::from_state(dag::Awi::$fn(w).state())
             }
         )*
     }
@@ -503,7 +508,7 @@ impl Net {
         if port.get_nzbw() != self.nzbw() {
             None
         } else {
-            self.ports.push(Awi::from_state(port));
+            self.ports.push(dag::Awi::from_state(port));
             Some(())
         }
     }
@@ -511,14 +516,14 @@ impl Net {
     /// Pushes on a new port. Returns `None` if the bitwidth mismatches the
     /// width that this `Net` was created with.
     #[must_use]
-    pub fn push(&mut self, port: &Bits) -> Option<()> {
+    pub fn push(&mut self, port: &dag::Bits) -> Option<()> {
         self.push_state(port.state())
     }
 
     /// Gets a mutable reference to the port at index `i`. Returns `None` if `i
     /// >= self.len()`.
     #[must_use]
-    pub fn get_mut(&mut self, i: usize) -> Option<&mut Bits> {
+    pub fn get_mut(&mut self, i: usize) -> Option<&mut dag::Bits> {
         self.ports.get_mut(i).map(|x| x.as_mut())
     }
 
@@ -529,8 +534,8 @@ impl Net {
         if self.bw() != rhs.bw() {
             None
         } else {
-            self.ports.push(Awi::from(rhs.as_ref()));
-            rhs.ports.push(Awi::from(self.as_ref()));
+            self.ports.push(dag::Awi::from(rhs.as_ref()));
+            rhs.ports.push(dag::Awi::from(self.as_ref()));
             Some(())
         }
     }
@@ -543,7 +548,8 @@ impl Net {
     /// and it may result in an undriven `Loop` in some cases, so the return
     /// `Option` should probably be `unwrap`ed.
     #[must_use]
-    pub fn drive(self, inx: &Bits) -> dag::Option<()> {
+    pub fn drive(self, inx: &dag::Bits) -> dag::Option<()> {
+        use dag::*;
         if self.is_empty() {
             return dag::Option::None;
         }
@@ -552,7 +558,7 @@ impl Net {
             return dag::Option::some_at_dagtime((), inx.is_zero());
         }
         let max_inx = self.len() - 1;
-        let max_inx_bits = Bits::nontrivial_bits(max_inx).unwrap().get();
+        let max_inx_bits = dag::Bits::nontrivial_bits(max_inx).unwrap().get();
 
         // use this instead of `efficient_ule` because here we can avoid many cases if
         // `max_inx_bits >= inx.bw()`
@@ -564,7 +570,7 @@ impl Net {
         let mut in_range = should_stay_zero.is_zero();
         if (!self.len().is_power_of_two()) && (inx.bw() >= max_inx_bits) {
             // dance to avoid stuff that can get lowered into a full `BITS` sized comparison
-            let mut max = Awi::zero(inx.nzbw());
+            let mut max = dag::Awi::zero(inx.nzbw());
             max.usize_(max_inx);
             let le = inx.ule(&max).unwrap();
             in_range &= le;
@@ -590,21 +596,21 @@ impl Net {
 }
 
 impl Deref for Net {
-    type Target = Bits;
+    type Target = dag::Bits;
 
     fn deref(&self) -> &Self::Target {
         &self.source
     }
 }
 
-impl Borrow<Bits> for Net {
-    fn borrow(&self) -> &Bits {
+impl Borrow<dag::Bits> for Net {
+    fn borrow(&self) -> &dag::Bits {
         &self.source
     }
 }
 
-impl AsRef<Bits> for Net {
-    fn as_ref(&self) -> &Bits {
+impl AsRef<dag::Bits> for Net {
+    fn as_ref(&self) -> &dag::Bits {
         &self.source
     }
 }

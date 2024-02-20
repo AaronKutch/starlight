@@ -293,8 +293,8 @@ impl Ensemble {
         arena
     }
 
-    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), Error> {
-        let dir = match out_file.canonicalize() {
+    pub fn render_to_svgs_in_dir(&self, out_dir: PathBuf) -> Result<(), Error> {
+        let dir = match out_dir.canonicalize() {
             Ok(o) => {
                 if !o.is_dir() {
                     return Err(Error::OtherStr("need a directory not a file"));
@@ -328,11 +328,11 @@ impl Epoch {
         });
     }
 
-    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), Error> {
-        let tmp = &out_file;
+    pub fn render_to_svgs_in_dir(&self, out_dir: PathBuf) -> Result<(), Error> {
+        let tmp = &out_dir;
         self.ensemble(|ensemble| {
-            let out_file = tmp.to_owned();
-            ensemble.render_to_svgs_in_dir(out_file)
+            let out_dir = tmp.to_owned();
+            ensemble.render_to_svgs_in_dir(out_dir)
         })
     }
 }
