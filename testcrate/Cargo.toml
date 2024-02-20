@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-starlight = { path = "../starlight", features = ["debug"] }
+starlight = { path = "../starlight", features = ["debug", "u32_ptrs"] }
 
 [dev-dependencies]
 rand_xoshiro = { version = "0.6", default-features = false }

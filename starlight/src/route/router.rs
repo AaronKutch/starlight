@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use awint::{
-    awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena},
+    awint_dag::triple_arena::{Advancer, OrdArena},
     Awi,
 };
 
@@ -9,13 +9,13 @@ use super::{route, Configurator};
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
     epoch::get_current_epoch,
-    route::{Channeler, EdgeKind, Embedding, EmbeddingKind, PEmbedding},
+    route::{
+        Channeler, EdgeKind, Embedding, EmbeddingKind, PCEdge, PCNode, PEmbedding, PMapping,
+        QCEdge, QCNode,
+    },
     triple_arena::Arena,
     Corresponder, Error, LazyAwi, SuspendedEpoch,
 };
-
-ptr_struct!(PCNode; PCEdge; QCNode; QCEdge);
-ptr_struct!(PMapping);
 
 #[derive(Debug, Clone)]
 pub struct MappingTarget {

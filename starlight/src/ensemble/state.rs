@@ -630,9 +630,7 @@ fn lower_elementary_to_lnodes_intermediate(
                     }
                     val
                 };
-                let p_equiv0 = this
-                    .make_lut(&inx_bits, &single_bit_lut, Some(p_state))
-                    .unwrap();
+                let p_equiv0 = this.make_lut(&inx_bits, &single_bit_lut, Some(p_state));
                 let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
                 this.union_equiv(p_equiv0, p_equiv1).unwrap();
             }
@@ -659,9 +657,7 @@ fn lower_elementary_to_lnodes_intermediate(
                         p_lut_bits.push(DynamicValue::ConstUnknown);
                     }
                 }
-                let p_equiv0 = this
-                    .make_dynamic_lut(&inx_bits, &p_lut_bits, Some(p_state))
-                    .unwrap();
+                let p_equiv0 = this.make_dynamic_lut(&inx_bits, &p_lut_bits, Some(p_state));
                 let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
                 this.union_equiv(p_equiv0, p_equiv1).unwrap();
             }
@@ -677,13 +673,11 @@ fn lower_elementary_to_lnodes_intermediate(
             for bit_i in 0..out_bw {
                 let lut0 = this.stator.states[lhs].p_self_bits[bit_i].unwrap();
                 let lut1 = this.stator.states[rhs].p_self_bits[bit_i].unwrap();
-                let p_equiv0 = this
-                    .make_dynamic_lut(
-                        &[inx_bit],
-                        &[DynamicValue::Dynam(lut0), DynamicValue::Dynam(lut1)],
-                        Some(p_state),
-                    )
-                    .unwrap();
+                let p_equiv0 = this.make_dynamic_lut(
+                    &[inx_bit],
+                    &[DynamicValue::Dynam(lut0), DynamicValue::Dynam(lut1)],
+                    Some(p_state),
+                );
                 let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
                 this.union_equiv(p_equiv0, p_equiv1).unwrap();
             }
@@ -740,7 +734,7 @@ fn lower_elementary_to_lnodes_intermediate(
                             let init_val = this.backrefs.get_val(p_driver).unwrap().val;
                             let p_source = this.stator.states[p_state].p_self_bits[i].unwrap();
 
-                            let p_tnode = this.make_tnode(p_source, p_driver, delay).unwrap();
+                            let p_tnode = this.make_tnode(p_source, p_driver, delay);
                             if init_val != Value::Unknown {
                                 // setup the delayed drive
                                 this.eval_tnode(p_tnode).unwrap();
@@ -787,8 +781,7 @@ fn lower_elementary_to_lnodes_intermediate(
                             // the loop source is an internal `Opaque` root at this point, we
                             // initiate the initial event chain ourselves.
 
-                            let p_tnode =
-                                this.make_tnode(p_looper, p_driver, Delay::zero()).unwrap();
+                            let p_tnode = this.make_tnode(p_looper, p_driver, Delay::zero());
 
                             // In most cases, the initial loop value ends up looping around to
                             // overwrite whatever the source was, however if it does not do so for
@@ -875,7 +868,7 @@ fn lower_elementary_to_lnodes_intermediate(
                                 this.stator.states[p_initial_state].p_self_bits[i].unwrap();
                             let init_val = this.backrefs.get_val(p_initial).unwrap().val;
 
-                            let p_tnode = this.make_tnode(p_looper, p_driver, delay).unwrap();
+                            let p_tnode = this.make_tnode(p_looper, p_driver, delay);
                             if !delay.is_zero() {
                                 // immediately setup an event
                                 this.eval_tnode(p_tnode).unwrap();

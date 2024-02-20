@@ -17,7 +17,6 @@ use crate::{
         cnode::{generate_hierarchy, InternalBehavior},
         CNode, Channeler, Configurator, PEmbedding,
     },
-    triple_arena::ptr_struct,
     utils::SmallSet,
     Error, SuspendedEpoch,
 };
@@ -274,11 +273,10 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         // for each equivalence make a `CNode` with associated `EnsembleBackref`, unless
         // it is one of the configurable bits
         for equiv in ensemble.backrefs.vals() {
-            if true
-                || configurator
-                    .configurations
-                    .find_key(&equiv.p_self_equiv)
-                    .is_none()
+            if configurator
+                .configurations
+                .find_key(&equiv.p_self_equiv)
+                .is_none()
             {
                 let p_cnode = channeler.make_top_level_cnode(vec![], 0, InternalBehavior::empty());
                 let replaced = channeler
@@ -456,8 +454,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         }
     }
 }
-
-ptr_struct!(PUniqueCNode);
 
 pub struct CNodeSubnodeAdvancer<PCNode: Ptr, PCEdge: Ptr> {
     adv: SurjectPtrAdvancer<PCNode, Referent<PCNode, PCEdge>, CNode<PCNode, PCEdge>>,

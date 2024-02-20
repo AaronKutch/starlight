@@ -15,6 +15,11 @@
 //! optimize, evaluate, and retroactively change values in the `DAG` for various
 //! purposes.
 //!
+//! There are several features on this crate that enable `awint` features. The
+//! `u32_ptrs` feature reduces the memory consumption of the algorithms
+//! significantly, but limits the number of possible internal references to
+//! about 4 billion, which the largest circuits might not fit in.
+//!
 //! ```rust
 //! use std::num::NonZeroUsize;
 //! use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi};

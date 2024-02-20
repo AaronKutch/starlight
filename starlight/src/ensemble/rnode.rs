@@ -6,7 +6,6 @@ use std::{
 use awint::awint_dag::{
     smallvec::{smallvec, SmallVec},
     triple_arena::{
-        ptr_struct,
         utils::{PtrGen, PtrInx},
         Arena, OrdArena, Ptr, Recast, Recaster,
     },
@@ -15,13 +14,11 @@ use awint::awint_dag::{
 
 use crate::{
     awi::*,
-    ensemble::{CommonValue, Delay, Ensemble, PBack, Referent, Value},
+    ensemble::{CommonValue, Delay, Ensemble, PBack, PRNode, Referent, Value},
     epoch::{get_current_epoch, EpochShared},
     utils::{DisplayStr, HexadecimalNonZeroU128},
     Error,
 };
-
-ptr_struct!(PRNode);
 
 // substituted because we need a custom `Debug` impl
 /*ptr_struct!(
@@ -580,8 +577,7 @@ impl Ensemble {
         // now connect with `TNode`
         let p_tnode = lock
             .ensemble
-            .make_tnode(source_p_back, driver_p_back, delay)
-            .unwrap();
+            .make_tnode(source_p_back, driver_p_back, delay);
         // initial drive
         lock.ensemble.eval_tnode(p_tnode).unwrap();
         Ok(())

@@ -31,4 +31,12 @@ try_support = ["awint/try_support"]
 serde_support = ["awint/serde_support"]
 # Turns on `zeroize` support
 zeroize_support = ["awint/zeroize_support"]
+# Enables some debugging functionalities
 debug = ["awint/debug"]
+# Makes relevant `Ptr`s have `u32` sized indexes and counters, reducing memory consumption.
+# Note however this will result in an `Arena` out of memory panic if circuits are large enough.
+u32_ptrs = ["awint/u32_for_pstate"]
+# enables generation counters even for `not(debug_assertions)` builds
+gen_counters = []
+# enables generation counters for `PState`
+gen_counter_for_pstate = ["awint/gen_counter_for_pstate"]

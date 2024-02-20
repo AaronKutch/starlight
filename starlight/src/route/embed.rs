@@ -1,15 +1,10 @@
-use awint::awint_dag::triple_arena::{ptr_struct, Advancer, Ptr};
+use awint::awint_dag::triple_arena::{Advancer, Ptr};
 
-use super::{
-    router::{PCEdge, PCNode, PMapping, QCEdge, QCNode},
-    Edge, EdgeKind, Path,
-};
+use super::{Edge, EdgeKind, PCEdge, PCNode, PEmbedding, PMapping, Path, QCEdge, QCNode};
 use crate::{
     route::{HyperPath, Router},
     Error,
 };
-
-ptr_struct!(PEmbedding);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EmbeddingKind<PCNode: Ptr, PCEdge: Ptr> {

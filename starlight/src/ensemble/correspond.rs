@@ -1,11 +1,12 @@
 use core::fmt;
 use std::num::NonZeroUsize;
 
-use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena, SurjectArena};
+use awint::awint_dag::triple_arena::{Advancer, OrdArena, SurjectArena};
 
-use crate::{ensemble::PExternal, Error, EvalAwi, LazyAwi};
-
-ptr_struct!(PMeta(); PCorrespond());
+use crate::{
+    ensemble::{PCorrespond, PExternal, PMeta},
+    Error, EvalAwi, LazyAwi,
+};
 
 /// Provides a controlled way to correspond `LazyAwi`s and `EvalAwi`s in and
 /// between different `Epoch`s.

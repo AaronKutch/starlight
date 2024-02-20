@@ -8,14 +8,12 @@ use awint::awint_dag::{
 use super::Delayer;
 use crate::{
     ensemble::{
-        value::Evaluator, LNode, LNodeKind, Notary, Optimizer, PLNode, PRNode, PTNode, Stator,
-        TNode, Value,
+        value::Evaluator, LNode, LNodeKind, Notary, Optimizer, PBack, PLNode, PRNode, PTNode,
+        Stator, TNode, Value,
     },
-    triple_arena::{ptr_struct, Arena, SurjectArena},
+    triple_arena::{Arena, SurjectArena},
     Error,
 };
-
-ptr_struct!(PBack);
 
 #[derive(Debug, Clone)]
 pub struct Equiv {

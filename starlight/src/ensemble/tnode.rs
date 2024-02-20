@@ -1,14 +1,11 @@
 use std::num::NonZeroU64;
 
-use awint::awint_dag::triple_arena::{ptr_struct, OrdArena, Recast, Recaster};
+use awint::awint_dag::triple_arena::{OrdArena, Recast, Recaster};
 
 use crate::{
-    ensemble::{Ensemble, PBack, Referent},
+    ensemble::{Ensemble, PBack, PSimEvent, PTNode, Referent},
     Error,
 };
-
-// We use this because our algorithms depend on generation counters
-ptr_struct!(PTNode; PSimEvent);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Delay {
@@ -185,10 +182,10 @@ impl Delayer {
 
 impl Ensemble {
     /// Sets up a `TNode` source driven by a driver. Driving events need to be
-    /// handled by the caller.
+    /// handled by the caller. Panics if something is invalid.
     #[must_use]
-    pub fn make_tnode(&mut self, p_source: PBack, p_driver: PBack, delay: Delay) -> Option<PTNode> {
-        let p_tnode = self.tnodes.insert_with(|p_tnode| {
+    pub fn make_tnode(&mut self, p_source: PBack, p_driver: PBack, delay: Delay) -> PTNode {
+        self.tnodes.insert_with(|p_tnode| {
             let p_driver = self
                 .backrefs
                 .insert_key(p_driver, Referent::Driver(p_tnode))
@@ -198,8 +195,7 @@ impl Ensemble {
                 .insert_key(p_source, Referent::ThisTNode(p_tnode))
                 .unwrap();
             TNode::new(p_self, p_driver, delay)
-        });
-        Some(p_tnode)
+        })
     }
 
     /// Runs temporal evaluation until `delay` has passed since the current time

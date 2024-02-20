@@ -1,12 +1,11 @@
-use awint::awint_dag::triple_arena::{ptr_struct, OrdArena};
+use awint::awint_dag::triple_arena::OrdArena;
 
+use super::PConfig;
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
     epoch::get_current_epoch,
     Error, LazyAwi,
 };
-
-ptr_struct!(PConfig);
 
 #[derive(Debug, Clone)]
 pub struct Config {

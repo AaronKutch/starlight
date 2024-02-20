@@ -16,13 +16,9 @@ use awint::{
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
-    ensemble::{DynamicValue, Ensemble, Equiv, PBack, Referent, Value},
-    triple_arena::ptr_struct,
+    ensemble::{DynamicValue, Ensemble, Equiv, PBack, PLNode, Referent, Value},
     Error,
 };
-
-// We use this because our algorithms depend on generation counters
-ptr_struct!(PLNode);
 
 #[derive(Debug, Clone)]
 pub enum LNodeKind {
@@ -539,7 +535,7 @@ impl Ensemble {
     }
 
     /// Makes a single output bit lookup table `LNode` and returns a `PBack` to
-    /// it. Returns `None` if the table length is incorrect or any of the
+    /// it. Panics if the table length is incorrect or any of the
     /// `p_inxs` are invalid.
     #[must_use]
     pub fn make_lut(
@@ -547,15 +543,14 @@ impl Ensemble {
         p_inxs: &[Option<PBack>],
         lut: &Bits,
         lowered_from: Option<PState>,
-    ) -> Option<PBack> {
+    ) -> PBack {
         let num_entries = 1 << p_inxs.len();
-        if lut.bw() != num_entries {
-            return None
-        }
-        for p_inx in p_inxs.iter().copied() {
-            if let Some(p_inx) = p_inx {
-                if !self.backrefs.contains(p_inx) {
-                    return None
+        debug_assert_eq!(lut.bw(), num_entries);
+        #[cfg(debug_assertions)]
+        {
+            for p_inx in p_inxs.iter().copied() {
+                if let Some(p_inx) = p_inx {
+                    debug_assert!(self.backrefs.contains(p_inx));
                 }
             }
         }
@@ -588,25 +583,25 @@ impl Ensemble {
         let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
         equiv.val = init_val;
         equiv.evaluator_partial_order = source_partial_ordering.checked_add(1).unwrap();
-        Some(p_equiv)
+        p_equiv
     }
 
-    /// Creates separate unique `Referent::Input`s as necessary
+    /// Creates separate unique `Referent::Input`s as necessary. Panics if the
+    /// table length is incorrect or any of the `p_inxs` are invalid.
     #[must_use]
     pub fn make_dynamic_lut(
         &mut self,
         p_inxs: &[Option<PBack>],
         p_lut_bits: &[DynamicValue],
         lowered_from: Option<PState>,
-    ) -> Option<PBack> {
+    ) -> PBack {
         let num_entries = 1 << p_inxs.len();
-        if p_lut_bits.len() != num_entries {
-            return None
-        }
-        for p_inx in p_inxs.iter().copied() {
-            if let Some(p_inx) = p_inx {
-                if !self.backrefs.contains(p_inx) {
-                    return None
+        debug_assert_eq!(p_lut_bits.len(), num_entries);
+        #[cfg(debug_assertions)]
+        {
+            for p_inx in p_inxs.iter().copied() {
+                if let Some(p_inx) = p_inx {
+                    debug_assert!(self.backrefs.contains(p_inx));
                 }
             }
         }
@@ -648,6 +643,6 @@ impl Ensemble {
         let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
         equiv.val = init_val;
         equiv.evaluator_partial_order = source_partial_ordering.checked_add(1).unwrap();
-        Some(p_equiv)
+        p_equiv
     }
 }

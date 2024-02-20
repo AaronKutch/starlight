@@ -10,13 +10,13 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{DynamicValue, Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent, Value},
-    triple_arena::{ptr_struct, OrdArena},
+    ensemble::{
+        DynamicValue, Ensemble, LNode, LNodeKind, PBack, PLNode, POpt, PTNode, Referent, Value,
+    },
+    triple_arena::OrdArena,
     utils::SmallMap,
     Error,
 };
-
-ptr_struct!(POpt);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CostU8(pub u8);
@@ -54,6 +54,18 @@ pub enum Optimization {
     /// The optimization state that equivalences are set to after the
     /// preinvestigation finds nothing
     InvestigateEquiv0(PBack),
+    // NOTE: it is important that all the higher priority optimizations before this point are only
+    // subtractive and do not insert new `Ptr` referenced referents, `LNode`s, etc, because we
+    // need to be able to work without generation counters. Jumps into things like `ConstifyEquiv`
+    // check for existence at a `Ptr` and then immediately go to constify without rechecking (and
+    // if something was inserted inbetween the time that the `ConstifyEquiv` was created, then
+    // there could be a edge case where the node was removed by a separate `RemoveEquiv` and
+    // something else was inserted in the place). The lower priority optimizations must insert
+    // what they need immediately or have a way of rechecking conditions.
+
+    // Also note that `TNode`s should not be created, if so then we may need to enable generation
+    // counters for `PTNode`s because of the delayed evaluator which requires consistent `PTNode`s
+
     //InvertInput
     // (?) not sure if fusion + ordinary `const_eval_lnode` handles all cases cleanly,
     // might only do fission for routing

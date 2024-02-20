@@ -4,12 +4,9 @@ use awint::awint_dag::triple_arena::{Arena, OrdArena, Ptr, SurjectArena};
 
 use crate::{
     ensemble::PBack,
-    route::{CEdge, CNode, Programmability},
-    triple_arena::ptr_struct,
+    route::{CEdge, CNode, PBackrefToBackref, PTopLevel, Programmability},
     Error,
 };
-
-ptr_struct!(P0; PTopLevel);
 
 #[derive(Debug, Clone, Copy)]
 pub enum Referent<PCNode: Ptr, PCEdge: Ptr> {
@@ -29,7 +26,7 @@ pub struct Channeler<PCNode: Ptr, PCEdge: Ptr> {
     /// normal algorithm can allocate over them
     pub top_level_cnodes: OrdArena<PTopLevel, PCNode, ()>,
     // needed for the unit edges to find incidences
-    pub ensemble_backref_to_channeler_backref: OrdArena<P0, PBack, PCNode>,
+    pub ensemble_backref_to_channeler_backref: OrdArena<PBackrefToBackref, PBack, PCNode>,
     // used by algorithms to avoid `OrdArena`s
     pub alg_visit: NonZeroU64,
 }
