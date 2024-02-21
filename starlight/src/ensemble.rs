@@ -45,7 +45,7 @@ ptr_struct!(
     PBack[NonZeroU32](NonZeroU32);
     PLNode[NonZeroU32](NonZeroU32);
     PTNode[NonZeroU32](NonZeroU32);
-    PRNode[NonZeroU32](NonZeroU32);
+    PRNode[NonZeroU32](NonZeroU32)
 );
 
 #[cfg(all(

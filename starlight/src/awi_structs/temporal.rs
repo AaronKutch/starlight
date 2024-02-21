@@ -1,11 +1,13 @@
 use std::{borrow::Borrow, num::NonZeroUsize, ops::Deref};
 
-use awint::{
-    awint_dag::{smallvec::smallvec, Lineage, Op, PState},
-    bw,
-};
+use awint::awint_dag::{Lineage, Op, PState};
 
 use crate::{awi, dag, epoch::get_current_epoch, lower::meta::general_mux, Delay, Error};
+
+pub(crate) const DELAY: &str = "starlight::delay";
+pub(crate) const UNDRIVEN_LOOP_SOURCE: &str = "starlight::undriven_loop_source";
+pub(crate) const LOOP_SOURCE: &str = "starlight::loop_source";
+pub(crate) const DELAYED_LOOP_SOURCE: &str = "starlight::delayed_loop_source";
 
 /// Delays the temporal value propogation of `bits` by `delay`.
 ///
@@ -86,18 +88,10 @@ pub fn delay<D: Into<Delay>>(bits: &mut dag::Bits, delay: D) {
     // the function
     let epoch = get_current_epoch().expect("cannot use `starlight::delay` without an active epoch");
 
-    let mut tmp = awi::Awi::from_u128(delay.into().amount());
-    let sig = tmp.sig();
-    tmp.zero_resize(NonZeroUsize::new(sig).unwrap_or(bw(1)));
-    if !tmp.is_zero() {
-        // TODO same as the `DelayedLoopSource` case
-        let delay_awi = dag::Awi::from(&tmp).state();
-        let nzbw = bits.nzbw();
-        bits.update_state(
-            nzbw,
-            Op::Opaque(smallvec![bits.state(), delay_awi], Some("Delay")),
-        )
-        .unwrap_at_runtime();
+    let mut delay = awi::Awi::from_u128(delay.into().amount());
+    delay.shrink_to_msb();
+    if !delay.is_zero() {
+        bits.opaque_(DELAY, &[&dag::Awi::arg(&delay)]);
 
         // because `delay` still stays in a DAG, it was thought this wasn't needed, but
         // it turns out that for quiescence to calculate correctly (see the
@@ -201,10 +195,8 @@ impl Loop {
     /// If an `Epoch` does not exist or the `PState` was pruned
     pub fn from_state(p_state: PState) -> Self {
         let w = p_state.get_nzbw();
-        let source = dag::Awi::new(
-            w,
-            Op::Opaque(smallvec![p_state], Some("UndrivenLoopSource")),
-        );
+        let source =
+            dag::Awi::opaque_with(w, UNDRIVEN_LOOP_SOURCE, &[&dag::Awi::from_state(p_state)]);
         Self { source }
     }
 
@@ -247,10 +239,10 @@ impl Loop {
                 .unwrap()
                 .op;
             if let Op::Opaque(v, name) = op {
-                assert_eq!(*name, Some("UndrivenLoopSource"));
+                assert_eq!(*name, Some(UNDRIVEN_LOOP_SOURCE));
                 assert_eq!(v.len(), 1);
                 v.push(driver.state());
-                *name = Some("LoopSource");
+                *name = Some(LOOP_SOURCE);
             } else {
                 unreachable!()
             }
@@ -291,12 +283,9 @@ impl Loop {
                 return Err(Error::BitwidthMismatch(lhs_w, rhs_w))
             }
 
-            // TODO perhaps just lower, but the plan is to base incremental compilation on
-            // states. Not sure if we ever want dynamic delay.
-            let mut tmp = awi::Awi::from_u128(delay.amount());
-            let sig = tmp.sig();
-            tmp.zero_resize(NonZeroUsize::new(sig).unwrap_or(bw(1)));
-            let delay_awi = dag::Awi::from(&tmp).state();
+            let mut delay = awi::Awi::from_u128(delay.amount());
+            delay.shrink_to_msb();
+            let delay = dag::Awi::arg(&delay).state();
 
             let mut lock = epoch.epoch_data.borrow_mut();
             // add the driver to the loop source
@@ -308,11 +297,11 @@ impl Loop {
                 .unwrap()
                 .op;
             if let Op::Opaque(v, name) = op {
-                assert_eq!(*name, Some("UndrivenLoopSource"));
+                assert_eq!(*name, Some(UNDRIVEN_LOOP_SOURCE));
                 assert_eq!(v.len(), 1);
                 v.push(driver.state());
-                v.push(delay_awi);
-                *name = Some("DelayedLoopSource");
+                v.push(delay);
+                *name = Some(DELAYED_LOOP_SOURCE);
             } else {
                 unreachable!()
             }
@@ -323,12 +312,7 @@ impl Loop {
                 .get_mut(driver.state())
                 .unwrap()
                 .inc_rc();
-            lock.ensemble
-                .stator
-                .states
-                .get_mut(delay_awi)
-                .unwrap()
-                .inc_rc();
+            lock.ensemble.stator.states.get_mut(delay).unwrap().inc_rc();
             // in order for loop driving to always work we need to do this (otherwise
             // `drive_loops` would have to search all states, or we would need the old loop
             // handle strategy which was horrible to use)

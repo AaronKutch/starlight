@@ -36,8 +36,8 @@ pub fn lower_op<P: Ptr + DummyDefault>(
 ) -> Result<bool, Error> {
     match start_op {
         Invalid => return Err(Error::OtherStr("encountered `Invalid` in lowering")),
-        Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..) | Concat(_)
-        | ConcatFields(_) | Repeat(_) | StaticLut(..) => return Ok(true),
+        Opaque(..) | Argument(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..)
+        | Concat(_) | ConcatFields(_) | Repeat(_) | StaticLut(..) => return Ok(true),
         Lut([lut, inx]) => {
             if m.is_literal(lut) {
                 return Err(Error::OtherStr(

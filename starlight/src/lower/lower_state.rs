@@ -220,8 +220,8 @@ impl Ensemble {
                     }
                 }
                 let needs_lower = match lock.ensemble.stator.states[p_state].op {
-                    Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..) | Repeat(_)
-                    | StaticLut(..) => false,
+                    Opaque(..) | Argument(_) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..)
+                    | Repeat(_) | StaticLut(..) => false,
                     // for dynamic LUTs
                     Mux(_) => false,
                     Lut([lut, inx]) => {

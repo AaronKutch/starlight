@@ -11,3 +11,4 @@ pub use eval_awi::EvalAwi;
 pub use inout::{In, Out};
 pub use lazy_awi::LazyAwi;
 pub use temporal::{delay, Loop, Net};
+pub(crate) use temporal::{DELAY, DELAYED_LOOP_SOURCE, LOOP_SOURCE, UNDRIVEN_LOOP_SOURCE};

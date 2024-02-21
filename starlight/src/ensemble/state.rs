@@ -11,11 +11,12 @@ use awint::{
         Op::{self, *},
         PState,
     },
-    bw, Awi,
+    Awi,
 };
 
 use crate::{
     awi,
+    awi_structs::{DELAY, DELAYED_LOOP_SOURCE, LOOP_SOURCE, UNDRIVEN_LOOP_SOURCE},
     ensemble::{ChangeKind, Delay, DynamicValue, Ensemble, Equiv, Event, PBack, Referent, Value},
     epoch::EpochShared,
     Error,
@@ -151,6 +152,9 @@ impl Ensemble {
                 vals.copy_(awi).unwrap();
                 known = true;
                 is_const = true;
+            }
+            Op::Argument(_) => {
+                return Ok(());
             }
             Op::Opaque(ref v, name) => {
                 if name.is_none() {
@@ -392,6 +396,9 @@ impl Ensemble {
                     Literal(ref lit) => {
                         debug_assert_eq!(lit.nzbw(), nzbw);
                         self.initialize_state_bits_if_needed(p_state)?;
+                    }
+                    Argument(ref a) => {
+                        debug_assert_eq!(a.nzbw(), nzbw);
                     }
                     Opaque(_, name) => {
                         if let Some(name) = name {
@@ -685,7 +692,7 @@ fn lower_elementary_to_lnodes_intermediate(
         Opaque(ref v, name) => {
             if let Some(name) = name {
                 match name {
-                    "Delay" => {
+                    DELAY => {
                         if v.len() != 2 {
                             return Err(Error::OtherStr(
                                 "`Delay` has an unexpected number of arguments",
@@ -694,31 +701,25 @@ fn lower_elementary_to_lnodes_intermediate(
                         let w = this.stator.states[p_state].p_self_bits.len();
                         let p_driver_state = v[0];
                         let p_delay_state = v[1];
-                        if w != this.stator.states[p_driver_state].p_self_bits.len() {
-                            return Err(Error::OtherStr("`Delay` has a bitwidth mismatch"))
-                        }
-                        let delay_w = this.stator.states[p_delay_state].p_self_bits.len();
-                        if delay_w > 128 {
-                            return Err(Error::OtherStr("unexpectedly large delay"))
-                        }
-                        let mut delay = Awi::zero(bw(delay_w));
-                        for i in 0..delay_w {
-                            let p_back = this.stator.states[p_delay_state].p_self_bits[i].unwrap();
-                            let bit = this
-                                .backrefs
-                                .get_val(p_back)
-                                .unwrap()
-                                .val
-                                .known_value()
-                                .unwrap();
-                            delay.set(i, bit).unwrap();
-                        }
-                        let delay = Delay::from_amount(delay.to_u128());
-                        if delay.is_zero() {
-                            // the function that creates `Delay` is supposed to do a no-op or copy
-                            // instead
-                            return Err(Error::OtherStr("`Delay` delay amount is zero"))
-                        }
+                        let delay =
+                            if let Op::Argument(ref delay) = this.stator.states[p_delay_state].op {
+                                // the delay should have had `shrink_to_msb` called on it
+                                if delay.bw() > 128 {
+                                    return Err(Error::OtherStr(
+                                        "`Delay` delay amount is unexpectedly large",
+                                    ))
+                                }
+                                if delay.is_zero() {
+                                    // the function that creates `Delay` is supposed to do a no-op
+                                    // or copy instead
+                                    return Err(Error::OtherStr("`Delay` delay amount is zero"))
+                                }
+                                Delay::from_amount(delay.to_u128())
+                            } else {
+                                return Err(Error::OtherStr(
+                                    "`Delay` does not use the correct `Op::Argument`",
+                                ))
+                            };
                         for i in 0..w {
                             let p_driver =
                                 this.stator.states[p_driver_state].p_self_bits[i].unwrap();
@@ -741,10 +742,10 @@ fn lower_elementary_to_lnodes_intermediate(
                             }
                         }
                     }
-                    "UndrivenLoopSource" => {
+                    UNDRIVEN_LOOP_SOURCE => {
                         if v.len() != 1 {
                             return Err(Error::OtherStr(
-                                "`UndrivenLoopSource` has an unexpected number of arguments",
+                                "undriven loop source has an unexpected number of arguments",
                             ))
                         }
                         return Err(Error::OtherString(format!(
@@ -752,10 +753,10 @@ fn lower_elementary_to_lnodes_intermediate(
                              has not been called on a loop source with state {p_state}"
                         )))
                     }
-                    "LoopSource" => {
+                    LOOP_SOURCE => {
                         if v.len() != 2 {
                             return Err(Error::OtherStr(
-                                "`LoopSource` has an unexpected number of arguments",
+                                "loop source has an unexpected number of arguments",
                             ))
                         }
                         let w = this.stator.states[p_state].p_self_bits.len();
@@ -818,10 +819,10 @@ fn lower_elementary_to_lnodes_intermediate(
                             });
                         }
                     }
-                    "DelayedLoopSource" => {
+                    DELAYED_LOOP_SOURCE => {
                         if v.len() != 3 {
                             return Err(Error::OtherStr(
-                                "`DelayedLoopSource` has an unexpected number of arguments",
+                                "delayed loop source has an unexpected number of arguments",
                             ))
                         }
                         let w = this.stator.states[p_state].p_self_bits.len();
@@ -838,27 +839,29 @@ fn lower_elementary_to_lnodes_intermediate(
                                 "`Loop` has a bitwidth mismatch of looper and driver",
                             ))
                         }
-                        let delay_w = this.stator.states[p_delay_state].p_self_bits.len();
-                        if delay_w > 128 {
-                            return Err(Error::OtherStr("unexpectedly large delay"))
-                        }
-                        let mut delay = Awi::zero(bw(delay_w));
-                        for i in 0..delay_w {
-                            let p_back = this.stator.states[p_delay_state].p_self_bits[i].unwrap();
-                            let bit = this
-                                .backrefs
-                                .get_val(p_back)
-                                .unwrap()
-                                .val
-                                .known_value()
-                                .unwrap();
-                            delay.set(i, bit).unwrap();
-                        }
-                        let delay = Delay::from_amount(delay.to_u128());
+                        let delay =
+                            if let Op::Argument(ref delay) = this.stator.states[p_delay_state].op {
+                                // the delay should have had `shrink_to_msb` called on it
+                                if delay.bw() > 128 {
+                                    return Err(Error::OtherStr(
+                                        "`Delay` delay amount is unexpectedly large",
+                                    ))
+                                }
+                                if delay.is_zero() {
+                                    // the function that creates `Delay` is supposed to do a no-op
+                                    // or copy instead
+                                    return Err(Error::OtherStr("`Delay` delay amount is zero"))
+                                }
+                                Delay::from_amount(delay.to_u128())
+                            } else {
+                                return Err(Error::OtherStr(
+                                    "`Delay` does not use the correct `Op::Argument`",
+                                ))
+                            };
                         if delay.is_zero() {
-                            // the function that creates `DelayedLoopSource` is supposed to do a
-                            // `LoopSource` instead
-                            return Err(Error::OtherStr("`DelayedLoopSource` delay amount is zero"))
+                            // the function that creates DELAYED_LOOP_SOURCE is supposed to do a
+                            // LOOP_SOURCE instead
+                            return Err(Error::OtherStr("delayed loop source delay amount is zero"))
                         }
                         for i in 0..w {
                             let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();

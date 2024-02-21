@@ -1,7 +1,5 @@
 [package]
 name = "starlight"
-# FIXME before next release make a `Argument128` `Op` variant for delays
-# FIXME NonZeroU32 flags and generationless
 version = "0.3.0"
 edition = "2021"
 authors = ["Aaron Kutch <aaronkutch@att.net>"]

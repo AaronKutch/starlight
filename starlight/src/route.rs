@@ -48,7 +48,7 @@ ptr_struct!(
     QCEdge();
     PEmbedding();
     PConfig();
-    PMapping();
+    PMapping()
 );
 
 #[cfg(all(not(debug_assertions), feature = "gen_counters", feature = "u32_ptrs",))]
@@ -59,7 +59,7 @@ ptr_struct!(
     QCEdge[NonZeroU32](NonZeroU32);
     PEmbedding[NonZeroU32](NonZeroU32);
     PConfig[NonZeroU32](NonZeroU32);
-    PMapping[NonZeroU32](NonZeroU32);
+    PMapping[NonZeroU32](NonZeroU32)
 );
 
 #[cfg(all(
@@ -74,7 +74,7 @@ ptr_struct!(
     QCEdge[NonZeroU32]();
     PEmbedding[NonZeroU32]();
     PConfig[NonZeroU32]();
-    PMapping[NonZeroU32]();
+    PMapping[NonZeroU32]()
 );
 
 // these are completely internal and so can always go without gen counters

@@ -6,7 +6,7 @@ use std::{
 };
 
 use awint::{
-    awint_dag::{dag, smallvec::smallvec, Lineage, Location, Op, PState},
+    awint_dag::{dag, Lineage, Location, PState},
     awint_internals::forward_debug_fmt,
     dag::Awi,
 };
@@ -134,7 +134,7 @@ impl LazyAwi {
             line: tmp.line(),
             col: tmp.column(),
         };
-        let opaque = dag::Awi::new(w, Op::Opaque(smallvec![], Some("LazyOpaque")));
+        let opaque = dag::Awi::opaque_with(w, "LazyOpaque", &[]);
         let p_external = get_current_epoch()
             .expect("attempted to create a `LazyAwi` when no active `starlight::Epoch` exists")
             .epoch_data
