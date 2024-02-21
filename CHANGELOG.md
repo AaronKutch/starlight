@@ -1,6 +1,9 @@
 # Changelog
 
 ## [0.4.0] - TODO
+### Crate
+- `awint` 0.17 and `triple_arena` 0.13
+
 ### Changes
 - Removed the mimicking assertions from the `dag` module
 - Reworked the evaluation system to be event based, now there are `drive_with_delay` functions and
