@@ -383,8 +383,10 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
                                 lut_bits = lut_bits.checked_add(lut.bw()).unwrap();
                                 1
                             }
-                            Programmability::ArbitraryLut(lut) => {
-                                lut_bits = lut_bits.checked_add(lut.len()).unwrap();
+                            Programmability::ArbitraryLut(arbitrary_lut) => {
+                                lut_bits = lut_bits
+                                    .checked_add(arbitrary_lut.lut_config().len())
+                                    .unwrap();
                                 1
                             }
                             Programmability::SelectorLut(_) => 1,

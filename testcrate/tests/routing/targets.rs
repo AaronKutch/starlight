@@ -119,7 +119,7 @@ impl FabricTargetInterface {
         let mut target_configurator = Configurator::new();
         res.switch_grid.for_each(|switch, _| {
             for config in &switch.configs {
-                target_configurator.make_configurable(config).unwrap();
+                target_configurator.configurable(config).unwrap();
             }
         });
         (res, target_configurator, epoch.suspend())

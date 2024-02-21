@@ -15,7 +15,7 @@ use crate::{
     route::{
         channel::Referent,
         cnode::{generate_hierarchy, InternalBehavior},
-        CNode, Channeler, Configurator, PEmbedding,
+        CNode, Channeler, Configurator, PConfig, PEmbedding,
     },
     utils::SmallSet,
     Error, SuspendedEpoch,
@@ -28,19 +28,16 @@ pub enum SelectorValue {
     Const(bool),
 }
 
-/// The `Vec<PBack>` has the configuration indexes, the two `Awi`s
-/// have bitwidths equal to `1 << len` where `len` is the number of indexes
-///
-/// Logically, the selector selects from the power-of-two array which may have
-/// constants and unused `ConstUnknown`s in addition to the routes for dynamics.
-/// The incidents only include the dynamics, and thus we need to know where the
-/// gaps are. The `Awi` is broken up into pairs of bits used to indicate the
-/// following states in incrementing order: dynamic, const unknown, const zero,
-/// const one
+/// The selector can use its configuration bits to arbitrarily select from any
+/// of the `SelectorValues` in a power-of-two array.
 #[derive(Debug, Clone)]
 pub struct SelectorLut {
+    inx_config: Vec<PConfig>,
+    // The `Awi` is broken up into pairs of bits used to indicate the
+    // following states in incrementing order: dynamic, const unknown, const zero,
+    // const one. The sources only correspond to `SelectorValue::Dynam`, and so this can be used to
+    // determine where the gaps are.
     awi: Awi,
-    v: Vec<PBack>,
 }
 
 impl SelectorLut {
@@ -60,7 +57,7 @@ impl SelectorLut {
 
     pub fn verify_integrity(&self, sources_len: usize) -> Result<(), Error> {
         // TODO
-        let pow_len = 1usize << self.v.len();
+        let pow_len = 1usize << self.inx_config.len();
         if pow_len.checked_mul(2).unwrap() != self.awi.bw() {
             return Err(Error::OtherStr("problem with `SelectorLut` validation"));
         }
@@ -72,6 +69,27 @@ impl SelectorLut {
         }
         if dynam_len != sources_len {
             return Err(Error::OtherStr("problem with `SelectorLut` validation"));
+        }
+        Ok(())
+    }
+}
+
+/// The arbitrary can use its configuration bits to change into any LUT.
+#[derive(Debug, Clone)]
+pub struct ArbitraryLut {
+    lut_config: Vec<PConfig>,
+}
+
+impl ArbitraryLut {
+    pub fn lut_config(&self) -> &[PConfig] {
+        &self.lut_config
+    }
+
+    pub fn verify_integrity(&self, inx_len: usize) -> Result<(), Error> {
+        // TODO
+        let pow_len = 1usize << inx_len;
+        if self.lut_config.len() != pow_len {
+            return Err(Error::OtherStr("problem with `ArbitraryLut` validation"));
         }
         Ok(())
     }
@@ -101,14 +119,12 @@ pub enum Programmability {
 
     StaticLut(Awi),
 
-    // `DynamicLut`s can go in one of two ways: the table bits directly connect with configurable
-    // bits and thus it can behave as an `ArbitraryLut`, or the inx bits directly connect with
-    // configurable bits and thus can behave as `SelectorLut`s. Currently we will trigger
-    // lowerings when a LUT doesn't fit into any category and lower down into just `StaticLut`s if
-    // necessary.
-    /// Can behave as an arbitrary lookup table outputting a bit and taking the
-    /// input bits.
-    ArbitraryLut(Vec<PBack>),
+    // `DynamicLut`s can go in one of two ways: the table bits all directly connect with unique
+    // configurable bits and thus it can behave as an `ArbitraryLut`, or the inx bits directly
+    // connect with configurable bits and thus can behave as `SelectorLut`s. Other cases must
+    // be reduced to the two
+    /// Can behave as an arbitrary lookup table
+    ArbitraryLut(ArbitraryLut),
     /// Can behave as an arbitrary selector that multiplexes one of the input
     /// bits to the output
     SelectorLut(SelectorLut),
@@ -123,9 +139,11 @@ impl Programmability {
         match self {
             Programmability::TNode => v.push("tnode".to_owned()),
             Programmability::StaticLut(lut) => v.push(format!("{}", lut)),
-            Programmability::ArbitraryLut(lut) => v.push(format!("ArbLut {}", lut.len())),
+            Programmability::ArbitraryLut(arbitrary_lut) => {
+                v.push(format!("ArbLut {}", arbitrary_lut.lut_config.len()))
+            }
             Programmability::SelectorLut(selector_lut) => {
-                v.push(format!("SelLut {}", selector_lut.v.len()))
+                v.push(format!("SelLut {}", selector_lut.inx_config.len()))
             }
             Programmability::Bulk(bulk) => {
                 let mut s = String::new();
@@ -273,11 +291,44 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         // for each equivalence make a `CNode` with associated `EnsembleBackref`, unless
         // it is one of the configurable bits
         for equiv in ensemble.backrefs.vals() {
-            if configurator
-                .configurations
-                .find_key(&equiv.p_self_equiv)
-                .is_none()
-            {
+            if let Some(p_config) = configurator.configurations.find_key(&equiv.p_self_equiv) {
+                let config = configurator.configurations.get_val(p_config).unwrap();
+                let p_external = config.p_external;
+                let mut input_count = 0;
+                // we have a configurable bit, check if it is by itself or can affect other
+                // things
+                let mut adv = ensemble.backrefs.advancer_surject(equiv.p_self_equiv);
+                while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
+                    use crate::ensemble::Referent::*;
+                    match ensemble.backrefs.get_key(p_ref).unwrap() {
+                        ThisEquiv | ThisStateBit(..) | ThisRNode(_) => (),
+                        Input(_) => input_count += 1,
+                        Driver(_) => {
+                            return Err(Error::OtherString(format!(
+                                "configuration bit {p_external:#?} is directly driving a temporal \
+                                 node, configurations should not have a delay immediately after \
+                                 them"
+                            )))
+                        }
+                        ThisLNode(_) | ThisTNode(_) => {
+                            return Err(Error::OtherString(format!(
+                                "configuration bit {p_external:#?} is driven, which shouldn't \
+                                 normally be possible"
+                            )))
+                        }
+                    }
+                }
+                if input_count > 1 {
+                    // TODO have the router interact with the `Ensemble` to find ways to merge
+                    // `LNode`s if necessary, there are probably natural cases where a single
+                    // `LNode` could be broken up earlier. In the future we may want something more
+                    // advanced that can actually handle multiple driver constraints.
+                    return Err(Error::OtherString(format!(
+                        "configuration bit {p_external:#?} is directly driving more than one \
+                         thing, which is currently unsupported by the router"
+                    )));
+                }
+            } else {
                 let p_cnode = channeler.make_top_level_cnode(vec![], 0, InternalBehavior::empty());
                 let replaced = channeler
                     .ensemble_backref_to_channeler_backref
@@ -295,7 +346,13 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 LNodeKind::Lut(inp, awi) => {
                     let mut v = SmallVec::<[PCNode; 8]>::with_capacity(inp.len());
                     for input in inp {
-                        v.push(channeler.translate(ensemble, *input).1.unwrap());
+                        let (p_equiv, p_cnode) = channeler.translate(ensemble, *input);
+                        if let Some(_p_config) = configurator.find(p_equiv) {
+                            // probably also want to transform into one of the two canonical dynamic
+                            // cases
+                            todo!()
+                        }
+                        v.push(p_cnode.unwrap());
                     }
                     channeler.make_cedge(
                         &v,
@@ -305,84 +362,86 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     );
                 }
                 LNodeKind::DynamicLut(inp, lut) => {
-                    let mut is_full_selector = true;
-                    for input in inp {
-                        let p_equiv = channeler.translate(ensemble, *input).0;
-                        if configurator.find(p_equiv).is_none() {
-                            is_full_selector = false;
+                    // figure out if we have a full selector or a full arbitrary
+                    let mut sources = SmallVec::<[PCNode; 8]>::new();
+                    let mut config = vec![];
+                    for input in inp.iter().copied() {
+                        let (p_equiv, p_cnode) = channeler.translate(ensemble, input);
+                        if let Some(p_config) = configurator.find(p_equiv) {
+                            // probably also want to transform into one of the two canonical dynamic
+                            // cases
+                            config.push(p_config);
+                        } else if !config.is_empty() {
+                            // has selection configuration but is not full
+
+                            // TODO this should be handled earlier in a optimization pass specific
+                            // to the target `Ensemble`
+                            unreachable!()
+                        } else {
+                            sources.push(p_cnode.unwrap());
                         }
                     }
-                    let mut is_full_arbitrary = true;
-                    for lut_bit in lut.iter().copied() {
-                        match lut_bit {
-                            DynamicValue::ConstUnknown | DynamicValue::Const(_) => {
-                                // TODO we should handle intermediates inbetween arbitrary and
-                                // static
-                                is_full_arbitrary = false;
-                            }
-                            DynamicValue::Dynam(p) => {
-                                let p_equiv = channeler.translate(ensemble, p).0;
-                                if configurator.find(p_equiv).is_none() {
-                                    is_full_arbitrary = false;
-                                }
-                            }
-                        }
-                    }
-                    match (is_full_selector, is_full_arbitrary) {
-                        (true, false) => {
-                            let mut v = SmallVec::<[PCNode; 8]>::with_capacity(inp.len());
-                            let mut config = vec![];
-                            for input in inp.iter() {
-                                config.push(channeler.translate(ensemble, *input).0);
-                            }
-                            let mut awi = Awi::zero(NonZeroUsize::new(2 << inp.len()).unwrap());
-                            for (i, lut_bit) in lut.iter().copied().enumerate() {
-                                let i = i << 1;
-                                match lut_bit {
-                                    DynamicValue::ConstUnknown => {
-                                        awi.set(i, true).unwrap();
-                                    }
-                                    DynamicValue::Const(b) => {
-                                        awi.set(i.wrapping_add(1), true).unwrap();
-                                        if b {
-                                            awi.set(i, true).unwrap();
-                                        }
-                                    }
-                                    DynamicValue::Dynam(p) => {
-                                        v.push(channeler.translate(ensemble, p).1.unwrap());
-                                    }
-                                }
-                            }
-                            channeler.make_cedge(
-                                &v,
-                                p_self,
-                                Programmability::SelectorLut(SelectorLut { awi, v: config }),
-                                NonZeroU32::new(1).unwrap(),
-                            );
-                        }
-                        (false, true) => {
-                            let mut v = SmallVec::<[PCNode; 8]>::with_capacity(inp.len());
-                            for input in inp {
-                                v.push(channeler.translate(ensemble, *input).1.unwrap());
-                            }
-                            let mut config = vec![];
-                            for lut_bit in lut.iter().copied() {
-                                if let DynamicValue::Dynam(p) = lut_bit {
-                                    let p_equiv = channeler.translate(ensemble, p).0;
-                                    config.push(p_equiv);
+                    if config.is_empty() {
+                        // should be a full arbitrary
+                        for lut_bit in lut.iter().copied() {
+                            if let DynamicValue::Dynam(p) = lut_bit {
+                                let p_equiv = ensemble.backrefs.get_val(p).unwrap().p_self_equiv;
+                                if let Some(p_config) = configurator.find(p_equiv) {
+                                    // probably also want to transform into one of the two canonical
+                                    // dynamic cases
+                                    config.push(p_config);
                                 } else {
+                                    // should be arbitrary configuration, should be handled in a
+                                    // earlier pass
                                     unreachable!()
                                 }
+                            } else {
+                                // should be arbitrary configuration, should be handled in a earlier
+                                // pass
+                                unreachable!()
                             }
-                            channeler.make_cedge(
-                                &v,
-                                p_self,
-                                Programmability::ArbitraryLut(config),
-                                NonZeroU32::new(1).unwrap(),
-                            );
                         }
-                        // we will need interaction with the `Ensemble` to do `LNode` side lowering
-                        _ => todo!(),
+                        channeler.make_cedge(
+                            &sources,
+                            p_self,
+                            Programmability::ArbitraryLut(ArbitraryLut { lut_config: config }),
+                            NonZeroU32::new(1).unwrap(),
+                        );
+                    } else {
+                        // should be a full selector
+                        let mut awi = Awi::zero(NonZeroUsize::new(2 << inp.len()).unwrap());
+                        for (i, lut_bit) in lut.iter().copied().enumerate() {
+                            let i = i << 1;
+                            match lut_bit {
+                                DynamicValue::ConstUnknown => {
+                                    awi.set(i, true).unwrap();
+                                }
+                                DynamicValue::Const(b) => {
+                                    awi.set(i.wrapping_add(1), true).unwrap();
+                                    if b {
+                                        awi.set(i, true).unwrap();
+                                    }
+                                }
+                                DynamicValue::Dynam(p) => {
+                                    let (p_equiv, p_cnode) = channeler.translate(ensemble, p);
+                                    if configurator.find(p_equiv).is_some() {
+                                        // has selection configuration but also arbitrary
+                                        // configuration, should be handled in a earlier pass
+                                        unreachable!()
+                                    }
+                                    sources.push(p_cnode.unwrap());
+                                }
+                            }
+                        }
+                        channeler.make_cedge(
+                            &sources,
+                            p_self,
+                            Programmability::SelectorLut(SelectorLut {
+                                inx_config: config,
+                                awi,
+                            }),
+                            NonZeroU32::new(1).unwrap(),
+                        );
                     }
                 }
             }
@@ -422,9 +481,9 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         Ok(channeler)
     }
 
-    /// Returns an `OrdArena` of `ThisCNode` `PCNode`s of `p` itself and all
-    /// nodes directly incident to it through edges. Node that this modifies the
-    /// `alg_visit` of local nodes.
+    /// Returns `PCNode`s of `p` itself and all nodes directly incident to it
+    /// through edges. Node that this modifies the `alg_visit` of local
+    /// nodes.
     pub fn related_nodes(&mut self, p: PCNode) -> Vec<PCNode> {
         let related_visit = self.next_alg_visit();
         let cnode = self.cnodes.get_val_mut(p).unwrap();

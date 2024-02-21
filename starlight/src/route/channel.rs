@@ -196,9 +196,9 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     lut.bw().is_power_of_two()
                         && (lut.bw().trailing_zeros() as usize == sources_len)
                 }
-                Programmability::ArbitraryLut(lut) => {
-                    lut.len().is_power_of_two()
-                        && ((lut.len().trailing_zeros() as usize) == sources_len)
+                Programmability::ArbitraryLut(arbitrary_lut) => {
+                    arbitrary_lut.verify_integrity(sources_len)?;
+                    true
                 }
                 Programmability::SelectorLut(selector_lut) => {
                     selector_lut.verify_integrity(sources_len)?;

@@ -652,16 +652,18 @@ impl Router {
         }
     }
 
-    /// After all mappings have been done, this function should be called to
-    /// perform the routing algorithms to determine how the target can be
-    /// configured to match the functionality of the program.
+    /// This function should be called to perform the routing algorithms and
+    /// determine how the target can be configured to match the
+    /// functionality of the program.
     ///
     /// # Errors
     ///
     /// If the routing is infeasible an error is returned.
     pub fn route(&mut self) -> Result<(), Error> {
         self.initialize_embeddings()?;
-        route(self)
+        route(self)?;
+        self.set_configurations()?;
+        Ok(())
     }
 
     /// After routing is done, this function can be called to find the

@@ -4,6 +4,7 @@ use super::PConfig;
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
     epoch::get_current_epoch,
+    route::Router,
     Error, LazyAwi,
 };
 
@@ -39,7 +40,7 @@ impl Configurator {
 
     /// Tell the router what bits it can use for programming the target. Uses
     /// the currently active `Epoch`.
-    pub fn make_configurable<L: std::borrow::Borrow<LazyAwi>>(
+    pub fn configurable<L: std::borrow::Borrow<LazyAwi>>(
         &mut self,
         config: &L,
     ) -> Result<(), Error> {
@@ -71,19 +72,27 @@ impl Configurator {
                     // set to the same thing
                     if replaced.is_some() {
                         return Err(Error::OtherString(format!(
-                            "`make_configurable({config:#?})`: found that the same bit as a \
-                             previous one is configurable, this may be because \
-                             `make_configurable` was called twice on the same or equivalent bit"
+                            "`configurable({config:#?})`: found that the same bit as a previous \
+                             one is configurable, this may be because `configurable` was called \
+                             twice on the same or equivalent bit"
                         )));
                     }
                 }
             }
         } else {
             return Err(Error::OtherStr(
-                "`make_configurable({config:#?})`: found that the epoch has not been lowered and \
+                "`configurable({config:#?})`: found that the epoch has not been lowered and \
                  preferably optimized",
             ));
         }
+        Ok(())
+    }
+}
+
+impl Router {
+    /// Sets all the configurations derived from final embeddings
+    pub(crate) fn set_configurations(&mut self) -> Result<(), Error> {
+        //
         Ok(())
     }
 }
