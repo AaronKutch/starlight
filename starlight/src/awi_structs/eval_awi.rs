@@ -1,7 +1,7 @@
 use std::{fmt, num::NonZeroUsize, thread::panicking};
 
 use awint::{
-    awint_dag::{dag, Lineage, PState},
+    awint_dag::{dag, Lineage, Location, PState},
     awint_internals::{forward_debug_fmt, BITS},
 };
 
@@ -27,46 +27,21 @@ use crate::{
 /// Upon being dropped, this will remove special references being kept by the
 /// current `Epoch`.
 pub struct EvalAwi {
-    p_state: PState,
     p_external: PExternal,
+    // needed for things like `Configurator`s that need the bitwidth outside of an `Epoch`
+    nzbw: NonZeroUsize,
 }
 
 impl Drop for EvalAwi {
     fn drop(&mut self) {
         // prevent invoking recursive panics and a buffer overrun
         if !panicking() {
-            if let Some(epoch) = get_current_epoch() {
-                let mut lock = epoch.epoch_data.borrow_mut();
-                let res = lock.ensemble.remove_rnode(self.p_external);
-                if res.is_err() {
-                    panic!(
-                        "most likely, an `EvalAwi` created in one `Epoch` was dropped in another"
-                    )
-                }
-                if let Some(state) = lock.ensemble.stator.states.get_mut(self.p_state) {
-                    state.dec_extern_rc();
-                }
-            }
-            // else the epoch has been dropped
+            self.drop_internal();
         }
     }
 }
 
-impl Lineage for EvalAwi {
-    fn state(&self) -> PState {
-        self.p_state
-    }
-}
-
-impl Clone for EvalAwi {
-    /// This makes another rnode to the same state that `self` pointed to.
-    #[track_caller]
-    fn clone(&self) -> Self {
-        Self::from_state(self.p_state)
-    }
-}
-
-macro_rules! evalawi_from_impl {
+macro_rules! from_impl {
     ($($fn:ident $t:ident);*;) => {
         $(
             #[track_caller]
@@ -85,10 +60,11 @@ macro_rules! eval_primitives {
             /// match the bitwidth of the primitive
             pub fn $f(&self) -> Result<$x, Error> {
                 let awi = self.eval()?;
-                if awi.bw() == $w {
+                let awi_w = awi.bw();
+                if awi_w == $w {
                     Ok(awi.$to_x())
                 } else {
-                    Err(Error::WrongBitwidth)
+                    Err(Error::ConstBitwidthMismatch(awi_w, $w))
                 }
             }
         )*
@@ -96,7 +72,7 @@ macro_rules! eval_primitives {
 }
 
 impl EvalAwi {
-    evalawi_from_impl!(
+    from_impl!(
         from_bool bool;
         from_u8 u8;
         from_i8 i8;
@@ -128,23 +104,6 @@ impl EvalAwi {
         eval_isize isize to_isize BITS;
     );
 
-    pub fn p_external(&self) -> PExternal {
-        self.p_external
-    }
-
-    fn try_get_nzbw(&self) -> Result<NonZeroUsize, Error> {
-        Ensemble::get_thread_local_rnode_nzbw(self.p_external)
-    }
-
-    #[track_caller]
-    pub fn nzbw(&self) -> NonZeroUsize {
-        self.try_get_nzbw().unwrap()
-    }
-
-    pub fn bw(&self) -> usize {
-        self.nzbw().get()
-    }
-
     /// Used internally to create `EvalAwi`s
     ///
     /// # Panics
@@ -152,31 +111,79 @@ impl EvalAwi {
     /// If an `Epoch` does not exist or the `PState` was pruned
     #[track_caller]
     pub fn from_state(p_state: PState) -> Self {
-        if let Some(epoch) = get_current_epoch() {
+        let tmp = std::panic::Location::caller();
+        let location = Location {
+            file: tmp.file(),
+            line: tmp.line(),
+            col: tmp.column(),
+        };
+        let res = if let Ok(epoch) = get_current_epoch() {
             let mut lock = epoch.epoch_data.borrow_mut();
-            match lock.ensemble.make_rnode_for_pstate(p_state, true, true) {
-                Some(p_external) => {
-                    lock.ensemble
-                        .stator
-                        .states
-                        .get_mut(p_state)
-                        .unwrap()
-                        .inc_extern_rc();
-                    Self {
-                        p_state,
-                        p_external,
-                    }
-                }
-                None => {
-                    panic!(
-                        "could not create an `EvalAwi` from the given mimicking state, probably \
-                         because the state was pruned or came from a different `Epoch`"
-                    )
-                }
+            match lock
+                .ensemble
+                .make_rnode_for_pstate(p_state, Some(location), true, true)
+            {
+                Ok(tmp) => Ok(tmp),
+                Err(e) => Err(Error::OtherString(format!(
+                    "could not create or `future_*` an `EvalAwi` from the given mimicking state: \
+                     {e}"
+                ))),
             }
         } else {
-            panic!("attempted to create an `EvalAwi` when no live `Epoch` exists")
+            Err(Error::OtherStr(
+                "attempted to create or `future_*` an `EvalAwi` when no active `starlight::Epoch` \
+                 exists",
+            ))
+        };
+        match res {
+            Ok((p_external, nzbw)) => Self { p_external, nzbw },
+            Err(e) => {
+                panic!("{e:?}")
+            }
         }
+    }
+
+    pub fn p_external(&self) -> PExternal {
+        self.p_external
+    }
+
+    fn drop_internal(&self) {
+        if let Ok(epoch) = get_current_epoch() {
+            let mut lock = epoch.epoch_data.borrow_mut();
+            let _ = lock.ensemble.rnode_dec_rc(self.p_external());
+        }
+    }
+
+    pub fn nzbw(&self) -> NonZeroUsize {
+        self.nzbw
+    }
+
+    pub fn bw(&self) -> usize {
+        self.nzbw().get()
+    }
+
+    pub(crate) fn try_clone_from(p_external: PExternal) -> Result<Self, Error> {
+        let epoch = get_current_epoch()?;
+        let mut lock = epoch.epoch_data.borrow_mut();
+        let p_rnode = lock.ensemble.rnode_inc_rc(p_external)?;
+        let w = lock
+            .ensemble
+            .notary
+            .rnodes()
+            .get_val(p_rnode)
+            .unwrap()
+            .nzbw();
+        Ok(Self {
+            p_external,
+            nzbw: w,
+        })
+    }
+
+    /// Clones `self`, returning a perfectly equivalent `Eval` that will have
+    /// the same `eval` effects. Returns an error if the active `Epoch` is not
+    /// correct.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        EvalAwi::try_clone_from(self.p_external())
     }
 
     /// Can panic if the state has been pruned
@@ -191,10 +198,10 @@ impl EvalAwi {
     /// `opaque`, but in general this will return an error that a bit could not
     /// be evaluated to a known value, if any upstream inputs are `opaque`.
     pub fn eval(&self) -> Result<awi::Awi, Error> {
-        let nzbw = self.try_get_nzbw()?;
+        let nzbw = self.nzbw();
         let mut res = awi::Awi::zero(nzbw);
         for bit_i in 0..res.bw() {
-            let val = Ensemble::calculate_thread_local_rnode_value(self.p_external, bit_i)?;
+            let val = Ensemble::request_thread_local_rnode_value(self.p_external, bit_i)?;
             if let Some(val) = val.known_value() {
                 res.set(bit_i, val).unwrap();
             } else {
@@ -205,6 +212,29 @@ impl EvalAwi {
             }
         }
         Ok(res)
+    }
+
+    /// Like `EvalAwi::eval`, except it returns if the values are all unknowns
+    pub fn eval_is_all_unknown(&self) -> Result<bool, Error> {
+        let nzbw = self.nzbw();
+        let mut all_unknown = true;
+        for bit_i in 0..nzbw.get() {
+            let val = Ensemble::request_thread_local_rnode_value(self.p_external, bit_i)?;
+            if val.is_known() {
+                all_unknown = false;
+            }
+        }
+        Ok(all_unknown)
+    }
+
+    /// Sets a debug name for `self` that is used in debug reporting and
+    /// rendering
+    pub fn set_debug_name<S: AsRef<str>>(&self, debug_name: S) -> Result<(), Error> {
+        Ensemble::thread_local_rnode_set_debug_name(self.p_external, Some(debug_name.as_ref()))
+    }
+
+    pub fn opaque(w: NonZeroUsize) -> Self {
+        Self::from_bits(&dag::Awi::opaque(w))
     }
 
     pub fn zero(w: NonZeroUsize) -> Self {
@@ -226,21 +256,30 @@ impl EvalAwi {
     pub fn uone(w: NonZeroUsize) -> Self {
         Self::from_bits(&dag::Awi::uone(w))
     }
+
+    // TODO not sure if we want this
+    /*
+    /// Assigns to `self` the state that will be evaluated in future calls to
+    /// `eval_*`, overriding what `self` was initially constructed from or other
+    /// calls to `future_*`.
+    #[track_caller]
+    pub fn future_(&mut self, rhs: &dag::Bits) -> Result<(), Error> {
+        let nzbw = self.try_get_nzbw()?;
+        if nzbw != rhs.nzbw() {
+            return Err(Error::WrongBitwidth)
+        }
+        self.drop_internal();
+        self.set_internal(rhs.state())?;
+        Ok(())
+    }
+    */
 }
 
 impl fmt::Debug for EvalAwi {
+    /// Can only display some fields if the `Epoch` `self` was created in is
+    /// active
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(epoch) = get_current_epoch() {
-            if let Some(s) = epoch
-                .epoch_data
-                .borrow()
-                .ensemble
-                .get_state_debug(self.state())
-            {
-                return write!(f, "EvalAwi({s})");
-            }
-        }
-        write!(f, "EvalAwi({:?})", self.state())
+        super::lazy_awi::format_auto_awi("EvalAwi", self.p_external(), self.nzbw(), f)
     }
 }
 

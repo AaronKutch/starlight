@@ -11,8 +11,10 @@ fn lazy_awi() {
     let epoch = Epoch::new();
 
     let x = LazyAwi::opaque(bw(1));
+    epoch.verify_integrity().unwrap();
     let mut a = awi!(x);
     a.not_();
+    epoch.verify_integrity().unwrap();
     let y = EvalAwi::from(a);
 
     {
@@ -22,12 +24,12 @@ fn lazy_awi() {
         x.retro_(&awi!(0)).unwrap();
 
         epoch.verify_integrity().unwrap();
-        awi::assert_eq!(y.eval().unwrap(), awi!(1));
+        assert_eq!(y.eval().unwrap(), awi!(1));
         epoch.verify_integrity().unwrap();
 
         x.retro_(&awi!(1)).unwrap();
 
-        awi::assert_eq!(y.eval().unwrap(), awi!(0));
+        assert_eq!(y.eval().unwrap(), awi!(0));
         epoch.verify_integrity().unwrap();
     }
 
@@ -49,7 +51,7 @@ fn invert_twice() {
     let y = EvalAwi::from(a);
 
     {
-        use awi::assert;
+        use assert;
 
         x.retro_bool_(false).unwrap();
         assert!(!y.eval_bool().unwrap());
@@ -73,12 +75,12 @@ fn multiplier() {
     {
         input_a.retro_u16_(123u16).unwrap();
         input_b.retro_u16_(77u16).unwrap();
-        std::assert_eq!(output.eval_u32().unwrap(), 9471u32);
+        assert_eq!(output.eval_u32().unwrap(), 9471u32);
 
         epoch.optimize().unwrap();
 
         input_a.retro_u16_(10u16).unwrap();
-        std::assert_eq!(output.eval_u32().unwrap(), 770u32);
+        assert_eq!(output.eval_u32().unwrap(), 770u32);
     }
     drop(epoch);
 }
@@ -90,11 +92,13 @@ fn const_assertion_fail() {
     // handling
     register_assertion_bit_for_current_epoch(false.into(), Location::dummy());
     {
-        awi::assert!(epoch.assert_assertions(false).is_err());
+        assert!(epoch.assert_assertions(false).is_err());
     }
     drop(epoch);
 }
 
+// make sure that the `opaque` that is masked off does not cause downstream
+// `Unknown`s when the field does not actually use it
 #[test]
 fn unknown_masking() {
     use dag::*;
@@ -106,9 +110,9 @@ fn unknown_masking() {
     let eval = EvalAwi::from(&out);
     {
         use awi::*;
-        awi::assert_eq!(eval.eval().unwrap(), awi!(1u3));
+        assert_eq!(eval.eval().unwrap(), awi!(1u3));
         epoch.optimize().unwrap();
-        awi::assert_eq!(eval.eval().unwrap(), awi!(1u3));
+        assert_eq!(eval.eval().unwrap(), awi!(1u3));
     }
     drop(epoch);
 }

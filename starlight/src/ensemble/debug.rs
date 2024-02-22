@@ -127,17 +127,18 @@ impl DebugNodeTrait<PBack> for NodeKind {
                         LNodeKind::Copy(inp) => vec![(*inp, "copy".to_owned())],
                         LNodeKind::Lut(inp, _) => inp
                             .iter()
+                            .copied()
                             .enumerate()
-                            .map(|(i, p)| (*p, format!("{i}")))
+                            .map(|(i, p)| (p, format!("{i}")))
                             .collect(),
                         LNodeKind::DynamicLut(inp, lut) => {
                             let mut v = vec![];
-                            for (i, p) in inp.iter().enumerate() {
-                                v.push((*p, format!("i{i}")));
+                            for (i, p) in inp.iter().copied().enumerate() {
+                                v.push((p, format!("i{i}")));
                             }
-                            for (i, p) in lut.iter().enumerate() {
+                            for (i, p) in lut.iter().copied().enumerate() {
                                 if let DynamicValue::Dynam(p_back) = p {
-                                    v.push((*p_back, format!("l{i}")));
+                                    v.push((p_back, format!("l{i}")));
                                 }
                             }
                             v
@@ -171,7 +172,11 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 sinks: vec![],
             },
             NodeKind::Equiv(equiv, p_lnodes) => DebugNode {
-                sources: p_lnodes.iter().map(|p| (*p, String::new())).collect(),
+                sources: p_lnodes
+                    .iter()
+                    .copied()
+                    .map(|p| (p, String::new()))
+                    .collect(),
                 center: {
                     vec![
                         format!("{:?}", equiv.p_self_equiv),
@@ -207,7 +212,7 @@ impl Ensemble {
         let mut arena = Arena::<PBack, NodeKind>::new();
         self.backrefs
             .clone_keys_to_arena(&mut arena, |p_self, referent| {
-                match referent {
+                match *referent {
                     Referent::ThisEquiv => {
                         let mut v = vec![];
                         let mut adv = self.backrefs.advancer_surject(p_self);
@@ -220,24 +225,24 @@ impl Ensemble {
                         NodeKind::Equiv(self.backrefs.get_val(p_self).unwrap().clone(), v)
                     }
                     Referent::ThisStateBit(p_state, i) => {
-                        let state = self.stator.states.get(*p_state).unwrap().clone();
-                        if let Some(p_bit) = state.p_self_bits[*i] {
+                        let state = self.stator.states.get(p_state).unwrap().clone();
+                        if let Some(p_bit) = state.p_self_bits[i] {
                             let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
                             NodeKind::StateBit(StateBit {
                                 p_equiv: Some(p_equiv),
-                                p_state: *p_state,
-                                i: *i,
+                                p_state,
+                                i,
                             })
                         } else {
                             NodeKind::StateBit(StateBit {
                                 p_equiv: None,
-                                p_state: *p_state,
-                                i: *i,
+                                p_state,
+                                i,
                             })
                         }
                     }
                     Referent::ThisLNode(p_lnode) => {
-                        let mut lnode = self.lnodes.get(*p_lnode).unwrap().clone();
+                        let mut lnode = self.lnodes.get(p_lnode).unwrap().clone();
                         // forward to the `PBack`s of LNodes
                         lnode.inputs_mut(|inp| {
                             if let Referent::Input(_) = self.backrefs.get_key(*inp).unwrap() {
@@ -248,18 +253,18 @@ impl Ensemble {
                         NodeKind::LNode(lnode)
                     }
                     Referent::ThisTNode(p_tnode) => {
-                        let tnode = self.tnodes.get(*p_tnode).unwrap();
+                        let tnode = self.tnodes.get(p_tnode).unwrap();
                         // forward to the `PBack`s
                         let p_self = self.backrefs.get_val(tnode.p_self).unwrap().p_self_equiv;
                         let p_driver = self.backrefs.get_val(tnode.p_driver).unwrap().p_self_equiv;
                         NodeKind::TNode(TNodeTmp {
                             p_self,
                             p_driver,
-                            p_tnode: *p_tnode,
+                            p_tnode,
                         })
                     }
                     Referent::ThisRNode(p_rnode) => {
-                        let rnode = self.notary.rnodes().get_val(*p_rnode).unwrap();
+                        let rnode = self.notary.rnodes().get_val(p_rnode).unwrap();
                         let mut inx = u64::MAX;
                         if let Some(bits) = rnode.bits() {
                             for (i, bit) in bits.iter().enumerate() {
@@ -272,7 +277,7 @@ impl Ensemble {
                         NodeKind::RNode(RNodeTmp {
                             p_self,
                             p_equiv: equiv.p_self_equiv,
-                            p_rnode: *p_rnode,
+                            p_rnode,
                             i: inx,
                         })
                     }
@@ -288,8 +293,8 @@ impl Ensemble {
         arena
     }
 
-    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), Error> {
-        let dir = match out_file.canonicalize() {
+    pub fn render_to_svgs_in_dir(&self, out_dir: PathBuf) -> Result<(), Error> {
+        let dir = match out_dir.canonicalize() {
             Ok(o) => {
                 if !o.is_dir() {
                     return Err(Error::OtherStr("need a directory not a file"));
@@ -323,11 +328,11 @@ impl Epoch {
         });
     }
 
-    pub fn render_to_svgs_in_dir(&self, out_file: PathBuf) -> Result<(), Error> {
-        let tmp = &out_file;
+    pub fn render_to_svgs_in_dir(&self, out_dir: PathBuf) -> Result<(), Error> {
+        let tmp = &out_dir;
         self.ensemble(|ensemble| {
-            let out_file = tmp.to_owned();
-            ensemble.render_to_svgs_in_dir(out_file)
+            let out_dir = tmp.to_owned();
+            ensemble.render_to_svgs_in_dir(out_dir)
         })
     }
 }

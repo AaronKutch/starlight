@@ -1,19 +1,23 @@
-use std::{fmt::Write, num::NonZeroUsize};
+use std::{
+    fmt::Write,
+    num::{NonZeroU64, NonZeroUsize},
+};
 
-use awint::awint_dag::{
-    smallvec::{smallvec, SmallVec},
-    triple_arena::{Advancer, Arena},
-    EAwi, EvalResult, Location,
-    Op::{self, *},
-    PState,
+use awint::{
+    awint_dag::{
+        smallvec::{smallvec, SmallVec},
+        triple_arena::{Advancer, Arena},
+        EAwi, EvalResult, Location,
+        Op::{self, *},
+        PState,
+    },
+    Awi,
 };
 
 use crate::{
     awi,
-    ensemble::{
-        value::{Change, Eval},
-        DynamicValue, Ensemble, PBack, Value,
-    },
+    awi_structs::{DELAY, DELAYED_LOOP_SOURCE, LOOP_SOURCE, UNDRIVEN_LOOP_SOURCE},
+    ensemble::{ChangeKind, Delay, DynamicValue, Ensemble, Equiv, Event, PBack, Referent, Value},
     epoch::EpochShared,
     Error,
 };
@@ -36,6 +40,7 @@ pub struct State {
     /// The number of other `State`s, and only other `State`s, that reference
     /// this one through the `Op`s
     pub rc: usize,
+    /// The number of `RNode`s referencing this state
     pub extern_rc: usize,
     /// If the `State` has been lowered to elementary `State`s (`Static-`
     /// operations and roots). Note that a DFS might set this before actually
@@ -48,15 +53,16 @@ pub struct State {
 
 impl State {
     /// Returns if pruning this state is allowed. Internal or external
-    /// references prevent pruning. Custom `Opaque`s prevent pruning.
+    /// references prevent pruning.
     pub fn pruning_allowed(&self) -> bool {
-        (self.rc == 0) && (self.extern_rc == 0) && !matches!(self.op, Opaque(_, Some(_)))
+        (self.rc == 0) && (self.extern_rc == 0)
     }
 
     pub fn inc_rc(&mut self) {
         self.rc = self.rc.checked_add(1).unwrap()
     }
 
+    #[must_use]
     pub fn dec_rc(&mut self) -> Option<()> {
         self.rc = self.rc.checked_sub(1)?;
         Some(())
@@ -98,6 +104,146 @@ impl Stator {
 }
 
 impl Ensemble {
+    pub fn make_state(
+        &mut self,
+        nzbw: NonZeroUsize,
+        op: Op<PState>,
+        location: Option<Location>,
+    ) -> PState {
+        for operand in op.operands() {
+            let state = self.stator.states.get_mut(*operand).unwrap();
+            state.rc = state.rc.checked_add(1).unwrap();
+        }
+        self.stator.states.insert(State {
+            nzbw,
+            p_self_bits: SmallVec::new(),
+            op,
+            location,
+            err: None,
+            rc: 0,
+            extern_rc: 0,
+            lowered_to_elementary: false,
+            lowered_to_lnodes: false,
+        })
+    }
+
+    /// If `p_state_bits.is_empty`, this will create new equivalences and
+    /// `Referent::ThisStateBits`s needed for every self bit. Sets the values to
+    /// a constant if the `Op` is a `Literal`, otherwise sets to unknown.
+    #[allow(clippy::single_match)]
+    pub fn initialize_state_bits_if_needed(&mut self, p_state: PState) -> Result<(), Error> {
+        let state = if let Some(state) = self.stator.states.get(p_state) {
+            state
+        } else {
+            return Err(Error::InvalidPtr);
+        };
+        if !state.p_self_bits.is_empty() {
+            return Ok(())
+        }
+        let w = state.nzbw;
+        // the corresponding bit values
+        let mut vals = Awi::zero(w);
+        // if known
+        let mut known = false;
+        // if const
+        let mut is_const = false;
+        match state.op {
+            Op::Literal(ref awi) => {
+                vals.copy_(awi).unwrap();
+                known = true;
+                is_const = true;
+            }
+            Op::Argument(_) => {
+                return Ok(());
+            }
+            Op::Opaque(ref v, name) => {
+                if name.is_none() {
+                    assert!(v.is_empty());
+                    is_const = true;
+                }
+            }
+            _ => (),
+        }
+        let mut bits = smallvec![];
+        for i in 0..state.nzbw.get() {
+            let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
+                (
+                    Referent::ThisEquiv,
+                    Equiv::new(
+                        p_self_equiv,
+                        if is_const {
+                            if known {
+                                Value::Const(vals.get(i).unwrap())
+                            } else {
+                                Value::ConstUnknown
+                            }
+                        } else if known {
+                            Value::Dynam(vals.get(i).unwrap())
+                        } else {
+                            Value::Unknown
+                        },
+                    ),
+                )
+            });
+            bits.push(Some(
+                self.backrefs
+                    .insert_key(p_equiv, Referent::ThisStateBit(p_state, i))
+                    .unwrap(),
+            ));
+        }
+        let state = self.stator.states.get_mut(p_state).unwrap();
+        state.p_self_bits = bits;
+        Ok(())
+    }
+
+    /// Triggers a cascade of state removals if `pruning_allowed()` and
+    /// their reference counts are zero
+    pub fn remove_state_if_pruning_allowed(&mut self, p_state: PState) -> Result<(), Error> {
+        if !self.stator.states.contains(p_state) {
+            return Err(Error::InvalidPtr);
+        }
+        let mut pstate_stack = vec![p_state];
+        while let Some(p) = pstate_stack.pop() {
+            let mut delete = false;
+            if let Some(state) = self.stator.states.get(p) {
+                if state.pruning_allowed() {
+                    delete = true;
+                }
+            }
+            if delete {
+                for i in 0..self.stator.states[p].op.operands_len() {
+                    let op = self.stator.states[p].op.operands()[i];
+                    if self.stator.states[op].dec_rc().is_none() {
+                        return Err(Error::OtherStr("tried to subtract a 0 reference count"))
+                    };
+                    pstate_stack.push(op);
+                }
+                let mut state = self.stator.states.remove(p).unwrap();
+                for p_self_state in state.p_self_bits.drain(..) {
+                    if let Some(p_self_state) = p_self_state {
+                        self.backrefs.remove_key(p_self_state).unwrap();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn force_remove_all_states(&mut self) -> Result<(), Error> {
+        // set associated states to none to help prevent issues when there are no
+        // generation counters
+        self.remove_all_rnode_associated_states();
+        for (_, mut state) in self.stator.states.drain() {
+            for p_self_state in state.p_self_bits.drain(..) {
+                if let Some(p_self_state) = p_self_state {
+                    self.backrefs.remove_key(p_self_state).unwrap();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[must_use]
     pub fn get_state_debug(&self, p_state: PState) -> Option<String> {
         self.stator
             .states
@@ -105,16 +251,28 @@ impl Ensemble {
             .map(|state| format!("{p_state} {state:#?}"))
     }
 
-    pub fn dec_rc(&mut self, p_state: PState) -> Result<(), Error> {
+    pub fn state_dec_extern_rc(&mut self, p_state: PState) -> Result<(), Error> {
+        if let Some(state) = self.stator.states.get_mut(p_state) {
+            state.extern_rc = if let Some(x) = state.extern_rc.checked_sub(1) {
+                x
+            } else {
+                return Err(Error::OtherStr("tried to subtract a 0 reference count"))
+            };
+            self.remove_state_if_pruning_allowed(p_state)?;
+            Ok(())
+        } else {
+            Err(Error::InvalidPtr)
+        }
+    }
+
+    pub fn state_dec_rc(&mut self, p_state: PState) -> Result<(), Error> {
         if let Some(state) = self.stator.states.get_mut(p_state) {
             state.rc = if let Some(x) = state.rc.checked_sub(1) {
                 x
             } else {
                 return Err(Error::OtherStr("tried to subtract a 0 reference count"))
             };
-            if state.pruning_allowed() {
-                self.remove_state(p_state)?;
-            }
+            self.remove_state_if_pruning_allowed(p_state)?;
             Ok(())
         } else {
             Err(Error::InvalidPtr)
@@ -125,10 +283,7 @@ impl Ensemble {
     pub fn prune_unused_states(&mut self) -> Result<(), Error> {
         let mut adv = self.stator.states.advancer();
         while let Some(p_state) = adv.advance(&self.stator.states) {
-            let state = &self.stator.states[p_state];
-            if state.pruning_allowed() {
-                self.remove_state(p_state).unwrap();
-            }
+            self.remove_state_if_pruning_allowed(p_state).unwrap();
         }
         Ok(())
     }
@@ -151,22 +306,24 @@ impl Ensemble {
                 let len = state.op.operands_len();
                 for i in 0..len {
                     let source = self.stator.states[p_state].op.operands()[i];
-                    self.dec_rc(source).unwrap();
+                    self.state_dec_rc(source).unwrap();
                 }
                 // if the `op` is manually replaced outside of the specially handled lowering
                 // `Copy` replacements, we need to check the values or else this change could be
                 // lost if this was done after initializing `p_self_bits`
-                let state = &mut self.stator.states[p_state];
-                if !state.p_self_bits.is_empty() {
-                    debug_assert_eq!(state.p_self_bits.len(), x.bw());
+                if !self.stator.states[p_state].p_self_bits.is_empty() {
+                    debug_assert_eq!(self.stator.states[p_state].p_self_bits.len(), x.bw());
                     for i in 0..x.bw() {
-                        if let Some(p_bit) = state.p_self_bits[i] {
+                        if let Some(p_bit) = self.stator.states[p_state].p_self_bits[i] {
                             let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
-                            self.evaluator.insert(Eval::Change(Change {
-                                depth: 0,
+                            // unwrap because this should never fail, events would process
+                            // incorrectly
+                            self.change_value(
                                 p_equiv,
-                                value: Value::Const(x.get(i).unwrap()),
-                            }));
+                                Value::Const(x.get(i).unwrap()),
+                                NonZeroU64::new(1).unwrap(),
+                            )
+                            .unwrap();
                         }
                     }
                 }
@@ -191,7 +348,7 @@ impl Ensemble {
                     // anything
                     let state = self.stator.states.get_mut(p_state).unwrap();
                     debug_assert_eq!(state.rc, 0);
-                    self.remove_state(p_state).unwrap();
+                    self.remove_state_if_pruning_allowed(p_state).unwrap();
                     Ok(())
                 } else {
                     unreachable!()
@@ -238,21 +395,35 @@ impl Ensemble {
                 match self.stator.states[p_state].op {
                     Literal(ref lit) => {
                         debug_assert_eq!(lit.nzbw(), nzbw);
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
+                        self.initialize_state_bits_if_needed(p_state)?;
+                    }
+                    Argument(ref a) => {
+                        debug_assert_eq!(a.nzbw(), nzbw);
                     }
                     Opaque(_, name) => {
                         if let Some(name) = name {
-                            if name == "LoopSource" {
-                                return Err(Error::OtherStr(
-                                    "cannot lower LoopSource opaque with no driver, most likely \
-                                     some `Loop` or `Net` has been left undriven",
-                                ))
+                            match name {
+                                "LazyOpaque" => (),
+                                "Delay" => {
+                                    return Err(Error::OtherStr(
+                                        "cannot lower delay opaque with no `Op` inputs, some \
+                                         variant was violated",
+                                    ))
+                                }
+                                "UndrivenLoopSource" | "LoopSource" | "DelayedLoopSource" => {
+                                    return Err(Error::OtherStr(
+                                        "cannot lower loop source opaque with no initial value, \
+                                         some variant was violated",
+                                    ))
+                                }
+                                name => {
+                                    return Err(Error::OtherString(format!(
+                                        "cannot lower root opaque with name {name}"
+                                    )))
+                                }
                             }
-                            return Err(Error::OtherString(format!(
-                                "cannot lower root opaque with name {name}"
-                            )))
                         }
-                        self.initialize_state_bits_if_needed(p_state).unwrap();
+                        self.initialize_state_bits_if_needed(p_state)?;
                     }
                     ref op => return Err(Error::OtherString(format!("cannot lower {op:?}"))),
                 }
@@ -274,7 +445,7 @@ impl Ensemble {
                     // in the case of circular cases with `Loop`s, if the DFS goes around and does
                     // not encounter a root, the argument needs to be initialized or else any branch
                     // of `lower_elementary_to_lnodes_intermediate` could fail
-                    self.initialize_state_bits_if_needed(p_next).unwrap();
+                    self.initialize_state_bits_if_needed(p_next)?;
                     // do not visit
                     path.last_mut().unwrap().0 += 1;
                 } else {
@@ -292,10 +463,10 @@ impl Ensemble {
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         // the state can get removed by the above step
         if lock.ensemble.stator.states.contains(p_state) {
-            let res = lock.ensemble.dfs_lower_elementary_to_lnodes(p_state);
-            res.unwrap();
+            lock.ensemble.dfs_lower_elementary_to_lnodes(p_state)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     /// Lowers `RNode`s with the `lower_before_pruning` flag
@@ -304,31 +475,42 @@ impl Ensemble {
         let mut adv = lock.ensemble.notary.rnodes().advancer();
         drop(lock);
         loop {
-            let lock = epoch_shared.epoch_data.borrow();
+            let mut lock = epoch_shared.epoch_data.borrow_mut();
             if let Some(p_rnode) = adv.advance(lock.ensemble.notary.rnodes()) {
                 // only lower state trees attached to rnodes that need lowering
-                let rnode = &lock.ensemble.notary.rnodes()[p_rnode];
+                let rnode = lock.ensemble.notary.rnodes.get_val_mut(p_rnode).unwrap();
                 if rnode.lower_before_pruning {
-                    let p_state = rnode.associated_state.unwrap();
-                    if lock.ensemble.stator.states.contains(p_state) {
-                        drop(lock);
-                        Ensemble::dfs_lower(epoch_shared, p_state)?;
-                    } else {
-                        drop(lock);
-                    }
+                    drop(lock);
+                    Ensemble::initialize_rnode_if_needed(epoch_shared, p_rnode, true)?;
                 } else {
+                    lock.ensemble
+                        .initialize_rnode_if_needed_no_lowering(p_rnode, true)?;
                     drop(lock);
                 }
-                // tricky: need to be initialized
-                let mut lock = epoch_shared.epoch_data.borrow_mut();
-                lock.ensemble
-                    .initialize_rnode_if_needed(p_rnode, true)
-                    .unwrap();
             } else {
                 break
             }
         }
 
+        Ok(())
+    }
+
+    pub fn handle_states_to_lower(epoch_shared: &EpochShared) -> Result<(), Error> {
+        // empty `states_to_lower`
+        loop {
+            let mut lock = epoch_shared.epoch_data.borrow_mut();
+            if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
+                if let Some(state) = lock.ensemble.stator.states.get(p_state) {
+                    // first check that it has not already been lowered
+                    if !state.lowered_to_lnodes {
+                        drop(lock);
+                        Ensemble::dfs_lower(epoch_shared, p_state)?;
+                    }
+                }
+            } else {
+                break
+            }
+        }
         Ok(())
     }
 }
@@ -337,7 +519,7 @@ fn lower_elementary_to_lnodes_intermediate(
     this: &mut Ensemble,
     p_state: PState,
 ) -> Result<(), Error> {
-    this.initialize_state_bits_if_needed(p_state).unwrap();
+    this.initialize_state_bits_if_needed(p_state)?;
     match this.stator.states[p_state].op {
         Assert([x]) => {
             // this is the only foolproof way of doing this, at least without more
@@ -455,9 +637,7 @@ fn lower_elementary_to_lnodes_intermediate(
                     }
                     val
                 };
-                let p_equiv0 = this
-                    .make_lut(&inx_bits, &single_bit_lut, Some(p_state))
-                    .unwrap();
+                let p_equiv0 = this.make_lut(&inx_bits, &single_bit_lut, Some(p_state));
                 let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
                 this.union_equiv(p_equiv0, p_equiv1).unwrap();
             }
@@ -484,9 +664,7 @@ fn lower_elementary_to_lnodes_intermediate(
                         p_lut_bits.push(DynamicValue::ConstUnknown);
                     }
                 }
-                let p_equiv0 = this
-                    .make_dynamic_lut(&inx_bits, &p_lut_bits, Some(p_state))
-                    .unwrap();
+                let p_equiv0 = this.make_dynamic_lut(&inx_bits, &p_lut_bits, Some(p_state));
                 let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
                 this.union_equiv(p_equiv0, p_equiv1).unwrap();
             }
@@ -502,41 +680,235 @@ fn lower_elementary_to_lnodes_intermediate(
             for bit_i in 0..out_bw {
                 let lut0 = this.stator.states[lhs].p_self_bits[bit_i].unwrap();
                 let lut1 = this.stator.states[rhs].p_self_bits[bit_i].unwrap();
-                let p_equiv0 = this
-                    .make_dynamic_lut(
-                        &[inx_bit],
-                        &[DynamicValue::Dynam(lut0), DynamicValue::Dynam(lut1)],
-                        Some(p_state),
-                    )
-                    .unwrap();
+                let p_equiv0 = this.make_dynamic_lut(
+                    &[inx_bit],
+                    &[DynamicValue::Dynam(lut0), DynamicValue::Dynam(lut1)],
+                    Some(p_state),
+                );
                 let p_equiv1 = this.stator.states[p_state].p_self_bits[bit_i].unwrap();
                 this.union_equiv(p_equiv0, p_equiv1).unwrap();
             }
         }
         Opaque(ref v, name) => {
-            if name == Some("LoopSource") {
-                if v.len() != 1 {
-                    return Err(Error::OtherStr("cannot lower an undriven `Loop`"))
+            if let Some(name) = name {
+                match name {
+                    DELAY => {
+                        if v.len() != 2 {
+                            return Err(Error::OtherStr(
+                                "`Delay` has an unexpected number of arguments",
+                            ))
+                        }
+                        let w = this.stator.states[p_state].p_self_bits.len();
+                        let p_driver_state = v[0];
+                        let p_delay_state = v[1];
+                        let delay =
+                            if let Op::Argument(ref delay) = this.stator.states[p_delay_state].op {
+                                // the delay should have had `shrink_to_msb` called on it
+                                if delay.bw() > 128 {
+                                    return Err(Error::OtherStr(
+                                        "`Delay` delay amount is unexpectedly large",
+                                    ))
+                                }
+                                if delay.is_zero() {
+                                    // the function that creates `Delay` is supposed to do a no-op
+                                    // or copy instead
+                                    return Err(Error::OtherStr("`Delay` delay amount is zero"))
+                                }
+                                Delay::from_amount(delay.to_u128())
+                            } else {
+                                return Err(Error::OtherStr(
+                                    "`Delay` does not use the correct `Op::Argument`",
+                                ))
+                            };
+                        for i in 0..w {
+                            let p_driver =
+                                this.stator.states[p_driver_state].p_self_bits[i].unwrap();
+                            // We could potentially set the initial value to the initial value of
+                            // the driver, but I suspect that unlike the `LazyAwi` driving case,
+                            // this is fundamentally an ill defined issue when zero delay loops are
+                            // involved. I believe that for the `drive` function interface at least,
+                            // the source should simply start as a dynamic unknown and let the
+                            // delayed drive update it later.
+
+                            // however we do want the initial value to detect immediate quiescence
+                            // when the driver is already `Unknown`
+                            let init_val = this.backrefs.get_val(p_driver).unwrap().val;
+                            let p_source = this.stator.states[p_state].p_self_bits[i].unwrap();
+
+                            let p_tnode = this.make_tnode(p_source, p_driver, delay);
+                            if init_val != Value::Unknown {
+                                // setup the delayed drive
+                                this.eval_tnode(p_tnode).unwrap();
+                            }
+                        }
+                    }
+                    UNDRIVEN_LOOP_SOURCE => {
+                        if v.len() != 1 {
+                            return Err(Error::OtherStr(
+                                "undriven loop source has an unexpected number of arguments",
+                            ))
+                        }
+                        return Err(Error::OtherString(format!(
+                            "cannot lower an undriven `Loop` or `Net`, some `drive_*` function \
+                             has not been called on a loop source with state {p_state}"
+                        )))
+                    }
+                    LOOP_SOURCE => {
+                        if v.len() != 2 {
+                            return Err(Error::OtherStr(
+                                "loop source has an unexpected number of arguments",
+                            ))
+                        }
+                        let w = this.stator.states[p_state].p_self_bits.len();
+                        let p_initial_state = v[0];
+                        let p_driver_state = v[1];
+                        if w != this.stator.states[p_initial_state].p_self_bits.len() {
+                            return Err(Error::OtherStr(
+                                "`Loop` has a bitwidth mismatch of looper and initial state",
+                            ))
+                        }
+                        if w != this.stator.states[p_driver_state].p_self_bits.len() {
+                            return Err(Error::OtherStr(
+                                "`Loop` has a bitwidth mismatch of looper and driver",
+                            ))
+                        }
+                        for i in 0..w {
+                            let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
+                            let p_driver =
+                                this.stator.states[p_driver_state].p_self_bits[i].unwrap();
+                            let p_initial =
+                                this.stator.states[p_initial_state].p_self_bits[i].unwrap();
+                            let init_val = this.backrefs.get_val(p_initial).unwrap().val;
+                            // the loop source is an internal `Opaque` root at this point, we
+                            // initiate the initial event chain ourselves.
+
+                            let p_tnode = this.make_tnode(p_looper, p_driver, Delay::zero());
+
+                            // In most cases, the initial loop value ends up looping around to
+                            // overwrite whatever the source was, however if it does not do so for
+                            // zero delay nodes, we need to have a backup event with the lowest
+                            // priority
+                            this.evaluator.push_event(Event {
+                                partial_ord_num: NonZeroU64::MAX,
+                                change_kind: ChangeKind::TNode(p_tnode),
+                            });
+
+                            // an interesting thing that falls out is that a const value downcasts
+                            // to a dynamic value, perhaps there should
+                            // be an integer level of constness?
+
+                            let init_val = match init_val {
+                                Value::ConstUnknown => Value::Unknown,
+                                Value::Const(b) => Value::Dynam(b),
+                                Value::Unknown | Value::Dynam(_) => {
+                                    return Err(Error::OtherStr(
+                                        "A `Loop`'s initial value could not be calculated as a \
+                                         constant known or constant unknown in lowering, the \
+                                         argument to `Loop::from_*` needs to evaluate to a \
+                                         constant",
+                                    ));
+                                }
+                            };
+                            // initial event for the initial value, need to do this in general
+                            // because the state bit can get optimized away before we actually use
+                            // it
+                            let p_back = this.backrefs.get_val(p_looper).unwrap().p_self_equiv;
+                            this.evaluator.push_event(Event {
+                                partial_ord_num: NonZeroU64::new(1).unwrap(),
+                                change_kind: ChangeKind::Manual(p_back, init_val),
+                            });
+                        }
+                    }
+                    DELAYED_LOOP_SOURCE => {
+                        if v.len() != 3 {
+                            return Err(Error::OtherStr(
+                                "delayed loop source has an unexpected number of arguments",
+                            ))
+                        }
+                        let w = this.stator.states[p_state].p_self_bits.len();
+                        let p_initial_state = v[0];
+                        let p_driver_state = v[1];
+                        let p_delay_state = v[2];
+                        if w != this.stator.states[p_initial_state].p_self_bits.len() {
+                            return Err(Error::OtherStr(
+                                "`Loop` has a bitwidth mismatch of looper and initial state",
+                            ))
+                        }
+                        if w != this.stator.states[p_driver_state].p_self_bits.len() {
+                            return Err(Error::OtherStr(
+                                "`Loop` has a bitwidth mismatch of looper and driver",
+                            ))
+                        }
+                        let delay =
+                            if let Op::Argument(ref delay) = this.stator.states[p_delay_state].op {
+                                // the delay should have had `shrink_to_msb` called on it
+                                if delay.bw() > 128 {
+                                    return Err(Error::OtherStr(
+                                        "`Delay` delay amount is unexpectedly large",
+                                    ))
+                                }
+                                if delay.is_zero() {
+                                    // the function that creates `Delay` is supposed to do a no-op
+                                    // or copy instead
+                                    return Err(Error::OtherStr("`Delay` delay amount is zero"))
+                                }
+                                Delay::from_amount(delay.to_u128())
+                            } else {
+                                return Err(Error::OtherStr(
+                                    "`Delay` does not use the correct `Op::Argument`",
+                                ))
+                            };
+                        if delay.is_zero() {
+                            // the function that creates DELAYED_LOOP_SOURCE is supposed to do a
+                            // LOOP_SOURCE instead
+                            return Err(Error::OtherStr("delayed loop source delay amount is zero"))
+                        }
+                        for i in 0..w {
+                            let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
+                            let p_driver =
+                                this.stator.states[p_driver_state].p_self_bits[i].unwrap();
+                            let p_initial =
+                                this.stator.states[p_initial_state].p_self_bits[i].unwrap();
+                            let init_val = this.backrefs.get_val(p_initial).unwrap().val;
+
+                            let p_tnode = this.make_tnode(p_looper, p_driver, delay);
+                            if !delay.is_zero() {
+                                // immediately setup an event
+                                this.eval_tnode(p_tnode).unwrap();
+                            } else {
+                                // least priority event for the reason specified in the `LoopSource`
+                                // case
+                                this.evaluator.push_event(Event {
+                                    partial_ord_num: NonZeroU64::MAX,
+                                    change_kind: ChangeKind::TNode(p_tnode),
+                                });
+                            }
+
+                            let init_val = match init_val {
+                                Value::ConstUnknown => Value::Unknown,
+                                Value::Const(b) => Value::Dynam(b),
+                                Value::Unknown | Value::Dynam(_) => {
+                                    return Err(Error::OtherStr(
+                                        "A `Loop`'s initial value could not be calculated as a \
+                                         constant known or constant unknown in lowering, the \
+                                         argument to `Loop::from_*` needs to evaluate to a \
+                                         constant",
+                                    ));
+                                }
+                            };
+                            let p_back = this.backrefs.get_val(p_looper).unwrap().p_self_equiv;
+                            this.evaluator.push_event(Event {
+                                partial_ord_num: NonZeroU64::new(1).unwrap(),
+                                change_kind: ChangeKind::Manual(p_back, init_val),
+                            });
+                        }
+                    }
+                    _ => {
+                        return Err(Error::OtherString(format!(
+                            "cannot lower opaque with name {name:?}"
+                        )))
+                    }
                 }
-                let p_driver_state = v[0];
-                let w = this.stator.states[p_state].p_self_bits.len();
-                if w != this.stator.states[p_driver_state].p_self_bits.len() {
-                    return Err(Error::OtherStr(
-                        "`Loop` has a bitwidth mismatch of looper and driver",
-                    ))
-                }
-                for i in 0..w {
-                    let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
-                    let p_driver = this.stator.states[p_driver_state].p_self_bits[i].unwrap();
-                    this.make_loop(p_looper, p_driver, Value::Dynam(false))
-                        .unwrap();
-                }
-            } else if let Some(name) = name {
-                return Err(Error::OtherString(format!(
-                    "cannot lower opaque with name \"{name}\""
-                )))
-            } else {
-                return Err(Error::OtherStr("cannot lower opaque with no name"))
             }
         }
         ref op => return Err(Error::OtherString(format!("cannot lower {op:?}"))),

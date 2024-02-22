@@ -2,8 +2,10 @@ use std::{cmp::min, num::NonZeroUsize};
 
 use starlight::{
     awint::{awi, dag},
+    delay,
     triple_arena::{ptr_struct, Arena},
-    Epoch, EvalAwi, LazyAwi, StarRng,
+    utils::StarRng,
+    Epoch, EvalAwi, LazyAwi,
 };
 
 #[cfg(debug_assertions)]
@@ -14,7 +16,7 @@ const N: (usize, usize) = (50, 1000);
 
 ptr_struct!(P0);
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Pair {
     awi: awi::Awi,
     dag: dag::Awi,
@@ -89,9 +91,9 @@ impl Mem {
     /// Randomly creates a new pair or gets an existing one under the `cap`
     pub fn next_capped(&mut self, w: usize, cap: usize) -> P0 {
         if self.rng.out_of_4(3) && (!self.v[w].is_empty()) {
-            let p = self.rng.index_slice(&self.v[w]).unwrap();
-            if self.get(*p).awi.to_usize() < cap {
-                return *p
+            let p = *self.rng.index_slice(&self.v[w]).unwrap();
+            if self.get_awi(p).to_usize() < cap {
+                return p
             }
         }
         let nzbw = NonZeroUsize::new(w).unwrap();
@@ -119,8 +121,12 @@ impl Mem {
         self.next_capped(usize::BITS as usize, cap)
     }
 
-    pub fn get(&self, inx: P0) -> Pair {
-        self.a[inx].clone()
+    pub fn get_awi(&self, inx: P0) -> awi::Awi {
+        self.a[inx].awi.clone()
+    }
+
+    pub fn get_dag(&self, inx: P0) -> dag::Awi {
+        self.a[inx].dag.clone()
     }
 
     pub fn finish(&mut self, epoch: &Epoch) {
@@ -137,6 +143,9 @@ impl Mem {
             lazy.retro_(lit).unwrap();
         }
 
+        epoch.run(1 << 32).unwrap();
+        assert!(epoch.quiesced().unwrap());
+
         // evaluate all
         epoch.assert_assertions(true).unwrap();
         for pair in self.a.vals() {
@@ -145,8 +154,9 @@ impl Mem {
     }
 }
 
-fn operation(rng: &mut StarRng, m: &mut Mem) {
-    match rng.index(4).unwrap() {
+fn operation(rng: &mut StarRng, m: &mut Mem, use_tnodes: bool) {
+    let op = rng.index(4).unwrap();
+    match op {
         // Copy
         0 => {
             // doesn't actually do anything on the DAG side, but we use it to get parallel
@@ -157,6 +167,9 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
                 let (to, from) = m.a.get2_mut(to, from).unwrap();
                 to.awi.copy_(&from.awi).unwrap();
                 to.dag.copy_(&from.dag).unwrap();
+                if use_tnodes {
+                    delay(&mut to.dag, rng.index(4).unwrap() as u128);
+                }
             }
         }
         // Get-Set
@@ -176,32 +189,33 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
             let w1 = 4 << rng.index(4).unwrap();
             let min_w = min(w0, w1);
             let width = m.next_usize(min_w + 1);
-            let from = m.next_usize(1 + w0 - m.get(width).awi.to_usize());
-            let to = m.next_usize(1 + w1 - m.get(width).awi.to_usize());
+            let from = m.next_usize(1 + w0 - m.get_awi(width).to_usize());
+            let to = m.next_usize(1 + w1 - m.get_awi(width).to_usize());
             let rhs = m.next(w0);
             let lhs = m.next(w1);
 
-            let from_a = m.get(from);
-            let to_a = m.get(to);
-            let width_a = m.get(width);
-            let rhs_a = m.get(rhs);
+            let from_a = m.get_awi(from);
+            let to_a = m.get_awi(to);
+            let width_a = m.get_awi(width);
+            let rhs_a = m.get_awi(rhs);
             m.a[lhs]
                 .awi
                 .field(
-                    to_a.awi.to_usize(),
-                    &rhs_a.awi,
-                    from_a.awi.to_usize(),
-                    width_a.awi.to_usize(),
+                    to_a.to_usize(),
+                    &rhs_a,
+                    from_a.to_usize(),
+                    width_a.to_usize(),
                 )
                 .unwrap();
             // use the `awi` versions for the shift information
+            let rhs_b = m.get_dag(rhs);
             m.a[lhs]
                 .dag
                 .field(
-                    to_a.awi.to_usize(),
-                    &rhs_a.dag,
-                    from_a.awi.to_usize(),
-                    width_a.awi.to_usize(),
+                    to_a.to_usize(),
+                    &rhs_b,
+                    from_a.to_usize(),
+                    width_a.to_usize(),
                 )
                 .unwrap();
         }
@@ -210,10 +224,12 @@ fn operation(rng: &mut StarRng, m: &mut Mem) {
             let out = m.next(1);
             let (inx_w, inx) = m.next6();
             let lut = m.next(1 << inx_w);
-            let lut_a = m.get(lut);
-            let inx_a = m.get(inx);
-            m.a[out].awi.lut_(&lut_a.awi, &inx_a.awi).unwrap();
-            m.a[out].dag.lut_(&lut_a.dag, &inx_a.dag).unwrap();
+            let lut_a = m.get_awi(lut);
+            let inx_a = m.get_awi(inx);
+            m.a[out].awi.lut_(&lut_a, &inx_a).unwrap();
+            let lut_b = m.get_dag(lut);
+            let inx_b = m.get_dag(inx);
+            m.a[out].dag.lut_(&lut_b, &inx_b).unwrap();
         }
         _ => unreachable!(),
     }
@@ -225,9 +241,11 @@ fn fuzz_elementary() {
     let mut m = Mem::new();
 
     for _ in 0..N.1 {
+        //let mut rng = StarRng::new(i as u64);
+        //m.rng = StarRng::new((i + 1) as u64);
         let epoch = Epoch::new();
         for _ in 0..N.0 {
-            operation(&mut rng, &mut m)
+            operation(&mut rng, &mut m, false)
         }
         m.finish(&epoch);
         epoch.verify_integrity().unwrap();
@@ -240,4 +258,27 @@ fn fuzz_elementary() {
     }
 }
 
-// TODO need a version with loops and random rnodes
+#[test]
+fn fuzz_elementary_with_delay() {
+    let mut rng = StarRng::new(0);
+    let mut m = Mem::new();
+
+    for _ in 0..N.1 {
+        //let mut rng = StarRng::new(i as u64);
+        //m.rng = StarRng::new((i + 1) as u64);
+        let epoch = Epoch::new();
+        for _ in 0..N.0 {
+            operation(&mut rng, &mut m, true)
+        }
+        m.finish(&epoch);
+        epoch.verify_integrity().unwrap();
+        m.verify_equivalence(&epoch);
+        epoch.optimize().unwrap();
+        m.verify_equivalence(&epoch);
+        // TODO verify stable optimization
+        drop(epoch);
+        m.clear();
+    }
+}
+
+// TODO need a version that precisely times `TNode`s

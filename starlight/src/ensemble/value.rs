@@ -1,13 +1,13 @@
-use std::num::{NonZeroU64, NonZeroUsize};
-
-use awint::{
-    awi::*,
-    awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena},
+use std::{
+    cmp::{Ordering, Reverse},
+    collections::BinaryHeap,
+    num::{NonZeroU64, NonZeroUsize},
 };
 
+use awint::{awi::*, awint_dag::triple_arena::Advancer};
+
 use crate::{
-    ensemble::{Ensemble, LNode, LNodeKind, PBack, PLNode, PTNode, Referent},
-    epoch::EpochShared,
+    ensemble::{Ensemble, PBack, PLNode, PTNode, Referent},
     Error,
 };
 
@@ -38,6 +38,7 @@ impl BasicValue {
         self.nzbw().get()
     }
 
+    #[must_use]
     pub fn get(&self, inx: usize) -> Option<Option<bool>> {
         if inx >= self.bw() {
             None
@@ -140,744 +141,290 @@ pub enum DynamicValue {
     Dynam(PBack),
 }
 
-/*
-Consider a request front where we want to know if the output of a LUT is unable to change and thus
-that part of the front can be eliminated
+// Here are some of the reasons why we have chosen this somewhat convoluted
+// evaluator strategy. We want to prevent a situation where we receive a command
+// to change an equivalence value, then propogate changes as far as they will go
+// down potentially most of the DAG, then do that whole cascade for every change
+// made. Changes made to equivalences can stay in place until the point where a
+// request for a downstream value is made. A secondary goal is to avoid
+// unneccessary calculations from change propogations if they don't actually
+// lead to a request.
 
-a b
-0 0
-_____
-0 0 | 0
-0 1 | 0
-1 0 | 1
-1 1 | 0
-    ___
-      0
+// What we most want to avoid is globally requesting `TNode` drivers when most
+// of them are not actually being changed. We color regions connected by
+// `LNode`s, and have a surject arena over equivalences, and the `Delayer` does
+// its event processing on that level.
 
-If `b` changes but `a` stays, the output will not change, so what we can do is explore just `a`
-first. If `a` doesn't change the front stops as it should. If `a` does change then when the front
-reaches back `b` must then be explored.
+// Within each region, we could use the cascade front strategy that starts from
+// the roots or from the immediate precalculated descendants of the roots,
+// progressing when counters associated with the inputs of each `LNode` reach
+// zero. However, if the region source tree is large and only one small part has
+// been changed, there is a lot of wasted computation. Instead of the front
+// strategy or an intermediate change-request strategy that had issues of still
+// needing to request the whole thing, we have a modified event propogation
+// strategy that avoids the overwriting waste problem. Now that we have the
+// extra surjection level with known DAGs, what we do is assign partially
+// ordered integers over the DAG, such that an equivalence's number must be
+// greater than the maximum number of any of its dependencies. The event
+// propogation is calculated in order from least to greatest numbered. So, an
+// equivalence will not be calculated until its dependencies are.
 
-We will call the number of inputs that could lead to an early termination number_a
-TODO find better name
+// However, to allow any changes to the equivalence graph we need more referents
+// and a lot of development time. The current strategy is an approximation of
+// the above, where we calculate the partial ordering on the fly. After the
+// first few cascades, the existing partial orderings will help prevent both DAG
+// region overwrites and more complicated
+// multi-DAG-connected-by-zero-delay-length overwrites that the above strategy
+// would require even more to handle.
 
-*/
+// I have torn out an old change/request bifurcation strategy because it is
+// probably practically useless for e.g. Island FPGA simulation which strongly
+// favors change only event cascading, but for other purposes I envision we may
+// want to revisit it
 
-ptr_struct!(PRequestFront; PEval);
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvalPhase {
     Change,
     Request,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RequestLNode {
-    pub depth: i64,
-    pub number_a: u8,
-    pub p_back_lnode: PBack,
+#[derive(Debug, Clone, Copy)]
+pub enum ChangeKind {
+    LNode(PLNode),
+    TNode(PTNode),
+    // this needs to exist to initialize loops correctly, or maybe make manual changes.
+    // `initialize_state_bits_if_needed` could use the initial value and let the values cascade in
+    // initializations rather than events, but the problem is that the DFS lowering can loop
+    // around due to the other requirement to avoid handles and start from anywhere, which leads
+    // to downstream values getting initialized as unknown rather than the correct initial value
+    // getting propogated.
+    Manual(PBack, Value),
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RequestTNode {
-    pub depth: i64,
-    pub number_a: u8,
-    pub p_back_tnode: PBack,
+/// Note that the `Eq`, `Ord`, etc traits are implemented to only order on
+/// `partial_ord_num`
+#[derive(Debug, Clone, Copy)]
+pub struct Event {
+    pub partial_ord_num: NonZeroU64,
+    pub change_kind: ChangeKind,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Change {
-    pub depth: i64,
-    pub p_equiv: PBack,
-    pub value: Value,
+impl PartialEq for Event {
+    fn eq(&self, other: &Self) -> bool {
+        self.partial_ord_num == other.partial_ord_num
+    }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Eval {
-    Investigate0(i64, PBack),
-    ChangeLNode(PLNode),
-    ChangeTNode(PTNode),
-    Change(Change),
-    RequestLNode(RequestLNode),
-    RequestTNode(RequestTNode),
-    /// When we have run out of normal things this will activate lowering
-    Investigate1(PBack),
+impl Eq for Event {}
+
+impl PartialOrd for Event {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.partial_ord_num.cmp(&other.partial_ord_num))
+    }
+}
+
+impl Ord for Event {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_ord_num.cmp(&other.partial_ord_num)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Evaluator {
     phase: EvalPhase,
-    change_visit_gen: NonZeroU64,
-    request_visit_gen: NonZeroU64,
-    evaluations: OrdArena<PEval, Eval, ()>,
+    /// Events that can accumulate during `Change` phase, but must all be
+    /// processed before `Request` phase can start
+    events: BinaryHeap<Reverse<Event>>,
 }
 
 impl Evaluator {
     pub fn new() -> Self {
         Self {
             phase: EvalPhase::Change,
-            change_visit_gen: NonZeroU64::new(2).unwrap(),
-            request_visit_gen: NonZeroU64::new(2).unwrap(),
-            evaluations: OrdArena::new(),
+            events: BinaryHeap::new(),
         }
     }
 
-    /// Checks that there are no remaining evaluations, then shrinks allocations
+    /// Checks that there are no remaining events, then shrinks allocations
     pub fn check_clear(&mut self) -> Result<(), Error> {
-        if !self.evaluations.is_empty() {
-            return Err(Error::OtherStr("evaluations need to be empty"));
+        if !self.events.is_empty() {
+            return Err(Error::OtherStr("events need to be empty"));
         }
-        self.evaluations.clear_and_shrink();
+        self.events.clear();
+        self.events.shrink_to_fit();
         Ok(())
     }
 
-    pub fn change_visit_gen(&self) -> NonZeroU64 {
-        self.change_visit_gen
+    pub fn are_events_empty(&self) -> bool {
+        self.events.is_empty()
     }
 
-    pub fn next_change_visit_gen(&mut self) -> NonZeroU64 {
-        self.change_visit_gen =
-            NonZeroU64::new(self.change_visit_gen.get().checked_add(1).unwrap()).unwrap();
-        self.change_visit_gen
+    pub fn push_event(&mut self, event: Event) {
+        self.events.push(Reverse(event))
     }
 
-    pub fn request_visit_gen(&self) -> NonZeroU64 {
-        self.request_visit_gen
-    }
-
-    pub fn next_request_visit_gen(&mut self) -> NonZeroU64 {
-        self.request_visit_gen =
-            NonZeroU64::new(self.request_visit_gen.get().checked_add(1).unwrap()).unwrap();
-        self.request_visit_gen
-    }
-
-    pub fn insert(&mut self, eval_step: Eval) {
-        let _ = self.evaluations.insert(eval_step, ());
+    #[must_use]
+    pub fn pop_event(&mut self) -> Option<Event> {
+        self.events.pop().map(|e| e.0)
     }
 }
 
 impl Ensemble {
-    /// If the returned vector is empty, evaluation was successful, otherwise
-    /// what is needed for evaluation is returned
-    pub fn try_eval_lnode(&mut self, p_lnode: PLNode, depth: i64) -> Vec<RequestLNode> {
-        let mut res = vec![];
-        // read current inputs
-        let lnode = self.lnodes.get(p_lnode).unwrap();
-        let p_equiv = self.backrefs.get_val(lnode.p_self).unwrap().p_self_equiv;
-        match &lnode.kind {
-            LNodeKind::Copy(p_inp) => {
-                let equiv = self.backrefs.get_val(*p_inp).unwrap();
-                if equiv.val.is_const() || (equiv.change_visit == self.evaluator.change_visit_gen())
-                {
-                    self.evaluator.insert(Eval::Change(Change {
-                        depth,
-                        p_equiv,
-                        value: equiv.val,
-                    }));
-                } else {
-                    res.push(RequestLNode {
-                        depth: depth - 1,
-                        number_a: 0,
-                        p_back_lnode: *p_inp,
-                    });
-                }
-            }
-            LNodeKind::Lut(inp, original_lut) => {
-                let len = u8::try_from(inp.len()).unwrap();
-                let len = usize::from(len);
-                // the nominal value of the inputs
-                let mut inp_val = Awi::zero(NonZeroUsize::new(len).unwrap());
-                // corresponding bits are set if the input is either a const value or is
-                // already evaluated
-                let mut fixed = inp_val.clone();
-                // corresponding bits are set if the input is `Value::Unknown`
-                let mut unknown = inp_val.clone();
-                for i in 0..len {
-                    let p_inp = inp[i];
-                    let equiv = self.backrefs.get_val(p_inp).unwrap();
-                    match equiv.val {
-                        Value::ConstUnknown => {
-                            fixed.set(i, true).unwrap();
-                            unknown.set(i, true).unwrap();
-                        }
-                        Value::Const(val) => {
-                            fixed.set(i, true).unwrap();
-                            inp_val.set(i, val).unwrap();
-                        }
-                        Value::Unknown => {
-                            if equiv.change_visit == self.evaluator.change_visit_gen() {
-                                fixed.set(i, true).unwrap();
-                                unknown.set(i, true).unwrap();
-                            }
-                        }
-                        Value::Dynam(val) => {
-                            if equiv.change_visit == self.evaluator.change_visit_gen() {
-                                fixed.set(i, true).unwrap();
-                                inp_val.set(i, val).unwrap()
-                            }
-                        }
-                    }
-                }
-                let mut lut = original_lut.clone();
-
-                // In an earlier version there was a test where if fixed and unknown bits
-                // influence the value, then the equiv can be fixed to unknown. However,
-                // consider a lookup table 0100 and an inputs (fixed unknown, 0), where the 0
-                // may be a later fixed value. It will see that the output value is dependent on
-                // the fixed unknown, but misses that the 0 reduces the LUT to 00 which is
-                // independent of the fixed value. We have to wait for all bits to be fixed,
-                // reduce the LUT on known bits, then only change to unknown if the
-                // `lut.is_zero()` and `lut.is_umax` checks fail. The only tables where you
-                // could safely set to unknown earlier are unoptimized.
-
-                // reduce the LUT based on fixed and known bits
-                for i in (0..len).rev() {
-                    if fixed.get(i).unwrap() && (!unknown.get(i).unwrap()) {
-                        LNode::reduce_lut(&mut lut, i, inp_val.get(i).unwrap());
-                    }
-                }
-
-                // if the LUT is all ones or all zeros, we can know that any unfixed or
-                // unknown changes will be unable to affect the
-                // output
-                if lut.is_zero() {
-                    self.evaluator.insert(Eval::Change(Change {
-                        depth,
-                        p_equiv,
-                        value: Value::Dynam(false),
-                    }));
-                    return vec![];
-                } else if lut.is_umax() {
-                    self.evaluator.insert(Eval::Change(Change {
-                        depth,
-                        p_equiv,
-                        value: Value::Dynam(true),
-                    }));
-                    return vec![];
-                }
-                if fixed.is_umax() {
-                    // there are fixed unknown bits influencing the value
-                    self.evaluator.insert(Eval::Change(Change {
-                        depth,
-                        p_equiv,
-                        value: Value::Unknown,
-                    }));
-                    return vec![];
-                }
-                // TODO prioritize bits that could lead to number_a optimization
-
-                // note: we can do this because `fixed` and `unknown` were not reduced along
-                // with the test `lut`
-                for i in (0..inp.len()).rev() {
-                    if (!fixed.get(i).unwrap()) || unknown.get(i).unwrap() {
-                        res.push(RequestLNode {
-                            depth: depth - 1,
-                            number_a: 0,
-                            p_back_lnode: inp[i],
-                        });
-                    }
-                }
-            }
-            LNodeKind::DynamicLut(inp, original_lut) => {
-                let len = u8::try_from(inp.len()).unwrap();
-                let mut len = usize::from(len);
-                // the nominal value of the inputs
-                let mut inp_val = Awi::zero(NonZeroUsize::new(len).unwrap());
-                // corresponding bits are set if the input is either a const value or is
-                // already evaluated
-                let mut fixed = inp_val.clone();
-                // corresponding bits are set if the input is `Value::Unknown`
-                let mut unknown = inp_val.clone();
-                for i in 0..len {
-                    let p_inp = inp[i];
-                    let equiv = self.backrefs.get_val(p_inp).unwrap();
-                    match equiv.val {
-                        Value::ConstUnknown => {
-                            fixed.set(i, true).unwrap();
-                            unknown.set(i, true).unwrap();
-                        }
-                        Value::Const(val) => {
-                            fixed.set(i, true).unwrap();
-                            inp_val.set(i, val).unwrap();
-                        }
-                        Value::Unknown => {
-                            if equiv.change_visit == self.evaluator.change_visit_gen() {
-                                fixed.set(i, true).unwrap();
-                                unknown.set(i, true).unwrap();
-                            }
-                        }
-                        Value::Dynam(val) => {
-                            if equiv.change_visit == self.evaluator.change_visit_gen() {
-                                fixed.set(i, true).unwrap();
-                                inp_val.set(i, val).unwrap()
-                            }
-                        }
-                    }
-                }
-                let lut_w = NonZeroUsize::new(original_lut.len()).unwrap();
-                let mut lut = Awi::zero(lut_w);
-                let mut reduced_lut = original_lut.clone();
-                let mut lut_fixed = Awi::zero(lut_w);
-                let mut lut_unknown = Awi::zero(lut_w);
-                for (i, value) in original_lut.iter().enumerate() {
-                    match value {
-                        DynamicValue::ConstUnknown => {
-                            lut_fixed.set(i, true).unwrap();
-                            lut_unknown.set(i, true).unwrap();
-                        }
-                        DynamicValue::Const(b) => {
-                            lut_fixed.set(i, true).unwrap();
-                            lut.set(i, *b).unwrap()
-                        }
-                        DynamicValue::Dynam(p) => {
-                            let equiv = self.backrefs.get_val(*p).unwrap();
-                            match equiv.val {
-                                Value::ConstUnknown => {
-                                    lut_fixed.set(i, true).unwrap();
-                                    lut_unknown.set(i, true).unwrap();
-                                }
-                                Value::Unknown => {
-                                    lut_unknown.set(i, true).unwrap();
-                                    if equiv.change_visit == self.evaluator.change_visit_gen() {
-                                        lut_fixed.set(i, true).unwrap();
-                                    }
-                                }
-                                Value::Const(b) => {
-                                    lut_fixed.set(i, true).unwrap();
-                                    lut.set(i, b).unwrap()
-                                }
-                                Value::Dynam(b) => {
-                                    if equiv.change_visit == self.evaluator.change_visit_gen() {
-                                        lut_fixed.set(i, true).unwrap();
-                                        lut.set(i, b).unwrap()
-                                    } else {
-                                        lut_unknown.set(i, true).unwrap();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                // reduce the LUT based on fixed and known bits
-                for i in (0..len).rev() {
-                    if fixed.get(i).unwrap() && (!unknown.get(i).unwrap()) {
-                        let bit = inp_val.get(i).unwrap();
-                        LNode::reduce_lut(&mut lut, i, bit);
-                        LNode::reduce_lut(&mut lut_fixed, i, bit);
-                        LNode::reduce_lut(&mut lut_unknown, i, bit);
-                        reduced_lut = LNode::reduce_dynamic_lut(&reduced_lut, i, bit).0;
-                        // remove the input bits
-                        len = len.checked_sub(1).unwrap();
-                    }
-                }
-                if len == 0 {
-                    // only one LUT bit left, no inputs
-                    if lut_fixed.get(0).unwrap() {
-                        if lut_unknown.get(0).unwrap() {
-                            self.evaluator.insert(Eval::Change(Change {
-                                depth,
-                                p_equiv,
-                                value: Value::Unknown,
-                            }));
-                            return vec![];
-                        } else {
-                            self.evaluator.insert(Eval::Change(Change {
-                                depth,
-                                p_equiv,
-                                value: Value::Dynam(lut.get(0).unwrap()),
-                            }));
-                            return vec![];
-                        }
-                    } else {
-                        let lut_bit = reduced_lut[0];
-                        match lut_bit {
-                            DynamicValue::ConstUnknown | DynamicValue::Const(_) => (),
-                            DynamicValue::Dynam(p) => {
-                                res.push(RequestLNode {
-                                    depth: depth - 1,
-                                    number_a: 0,
-                                    p_back_lnode: p,
-                                });
-                                return res;
-                            }
-                        }
-                    }
-                }
-
-                // if the LUT is all fixed and known ones or zeros, we can know that any unfixed
-                // or unknown changes will be unable to affect the
-                // output
-                if lut_fixed.is_umax() && lut_unknown.is_zero() {
-                    if lut.is_zero() {
-                        self.evaluator.insert(Eval::Change(Change {
-                            depth,
-                            p_equiv,
-                            value: Value::Dynam(false),
-                        }));
-                        return vec![];
-                    } else if lut.is_umax() {
-                        self.evaluator.insert(Eval::Change(Change {
-                            depth,
-                            p_equiv,
-                            value: Value::Dynam(true),
-                        }));
-                        return vec![];
-                    }
-                }
-
-                if fixed.is_umax() && lut_fixed.is_umax() {
-                    // if we did not evaluate to a value earlier, then we know our value is unknown
-                    self.evaluator.insert(Eval::Change(Change {
-                        depth,
-                        p_equiv,
-                        value: Value::Unknown,
-                    }));
-                    return vec![];
-                }
-
-                for i in (0..inp.len()).rev() {
-                    if (!fixed.get(i).unwrap()) || unknown.get(i).unwrap() {
-                        res.push(RequestLNode {
-                            depth: depth - 1,
-                            number_a: 0,
-                            p_back_lnode: inp[i],
-                        });
-                    }
-                }
-                // make sure we only request the LUT bits we need
-                for lut_bit in reduced_lut {
-                    if let DynamicValue::Dynam(p) = lut_bit {
-                        // TODO make the priority make the index bits always requested fully first
-                        res.push(RequestLNode {
-                            depth: depth - 1,
-                            number_a: 0,
-                            p_back_lnode: p,
-                        });
-                    }
-                }
-            }
+    /// Switches to change phase if not already in that phase
+    pub fn switch_to_change_phase(&mut self) {
+        if self.evaluator.phase != EvalPhase::Change {
+            self.evaluator.phase = EvalPhase::Change;
         }
-        res
     }
 
-    /// If the returned vector is empty, evaluation was successful, otherwise
-    /// what is needed for evaluation is returned
-    pub fn try_eval_tnode(&mut self, p_tnode: PTNode, depth: i64) -> Option<RequestTNode> {
-        // read current inputs
-        let tnode = self.tnodes.get(p_tnode).unwrap();
-        let p_equiv = self.backrefs.get_val(tnode.p_self).unwrap().p_self_equiv;
-        let p_driver = tnode.p_driver;
-        let equiv = self.backrefs.get_val(p_driver).unwrap();
-        if equiv.val.is_const() || (equiv.change_visit == self.evaluator.change_visit_gen()) {
-            self.evaluator.insert(Eval::Change(Change {
-                depth,
-                p_equiv,
-                value: equiv.val,
-            }));
-            None
+    /// `switch_to_request_phase` will do nothing if the phase is already
+    /// `Request`, this will always run the event clearing
+    pub fn restart_request_phase(&mut self) -> Result<(), Error> {
+        // TODO think more about this, handle redundant change cases
+
+        // FIXME there are certainly constructed cases where the initial priority
+        // ordering is bad and can lead to repeated cascades. We know from the halting
+        // problem that this is an impossible problem to solve in general, but there
+        // might be a good approximate way to detect nonhalting. In either case we need
+        // a way to specify event gas.
+        let mut event_gas = self.backrefs.len_keys() * 4;
+        while let Some(event) = self.evaluator.pop_event() {
+            let res = self.handle_event(event);
+            if res.is_err() {
+                // need to reinsert
+                self.evaluator.push_event(event)
+            }
+            res?;
+            if let Some(x) = event_gas.checked_sub(1) {
+                event_gas = x;
+            } else {
+                return Err(Error::OtherStr("ran out of event gas"));
+            }
+        }
+
+        // handle_event will keep in change phase, only afterwards do we switch
+        self.evaluator.phase = EvalPhase::Request;
+        Ok(())
+    }
+
+    /// Switches to request phase if not already in that phase, clears events
+    pub fn switch_to_request_phase(&mut self) -> Result<(), Error> {
+        if self.evaluator.phase != EvalPhase::Request {
+            self.restart_request_phase()
         } else {
-            Some(RequestTNode {
-                depth: depth - 1,
-                number_a: 0,
-                p_back_tnode: p_driver,
-            })
+            Ok(())
         }
     }
 
-    pub fn change_value(&mut self, p_back: PBack, value: Value) -> Result<(), Error> {
+    /// If the new `value` would actually change the existing value at `p_back`,
+    /// this will change it and push new events for dependent equivalences.
+    ///
+    /// # Errors
+    ///
+    /// If an error is returned, no events have been created and any events that
+    /// caused `change_value` need to be reinserted
+    pub fn change_value(
+        &mut self,
+        p_back: PBack,
+        value: Value,
+        source_partial_ord_num: NonZeroU64,
+    ) -> Result<(), Error> {
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
+            if equiv.val == value {
+                // no change needed
+                return Ok(())
+            }
             if equiv.val.is_const() && (equiv.val != value) {
                 return Err(Error::OtherStr(
-                    "tried to change a constant (probably, `retro_const_` was used followed by a \
-                     contradicting `retro_*`",
+                    "tried to change a constant (probably, `retro_const_*` was used followed by a \
+                     contradicting `retro_*`, or some invariant was broken)",
                 ))
             }
-            // switch to change phase if not already
-            if self.evaluator.phase != EvalPhase::Change {
-                self.evaluator.phase = EvalPhase::Change;
-                self.evaluator.next_change_visit_gen();
-            }
             equiv.val = value;
-            equiv.change_visit = self.evaluator.change_visit_gen();
+            if equiv.evaluator_partial_order <= source_partial_ord_num {
+                equiv.evaluator_partial_order = source_partial_ord_num.checked_add(1).unwrap();
+            }
+            let equiv_partial_ord_num = equiv.evaluator_partial_order;
+            // switch to change phase if not already
+            self.switch_to_change_phase();
+
+            // create any needed events
+            let mut adv = self.backrefs.advancer_surject(p_back);
+            while let Some(p_back) = adv.advance(&self.backrefs) {
+                let referent = *self.backrefs.get_key(p_back).unwrap();
+                match referent {
+                    Referent::ThisEquiv
+                    | Referent::ThisLNode(_)
+                    | Referent::ThisTNode(_)
+                    | Referent::ThisStateBit(..) => (),
+                    Referent::Input(p_lnode) => {
+                        self.evaluator.push_event(Event {
+                            partial_ord_num: equiv_partial_ord_num,
+                            change_kind: ChangeKind::LNode(p_lnode),
+                        });
+                    }
+                    Referent::Driver(p_tnode) => {
+                        self.evaluator.push_event(Event {
+                            partial_ord_num: equiv_partial_ord_num,
+                            change_kind: ChangeKind::TNode(p_tnode),
+                        });
+                    }
+                    Referent::ThisRNode(_) => (),
+                }
+            }
             Ok(())
         } else {
             Err(Error::InvalidPtr)
         }
     }
 
-    pub fn calculate_value_with_lower_capability(
-        epoch_shared: &EpochShared,
-        p_back: PBack,
-    ) -> Result<Value, Error> {
-        let mut lock = epoch_shared.epoch_data.borrow_mut();
-        let ensemble = &mut lock.ensemble;
-        if let Some(equiv) = ensemble.backrefs.get_val_mut(p_back) {
-            if equiv.val.is_const() {
-                return Ok(equiv.val)
-            }
-            // switch to request phase if not already
-            if ensemble.evaluator.phase != EvalPhase::Request {
-                ensemble.evaluator.phase = EvalPhase::Request;
-                ensemble.evaluator.next_request_visit_gen();
-            }
-            let visit = ensemble.evaluator.request_visit_gen();
-            if equiv.request_visit != visit {
-                equiv.request_visit = visit;
-                ensemble
-                    .evaluator
-                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
-                drop(lock);
-                Ensemble::handle_requests_with_lower_capability(epoch_shared)?;
-            } else {
-                drop(lock);
-            }
-            Ok(epoch_shared
-                .epoch_data
-                .borrow()
-                .ensemble
-                .backrefs
-                .get_val(p_back)
-                .unwrap()
-                .val)
-        } else {
-            Err(Error::InvalidPtr)
+    /// Note that if an error is returned, the event needs to be reinserted.
+    fn handle_event(&mut self, event: Event) -> Result<(), Error> {
+        match event.change_kind {
+            ChangeKind::LNode(p_lnode) => self.eval_lnode(p_lnode),
+            ChangeKind::TNode(p_tnode) => self.eval_tnode(p_tnode),
+            ChangeKind::Manual(p_back, val) => self.manual_change(p_back, val),
         }
     }
 
-    pub fn calculate_value(&mut self, p_back: PBack) -> Result<Value, Error> {
+    pub fn manual_change(&mut self, p_back: PBack, val: Value) -> Result<(), Error> {
+        self.change_value(p_back, val, NonZeroU64::new(1).unwrap())
+    }
+
+    /// Evaluates the `LNode` and pushes new events as needed. Note that any
+    /// events that cause this need to be reinserted if this returns an error.
+    pub fn eval_lnode(&mut self, p_lnode: PLNode) -> Result<(), Error> {
+        let p_back = self.lnodes.get(p_lnode).unwrap().p_self;
+        let (val, partial_ord_num) = self.calculate_lnode_value(p_lnode)?;
+        self.change_value(p_back, val, partial_ord_num)
+    }
+
+    /// Evaluates the `TNode` and pushes new events or delayed events as needed.
+    /// Note that any events that cause this need to be reinserted if this
+    /// returns an error.
+    pub fn eval_tnode(&mut self, p_tnode: PTNode) -> Result<(), Error> {
+        let tnode = self.tnodes.get(p_tnode).unwrap();
+        if tnode.delay().is_zero() {
+            let p_driver = tnode.p_driver;
+            let equiv = self.backrefs.get_val(p_driver).unwrap();
+            let partial_ord_num = equiv.evaluator_partial_order;
+            self.change_value(tnode.p_self, equiv.val, partial_ord_num)
+        } else {
+            self.delayer
+                .insert_delayed_tnode_event(p_tnode, tnode.delay());
+            Ok(())
+        }
+    }
+
+    pub fn request_value(&mut self, p_back: PBack) -> Result<Value, Error> {
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
             if equiv.val.is_const() {
                 return Ok(equiv.val)
             }
-            // switch to request phase if not already
-            if self.evaluator.phase != EvalPhase::Request {
-                self.evaluator.phase = EvalPhase::Request;
-                self.evaluator.next_request_visit_gen();
-            }
-            let visit = self.evaluator.request_visit_gen();
-            if equiv.request_visit != visit {
-                equiv.request_visit = visit;
-                self.evaluator
-                    .insert(Eval::Investigate0(0, equiv.p_self_equiv));
-                self.handle_requests()?;
-            }
+            self.switch_to_request_phase()?;
             Ok(self.backrefs.get_val(p_back).unwrap().val)
         } else {
             Err(Error::InvalidPtr)
-        }
-    }
-
-    pub(crate) fn handle_requests_with_lower_capability(
-        epoch_shared: &EpochShared,
-    ) -> Result<(), Error> {
-        // TODO currently, the only way of avoiding N^2 worst case scenarios where
-        // different change cascades lead to large groups of nodes being evaluated
-        // repeatedly, is to use the front strategy. Only a powers of two reduction tree
-        // hierarchy system could fix this it appears, which will require a lot more
-        // code.
-
-        loop {
-            // empty `states_to_lower`
-            loop {
-                let mut lock = epoch_shared.epoch_data.borrow_mut();
-                if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
-                    if let Some(state) = lock.ensemble.stator.states.get(p_state) {
-                        // first check that it has not already been lowered
-                        if !state.lowered_to_lnodes {
-                            drop(lock);
-                            Ensemble::dfs_lower(epoch_shared, p_state)?;
-                            let mut lock = epoch_shared.epoch_data.borrow_mut();
-                            // reinvestigate
-                            let len = lock.ensemble.stator.states[p_state].p_self_bits.len();
-                            for i in 0..len {
-                                let p_bit = lock.ensemble.stator.states[p_state].p_self_bits[i];
-                                if let Some(p_bit) = p_bit {
-                                    lock.ensemble.evaluator.insert(Eval::Investigate0(0, p_bit));
-                                }
-                            }
-                            drop(lock);
-                        }
-                    }
-                } else {
-                    break
-                }
-            }
-            // break if both are empty
-            let mut lock = epoch_shared.epoch_data.borrow_mut();
-            if lock.ensemble.evaluator.evaluations.is_empty()
-                && lock.ensemble.stator.states_to_lower.is_empty()
-            {
-                break
-            }
-            // evaluate
-            if let Some(p_eval) = lock.ensemble.evaluator.evaluations.min() {
-                lock.ensemble.evaluate(p_eval);
-            }
-            drop(lock);
-        }
-        Ok(())
-    }
-
-    pub(crate) fn handle_requests(&mut self) -> Result<(), Error> {
-        while let Some(p_eval) = self.evaluator.evaluations.min() {
-            self.evaluate(p_eval);
-        }
-        Ok(())
-    }
-
-    fn evaluate(&mut self, p_eval: PEval) {
-        let evaluation = self.evaluator.evaluations.remove(p_eval).unwrap().0;
-        match evaluation {
-            Eval::Investigate0(depth, p_equiv) => self.eval_investigate0(p_equiv, depth),
-            Eval::ChangeLNode(p_lnode) => {
-                // the initial investigate handles all input requests
-                // TODO get priorities right
-                let _ = self.try_eval_lnode(p_lnode, 0);
-            }
-            Eval::ChangeTNode(p_tnode) => {
-                let _ = self.try_eval_tnode(p_tnode, 0);
-            }
-            Eval::Change(change) => {
-                let equiv = self.backrefs.get_val_mut(change.p_equiv).unwrap();
-                equiv.change_visit = self.evaluator.change_visit_gen();
-                // Handles a rare case where the evaluator decides to change to a const, and
-                // something later tries to set it to an unknown. TODO not sure if this is a bug
-                // that should be resolved some other way, the relevant part is where `Change`s
-                // are pushed in `eval_state`.
-                if !equiv.val.is_const() {
-                    equiv.val = change.value;
-                }
-                let mut adv = self.backrefs.advancer_surject(change.p_equiv);
-                while let Some(p_back) = adv.advance(&self.backrefs) {
-                    let referent = *self.backrefs.get_key(p_back).unwrap();
-                    match referent {
-                        Referent::ThisEquiv
-                        | Referent::ThisLNode(_)
-                        | Referent::ThisTNode(_)
-                        | Referent::ThisStateBit(..) => (),
-                        Referent::Input(p_lnode) => {
-                            let lnode = self.lnodes.get(p_lnode).unwrap();
-                            let p_self = lnode.p_self;
-                            let equiv = self.backrefs.get_val(p_self).unwrap();
-                            if (equiv.request_visit == self.evaluator.request_visit_gen())
-                                && (equiv.change_visit != self.evaluator.change_visit_gen())
-                            {
-                                // only go leafward to the given input if it was in the request
-                                // front and it hasn't been updated by some other route
-                                self.evaluator.insert(Eval::ChangeLNode(p_lnode));
-                            }
-                        }
-                        Referent::LoopDriver(p_tnode) => {
-                            let tnode = self.tnodes.get(p_tnode).unwrap();
-                            let p_self = tnode.p_self;
-                            let equiv = self.backrefs.get_val(p_self).unwrap();
-                            if (equiv.request_visit == self.evaluator.request_visit_gen())
-                                && (equiv.change_visit != self.evaluator.change_visit_gen())
-                            {
-                                // only go leafward to the given input if it was in the request
-                                // front and it hasn't been updated by some other route
-                                self.evaluator.insert(Eval::ChangeTNode(p_tnode));
-                            }
-                        }
-                        Referent::ThisRNode(_) => (),
-                    }
-                }
-            }
-            Eval::RequestLNode(request) => {
-                if let Referent::Input(_) = self.backrefs.get_key(request.p_back_lnode).unwrap() {
-                    let equiv = self.backrefs.get_val(request.p_back_lnode).unwrap();
-                    if equiv.request_visit != self.evaluator.request_visit_gen() {
-                        self.evaluator
-                            .insert(Eval::Investigate0(request.depth, equiv.p_self_equiv));
-                    }
-                } else {
-                    unreachable!()
-                }
-            }
-            Eval::RequestTNode(request) => {
-                if let Referent::LoopDriver(_) =
-                    self.backrefs.get_key(request.p_back_tnode).unwrap()
-                {
-                    let equiv = self.backrefs.get_val(request.p_back_tnode).unwrap();
-                    if equiv.request_visit != self.evaluator.request_visit_gen() {
-                        self.evaluator
-                            .insert(Eval::Investigate0(request.depth, equiv.p_self_equiv));
-                    }
-                } else {
-                    unreachable!()
-                }
-            }
-            Eval::Investigate1(_) => todo!(),
-        }
-    }
-
-    fn eval_investigate0(&mut self, p_equiv: PBack, depth: i64) {
-        let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
-        equiv.request_visit = self.evaluator.request_visit_gen();
-        if equiv.val.is_const() || (equiv.change_visit == self.evaluator.change_visit_gen()) {
-            // no need to do anything
-            return
-        }
-        // eval but is only inserted if nothing like the LNode evaluation is able to
-        // prove early value setting
-        let mut insert_if_no_early_exit = vec![];
-        let mut saw_node = false;
-        let mut saw_state = None;
-        let mut adv = self.backrefs.advancer_surject(p_equiv);
-        while let Some(p_back) = adv.advance(&self.backrefs) {
-            let referent = *self.backrefs.get_key(p_back).unwrap();
-            match referent {
-                Referent::ThisEquiv => (),
-                Referent::ThisLNode(p_lnode) => {
-                    let v = self.try_eval_lnode(p_lnode, depth);
-                    if v.is_empty() {
-                        // early exit because evaluation was successful
-                        return
-                    }
-                    for request in v {
-                        insert_if_no_early_exit.push(Eval::RequestLNode(request));
-                    }
-                    saw_node = true;
-                }
-                Referent::ThisTNode(p_tnode) => {
-                    if let Some(request) = self.try_eval_tnode(p_tnode, depth) {
-                        insert_if_no_early_exit.push(Eval::RequestTNode(request));
-                    } else {
-                        // early exit because evaluation was successful
-                        return
-                    }
-                    saw_node = true;
-                }
-                Referent::ThisStateBit(p_state, _) => {
-                    saw_state = Some(p_state);
-                }
-                Referent::Input(_) => (),
-                Referent::LoopDriver(_) => (),
-                Referent::ThisRNode(_) => (),
-            }
-        }
-        if !saw_node {
-            let mut will_lower = false;
-            if let Some(p_state) = saw_state {
-                if !self.stator.states[p_state].lowered_to_lnodes {
-                    will_lower = true;
-                    self.stator.states_to_lower.push(p_state);
-                }
-            }
-            if !will_lower {
-                // must be a root
-                let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
-                let value = equiv.val;
-                equiv.change_visit = self.evaluator.change_visit_gen();
-                self.evaluator.insert(Eval::Change(Change {
-                    depth,
-                    p_equiv,
-                    value,
-                }));
-            }
-        }
-        for eval in insert_if_no_early_exit {
-            self.evaluator.insert(eval);
         }
     }
 }

@@ -39,8 +39,10 @@ impl Ensemble {
                     ))
                 }
             }
-            if self.stator.states[p_state].nzbw != self.stator.states[operands[0]].nzbw {
-                return Err(Error::WrongBitwidth)
+            let lhs_w = self.stator.states[p_state].nzbw.get();
+            let rhs_w = self.stator.states[operands[0]].nzbw.get();
+            if lhs_w != rhs_w {
+                return Err(Error::BitwidthMismatch(lhs_w, rhs_w))
             }
         }
 
@@ -55,7 +57,7 @@ impl Ensemble {
             } else {
                 // else the operand is not used because it was optimized away, this is removing
                 // a tree outside of the grafted part
-                self.dec_rc(graftee).unwrap();
+                self.state_dec_rc(graftee).unwrap();
             }
         }
 
@@ -154,7 +156,7 @@ impl Ensemble {
                     .epoch_data
                     .borrow_mut()
                     .ensemble
-                    .dec_rc(p)
+                    .state_dec_rc(p)
                     .unwrap()
             }
         }
@@ -218,8 +220,8 @@ impl Ensemble {
                     }
                 }
                 let needs_lower = match lock.ensemble.stator.states[p_state].op {
-                    Opaque(..) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..) | Repeat(_)
-                    | StaticLut(..) => false,
+                    Opaque(..) | Argument(_) | Literal(_) | Assert(_) | Copy(_) | StaticGet(..)
+                    | Repeat(_) | StaticLut(..) => false,
                     // for dynamic LUTs
                     Mux(_) => false,
                     Lut([lut, inx]) => {
@@ -238,13 +240,14 @@ impl Ensemble {
                             };
                             if no_op {
                                 // TODO should I add the extra arg to `Lut` to fix this edge case?
+                                // or `Unknown` it?
                                 lock.ensemble.stator.states[p_state].op = Opaque(smallvec![], None);
-                                lock.ensemble.dec_rc(inx).unwrap();
+                                lock.ensemble.state_dec_rc(inx).unwrap();
                             } else {
                                 lock.ensemble.stator.states[p_state].op =
                                     StaticLut(ConcatType::from_iter([inx]), lit);
                             }
-                            lock.ensemble.dec_rc(lut).unwrap();
+                            lock.ensemble.state_dec_rc(lut).unwrap();
                         }
                         // else it is a dynamic LUT that could be lowered on the
                         // `LNode` side if needed
@@ -256,17 +259,19 @@ impl Ensemble {
                             let lit_u = lit.to_usize();
                             if lit_u >= lock.ensemble.stator.states[bits].nzbw.get() {
                                 // TODO I realize now that no-op `get` specifically is fundamentally
-                                // ill-defined to some extend because it returns `Option<bool>`, it
+                                // ill-defined to some extent because it returns `Option<bool>`, it
                                 // must be asserted against, this
                                 // provides the next best thing
+
+                                // or TODO does it just cause `Unknown`?
                                 lock.ensemble.stator.states[p_state].op = Opaque(smallvec![], None);
-                                lock.ensemble.dec_rc(bits).unwrap();
+                                lock.ensemble.state_dec_rc(bits).unwrap();
                             } else {
                                 lock.ensemble.stator.states[p_state].op = ConcatFields(
                                     ConcatFieldsType::from_iter([(bits, lit_u, bw(1))]),
                                 );
                             }
-                            lock.ensemble.dec_rc(inx).unwrap();
+                            lock.ensemble.state_dec_rc(inx).unwrap();
                             false
                         } else {
                             true
@@ -280,7 +285,7 @@ impl Ensemble {
                             if lit_u >= bits_w {
                                 // no-op
                                 lock.ensemble.stator.states[p_state].op = Copy([bits]);
-                                lock.ensemble.dec_rc(bit).unwrap();
+                                lock.ensemble.state_dec_rc(bit).unwrap();
                             } else if let Some(lo_rem) = NonZeroUsize::new(lit_u) {
                                 if let Some(hi_rem) = NonZeroUsize::new(bits_w - 1 - lit_u) {
                                     lock.ensemble.stator.states[p_state].op =
@@ -307,9 +312,9 @@ impl Ensemble {
                             } else {
                                 // setting a single bit
                                 lock.ensemble.stator.states[p_state].op = Copy([bit]);
-                                lock.ensemble.dec_rc(bits).unwrap();
+                                lock.ensemble.state_dec_rc(bits).unwrap();
                             }
-                            lock.ensemble.dec_rc(inx).unwrap();
+                            lock.ensemble.state_dec_rc(inx).unwrap();
                             false
                         } else {
                             true
@@ -332,17 +337,15 @@ impl Ensemble {
                         }
                     };
                     // shouldn't be adding additional assertions
-                    // TODO after migrating the old lowering tests to a starlight-like system, make
-                    // sure there are none using assertions assert!(temporary.
+                    // TODO make sure there is no meta lowering using assertions assert!(temporary.
                     // assertions_empty());
                     let states = temporary.take_states_added();
                     temporary.remove_as_current().unwrap();
                     let mut lock = epoch_shared.epoch_data.borrow_mut();
                     for p_state in states {
-                        let state = &lock.ensemble.stator.states[p_state];
-                        if state.pruning_allowed() {
-                            lock.ensemble.remove_state(p_state).unwrap();
-                        }
+                        lock.ensemble
+                            .remove_state_if_pruning_allowed(p_state)
+                            .unwrap();
                     }
                     lowering_done
                 } else {
@@ -367,7 +370,7 @@ impl Ensemble {
                         // special optimization case: forward Copies
                         lock.ensemble.stator.states[p_state].op.operands_mut()[i] = a;
                         lock.ensemble.stator.states[a].inc_rc();
-                        lock.ensemble.dec_rc(p_next).unwrap();
+                        lock.ensemble.state_dec_rc(p_next).unwrap();
                         p_next = a;
                     }
                     lock.ensemble.stator.states[p_next].lowered_to_elementary = true;

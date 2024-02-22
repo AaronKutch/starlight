@@ -1,7 +1,7 @@
 #![feature(test)]
 
 extern crate test;
-use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi};
+use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi, Net};
 use test::Bencher;
 
 #[bench]
@@ -39,7 +39,7 @@ fn loop_net(bencher: &mut Bencher) {
     let epoch = Epoch::new();
 
     let num_ports = 16;
-    let mut net = Net::zero(bw(5));
+    let mut net = Net::opaque(bw(5));
     for i in 0..num_ports {
         let mut port = awi!(0u5);
         port.usize_(i);
@@ -58,10 +58,9 @@ fn loop_net(bencher: &mut Bencher) {
                 let mut inx = Awi::zero(w);
                 inx.usize_(i);
                 lazy.retro_(&inx).unwrap();
-                epoch.drive_loops().unwrap();
-                awi::assert_eq!(eval_res.eval_bool().unwrap(), i >= num_ports);
+                assert_eq!(eval_res.eval_bool().unwrap(), i >= num_ports);
                 if i < num_ports {
-                    awi::assert_eq!(eval_net.eval().unwrap().to_usize(), i);
+                    assert_eq!(eval_net.eval().unwrap().to_usize(), i);
                 }
             }
         });

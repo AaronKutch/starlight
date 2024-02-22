@@ -4,7 +4,7 @@ use rand_xoshiro::{
     rand_core::{RngCore, SeedableRng},
     Xoshiro128StarStar,
 };
-use starlight::{awi::*, StarRng};
+use starlight::{awi::*, utils::StarRng};
 
 fn rand_choice(
     metarng: &mut Xoshiro128StarStar,

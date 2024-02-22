@@ -1,9 +1,14 @@
+mod bridge;
 pub mod epoch;
 mod eval_awi;
+mod inout;
 mod lazy_awi;
 mod temporal;
 
+pub use bridge::Drive;
 pub use epoch::{Assertions, Epoch, SuspendedEpoch};
 pub use eval_awi::EvalAwi;
-pub use lazy_awi::{LazyAwi, LazyInlAwi};
-pub use temporal::{Loop, Net};
+pub use inout::{In, Out};
+pub use lazy_awi::LazyAwi;
+pub use temporal::{delay, Loop, Net};
+pub(crate) use temporal::{DELAY, DELAYED_LOOP_SOURCE, LOOP_SOURCE, UNDRIVEN_LOOP_SOURCE};

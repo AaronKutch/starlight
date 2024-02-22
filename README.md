@@ -1,11 +1,12 @@
 # Starlight
 
- This is a DSL (Domain Specific Language) that can describe combinational
- logic and temporal logic. This allows RTL (Register Transfer Level)
- descriptions in ordinary Rust code with all the features that Rust provides.
+ This provides an HDL (Hardware Design Language), combinational and temporal
+ logic simulator and optimizer, and general purpose router for FPGAs and
+ more. The HDL is special in that it is written in ordinary Rust code with
+ all the features that Rust provides.
 
- This crate still has a considerable amount of WIP stuff needed to evolve
- into a proper HDL (Hardware Description Language).
+ Most of the MVP features of this crate are ready, except for the `Router`
+ which is still a WIP and has a lot of `todo!()`;
 
  See the documentation of `awint`/`awint_dag` which is used as the backend
  for this. `awint` is the base library that operations are modeled off of.
@@ -15,9 +16,14 @@
  optimize, evaluate, and retroactively change values in the `DAG` for various
  purposes.
 
- ```
+ There are several features on this crate that enable `awint` features. The
+ `u32_ptrs` feature reduces the memory consumption of the algorithms
+ significantly, but limits the number of possible internal references to
+ about 4 billion, which the largest circuits might not fit in.
+
+ ```rust
  use std::num::NonZeroUsize;
- use starlight::{awi, dag, lazy_inlawi_ty, Epoch, EvalAwi, LazyInlAwi};
+ use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi};
 
  // in the scope where this is glob imported, all arbitrary width types, some primitives, and
  // the mechanisms in the macros will use mimicking types and be lazily evaluated in general.
@@ -38,7 +44,7 @@
          }
      }
 
-     pub fn update(&mut self, input: inlawi_ty!(4)) -> Option<()> {
+     pub fn update(&mut self, input: &Bits) -> Option<()> {
          self.counter.inc_(true);
 
          let mut s0 = inlawi!(0u4);
@@ -65,16 +71,17 @@
  let mut m = StateMachine::new(bw(4));
 
  // this is initially an opaque value that cannot be eagerly evaluated
- let input: lazy_inlawi_ty!(4) = LazyInlAwi::opaque();
+ let input = LazyAwi::opaque(bw(4));
+
  // if we later retroactively assign this to an unequal value, the
  // `assert_assertions_strict` call will error and show the location of the
  // assertion that errored
- dag::assert_eq!(*input, inlawi!(0101));
+ mimick::assert_eq!(Awi::from(&input), awi!(0101));
 
  // step the state machine forward
- m.update(*input).unwrap();
- m.update(inlawi!(0110)).unwrap();
- m.update(inlawi!(0110)).unwrap();
+ m.update(&input).unwrap();
+ m.update(&awi!(0110)).unwrap();
+ m.update(&awi!(0110)).unwrap();
 
  // use `EvalAwi`s to evaluate the resulting values
  let output_counter = EvalAwi::from(m.counter);
@@ -99,7 +106,7 @@
      // could use for various purposes
      epoch.ensemble(|ensemble| {
          for state in ensemble.stator.states.vals() {
-             awi::assert!(state.lowered_to_lnodes);
+             assert!(state.lowered_to_lnodes);
          }
      });
 
@@ -109,19 +116,20 @@
      // during the current `Epoch`)
      epoch.assert_assertions(true).unwrap();
      // evaluate the outputs
-     awi::assert_eq!(output_counter.eval().unwrap(), awi!(0011));
-     awi::assert_eq!(output_data.eval().unwrap(), awi!(0xa505_u16));
+     assert_eq!(output_counter.eval().unwrap(), awi!(0011));
+     assert_eq!(output_data.eval().unwrap(), awi!(0xa505_u16));
 
      // reassign and reevaluate
      input.retro_(&awi!(1011)).unwrap();
-     awi::assert!(epoch.assert_assertions(true).is_err());
-     awi::assert_eq!(output_data.eval().unwrap(), awi!(0x7b0b_u16));
+     assert!(epoch.assert_assertions(true).is_err());
+     assert_eq!(output_data.eval().unwrap(), awi!(0x7b0b_u16));
  }
  drop(epoch);
  ```
 
- ```
+ ```rust
  use starlight::{dag, awi, Epoch, EvalAwi};
+
  use dag::*;
 
  let epoch = Epoch::new();
@@ -158,7 +166,7 @@
 
  {
      use awi::*;
-     awi::assert_eq!(output_eval.eval().unwrap(), awi!(01010101));
+     assert_eq!(output_eval.eval().unwrap(), awi!(01010101));
  }
  drop(epoch);
  ```

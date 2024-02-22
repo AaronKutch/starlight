@@ -9,14 +9,14 @@ use awint::{
     },
     bw,
 };
+use dag::{awi, inlawi, inlawi_ty, Awi, Bits, InlAwi};
 
 use crate::{
     awi,
     awint_dag::{ConcatType, Lineage, Op},
-    dag::{awi, inlawi, inlawi_ty, Awi, Bits, InlAwi},
+    dag,
     ensemble::LNode,
 };
-
 const USIZE_BITS: usize = usize::BITS as usize;
 
 // This code here is especially messy because we do not want to get into
