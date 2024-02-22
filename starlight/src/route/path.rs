@@ -1,5 +1,3 @@
-use std::iter::IntoIterator;
-
 use awint::awint_dag::triple_arena::Ptr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

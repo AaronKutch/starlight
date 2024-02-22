@@ -1,6 +1,6 @@
 //! pure routing with no combinatorics
 
-use starlight::{self, route::Router, Corresponder, Epoch, In, Out, SuspendedEpoch};
+use starlight::{route::Router, Corresponder, Epoch, In, Out, SuspendedEpoch};
 
 use super::FabricTargetInterface;
 

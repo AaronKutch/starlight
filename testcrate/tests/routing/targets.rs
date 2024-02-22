@@ -1,7 +1,6 @@
 use std::{array, collections::HashMap};
 
 use starlight::{
-    self,
     awi::*,
     ensemble::{
         render::{RenderArena, RenderNodeKind},
