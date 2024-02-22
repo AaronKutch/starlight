@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.0] - TODO
+## [0.4.0] - 2024-02-21
 ### Crate
 - `awint` 0.17 and `triple_arena` 0.13
 
