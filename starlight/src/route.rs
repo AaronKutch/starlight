@@ -13,7 +13,7 @@ mod routing;
 use std::num::NonZeroU32;
 
 use awint::awint_dag::triple_arena::ptr_struct;
-pub use cedge::{CEdge, ChannelWidths, Programmability, SelectorLut, SelectorValue};
+pub use cedge::{CEdge, ChannelWidths, Programmability, SelectorLut};
 pub use channel::{Channeler, Referent};
 pub use cnode::CNode;
 pub use config::{Config, Configurator};

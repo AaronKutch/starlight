@@ -385,6 +385,16 @@ If nothing is found by the root, then the connection is impossible if the `start
 absolute, otherwise those need to be moved.
 */
 
+// TODO make it so that the retry does not have to retry the entire level but
+// only a part of it, probably want to keep track of the most recent common
+// ancestor of all the edges to the node before the most recent or second most
+// recent supernode that we have encountered (?).
+
+// or, perhaps make a virtual valley embedding that starts from second most
+// recent and ends at the next node we couldn't reach, and then restart with the
+// new backbone to repair suboptimalities from the virtual embedding start and
+// finish
+
 /// Assumes that `start` and `end` are on the same level, and `max_backbone_lvl`
 /// is at least one level above the leval that the `start` and `end` are on.
 /// Returns `true` if the routing was successful, leaving the path information

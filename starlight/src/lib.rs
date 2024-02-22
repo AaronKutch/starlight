@@ -1,11 +1,12 @@
 // NOTE: remember to update the README when updating this
 
-//! This is a DSL (Domain Specific Language) that can describe combinational
-//! logic and temporal logic. This allows RTL (Register Transfer Level)
-//! descriptions in ordinary Rust code with all the features that Rust provides.
+//! This provides an HDL (Hardware Design Language), combinational and temporal
+//! logic simulator and optimizer, and general purpose router for FPGAs and
+//! more. The HDL is special in that it is written in ordinary Rust code with
+//! all the features that Rust provides.
 //!
-//! This crate still has a considerable amount of WIP stuff needed to evolve
-//! into a proper HDL (Hardware Description Language).
+//! Most of the MVP features of this crate are ready, except for the `Router`
+//! which is still a WIP and has a lot of `todo!()`;
 //!
 //! See the documentation of `awint`/`awint_dag` which is used as the backend
 //! for this. `awint` is the base library that operations are modeled off of.

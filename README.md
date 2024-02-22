@@ -1,11 +1,12 @@
 # Starlight
 
- This is a DSL (Domain Specific Language) that can describe combinational
- logic and temporal logic. This allows RTL (Register Transfer Level)
- descriptions in ordinary Rust code with all the features that Rust provides.
+ This provides an HDL (Hardware Design Language), combinational and temporal
+ logic simulator and optimizer, and general purpose router for FPGAs and
+ more. The HDL is special in that it is written in ordinary Rust code with
+ all the features that Rust provides.
 
- This crate still has a considerable amount of WIP stuff needed to evolve
- into a proper HDL (Hardware Description Language).
+ Most of the MVP features of this crate are ready, except for the `Router`
+ which is still a WIP and has a lot of `todo!()`;
 
  See the documentation of `awint`/`awint_dag` which is used as the backend
  for this. `awint` is the base library that operations are modeled off of.
@@ -14,6 +15,11 @@
  simple lookup tables, and also adds on temporal structs like `Loop`s. It can
  optimize, evaluate, and retroactively change values in the `DAG` for various
  purposes.
+
+ There are several features on this crate that enable `awint` features. The
+ `u32_ptrs` feature reduces the memory consumption of the algorithms
+ significantly, but limits the number of possible internal references to
+ about 4 billion, which the largest circuits might not fit in.
 
  ```rust
  use std::num::NonZeroUsize;
@@ -70,7 +76,7 @@
  // if we later retroactively assign this to an unequal value, the
  // `assert_assertions_strict` call will error and show the location of the
  // assertion that errored
- dag::assert_eq!(Awi::from(&input), awi!(0101));
+ mimick::assert_eq!(Awi::from(&input), awi!(0101));
 
  // step the state machine forward
  m.update(&input).unwrap();
@@ -123,6 +129,7 @@
 
  ```rust
  use starlight::{dag, awi, Epoch, EvalAwi};
+
  use dag::*;
 
  let epoch = Epoch::new();

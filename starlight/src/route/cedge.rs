@@ -1,7 +1,7 @@
 use std::{
     cmp::max,
     fmt::Write,
-    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
+    num::{NonZeroU32, NonZeroU64},
 };
 
 use awint::{
@@ -21,53 +21,22 @@ use crate::{
     Error, SuspendedEpoch,
 };
 
-#[derive(Debug, Clone, Copy)]
-pub enum SelectorValue {
-    Dynam,
-    ConstUnknown,
-    Const(bool),
-}
-
 /// The selector can use its configuration bits to arbitrarily select from any
 /// of the `SelectorValues` in a power-of-two array.
 #[derive(Debug, Clone)]
 pub struct SelectorLut {
     inx_config: Vec<PConfig>,
-    // The `Awi` is broken up into pairs of bits used to indicate the
-    // following states in incrementing order: dynamic, const unknown, const zero,
-    // const one. The sources only correspond to `SelectorValue::Dynam`, and so this can be used to
-    // determine where the gaps are.
-    awi: Awi,
 }
 
 impl SelectorLut {
-    pub fn get_selector_value(&self, bit_i: usize) -> SelectorValue {
-        debug_assert!(bit_i < (isize::MAX as usize));
-        let start = bit_i << 1;
-        debug_assert!((bit_i << 1) < self.awi.bw());
-        match (
-            self.awi.get(start).unwrap(),
-            self.awi.get(start.wrapping_add(1)).unwrap(),
-        ) {
-            (false, false) => SelectorValue::Dynam,
-            (true, false) => SelectorValue::ConstUnknown,
-            (b, true) => SelectorValue::Const(b),
-        }
+    pub fn inx_config(&self) -> &[PConfig] {
+        &self.inx_config
     }
 
     pub fn verify_integrity(&self, sources_len: usize) -> Result<(), Error> {
         // TODO
         let pow_len = 1usize << self.inx_config.len();
-        if pow_len.checked_mul(2).unwrap() != self.awi.bw() {
-            return Err(Error::OtherStr("problem with `SelectorLut` validation"));
-        }
-        let mut dynam_len = 0;
-        for i in 0..pow_len {
-            if let SelectorValue::Dynam = self.get_selector_value(i) {
-                dynam_len += 1;
-            }
-        }
-        if dynam_len != sources_len {
+        if pow_len != sources_len {
             return Err(Error::OtherStr("problem with `SelectorLut` validation"));
         }
         Ok(())
@@ -409,19 +378,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                         );
                     } else {
                         // should be a full selector
-                        let mut awi = Awi::zero(NonZeroUsize::new(2 << inp.len()).unwrap());
-                        for (i, lut_bit) in lut.iter().copied().enumerate() {
-                            let i = i << 1;
+                        for lut_bit in lut.iter().copied() {
                             match lut_bit {
-                                DynamicValue::ConstUnknown => {
-                                    awi.set(i, true).unwrap();
-                                }
-                                DynamicValue::Const(b) => {
-                                    awi.set(i.wrapping_add(1), true).unwrap();
-                                    if b {
-                                        awi.set(i, true).unwrap();
-                                    }
-                                }
                                 DynamicValue::Dynam(p) => {
                                     let (p_equiv, p_cnode) = channeler.translate(ensemble, p);
                                     if configurator.find(p_equiv).is_some() {
@@ -431,15 +389,16 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                                     }
                                     sources.push(p_cnode.unwrap());
                                 }
+                                // target ensemble is not correct
+                                DynamicValue::ConstUnknown | DynamicValue::Const(_) => {
+                                    unreachable!()
+                                }
                             }
                         }
                         channeler.make_cedge(
                             &sources,
                             p_self,
-                            Programmability::SelectorLut(SelectorLut {
-                                inx_config: config,
-                                awi,
-                            }),
+                            Programmability::SelectorLut(SelectorLut { inx_config: config }),
                             NonZeroU32::new(1).unwrap(),
                         );
                     }

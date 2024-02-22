@@ -42,6 +42,7 @@ pub struct Mapping {
 pub struct Router {
     target_ensemble: Ensemble,
     pub(crate) target_channeler: Channeler<QCNode, QCEdge>,
+    pub(crate) configurator: Configurator,
     program_ensemble: Ensemble,
     pub(crate) program_channeler: Channeler<PCNode, PCEdge>,
     // `ThisEquiv` `PBack` mapping from program to target
@@ -105,6 +106,7 @@ impl Router {
         let mut router = Self::new_from_channelers(
             target_epoch,
             target_channeler,
+            configurator,
             program_epoch,
             program_channeler,
         );
@@ -160,12 +162,14 @@ impl Router {
     pub fn new_from_channelers(
         target_epoch: &SuspendedEpoch,
         target_channeler: Channeler<QCNode, QCEdge>,
+        configurator: &Configurator,
         program_epoch: &SuspendedEpoch,
         program_channeler: Channeler<PCNode, PCEdge>,
     ) -> Self {
         Self {
             target_ensemble: target_epoch.ensemble(|ensemble| ensemble.clone()),
             target_channeler,
+            configurator: configurator.clone(),
             program_ensemble: program_epoch.ensemble(|ensemble| ensemble.clone()),
             program_channeler,
             mappings: OrdArena::new(),
@@ -695,9 +699,21 @@ impl Router {
                         .get_val(bit)
                         .unwrap()
                         .p_self_equiv;
-                    let q_cnode = self.target_channeler().find_channeler_cnode(bit).unwrap();
-                    todo!()
-                    //self.target_channeler().cnodes.get_val(q_cnode).unwrap().
+                    if let Some(p_config) = self.configurator.find(bit) {
+                        let value = self
+                            .configurator
+                            .configurations
+                            .get_val(p_config)
+                            .unwrap()
+                            .value;
+                        let value = value.unwrap_or(false);
+                        res.set(bit_i, value).unwrap();
+                    } else {
+                        return Err(Error::OtherStr(
+                            "`get_config({config:#?})`: `config` is not registered as \
+                             configurable in the configurator",
+                        ));
+                    }
                 }
             }
         } else {
