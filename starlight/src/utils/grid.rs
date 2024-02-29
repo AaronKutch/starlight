@@ -9,7 +9,7 @@ use crate::utils::Ortho;
 // reasonable use cases, and it causes too many edge cases that cause certain
 // kinds of functions to be fallible etc
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Grid<T> {
     m: Box<[T]>,
     len: (NonZeroUsize, NonZeroUsize),
@@ -17,7 +17,7 @@ pub struct Grid<T> {
 
 impl<T> Grid<T> {
     /// Returns `None` if any of the side lengths are zero
-    pub fn new<F: Fn((usize, usize)) -> T>(len: (usize, usize), fill: F) -> Option<Self> {
+    pub fn new<F: FnMut((usize, usize)) -> T>(len: (usize, usize), mut fill: F) -> Option<Self> {
         let nzlen = (NonZeroUsize::new(len.0)?, NonZeroUsize::new(len.1)?);
         // unwrap because you would be in allocation failure territory anyways
         let elen = len.0.checked_mul(len.1).unwrap();
@@ -119,7 +119,7 @@ impl<T> Grid<T> {
         &self.m
     }
 
-    pub fn get_mut_flat1(&mut self) -> &mut [T] {
+    pub fn get_flat1_mut(&mut self) -> &mut [T] {
         &mut self.m
     }
 
