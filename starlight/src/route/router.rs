@@ -1,20 +1,16 @@
 use std::fmt::Write;
 
-use awint::{
-    awint_dag::triple_arena::{Advancer, OrdArena},
-    Awi,
-};
+use awint::awint_dag::triple_arena::{Advancer, OrdArena};
 
 use super::{route, Configurator};
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
-    epoch::get_current_epoch,
     route::{
         Channeler, EdgeKind, Embedding, EmbeddingKind, PCEdge, PCNode, PEmbedding, PMapping,
         QCEdge, QCNode,
     },
     triple_arena::Arena,
-    Corresponder, Error, LazyAwi, SuspendedEpoch,
+    Corresponder, Error, SuspendedEpoch,
 };
 
 #[derive(Debug, Clone)]
@@ -668,60 +664,5 @@ impl Router {
         route(self)?;
         self.set_configurations()?;
         Ok(())
-    }
-
-    /// After routing is done, this function can be called to find the
-    /// configuration that the router determined. Note that if a bit is not
-    /// necessarily set to anything, it will show as zero.
-    ///
-    /// # Errors
-    ///
-    /// - If the target epoch is not active or `config` is from the wrong
-    ///   `Epoch`
-    /// - If `config` was not registered in the `Configurator` used for the
-    ///   router
-    #[allow(unused)]
-    pub fn get_config<L: std::borrow::Borrow<LazyAwi>>(&self, config: &L) -> Result<Awi, Error> {
-        let config = config.borrow();
-        let epoch_shared = get_current_epoch()?;
-        let lock = epoch_shared.epoch_data.borrow();
-        let ensemble = &lock.ensemble;
-
-        let p_external = config.p_external();
-        let (_, rnode) = ensemble.notary.get_rnode(p_external)?;
-        let mut res = Awi::zero(rnode.nzbw());
-        if let Some(bits) = rnode.bits() {
-            for (bit_i, bit) in bits.iter().copied().enumerate() {
-                if let Some(bit) = bit {
-                    let bit = self
-                        .target_ensemble()
-                        .backrefs
-                        .get_val(bit)
-                        .unwrap()
-                        .p_self_equiv;
-                    if let Some(p_config) = self.configurator.find(bit) {
-                        let value = self
-                            .configurator
-                            .configurations
-                            .get_val(p_config)
-                            .unwrap()
-                            .value;
-                        let value = value.unwrap_or(false);
-                        res.set(bit_i, value).unwrap();
-                    } else {
-                        return Err(Error::OtherStr(
-                            "`get_config({config:#?})`: `config` is not registered as \
-                             configurable in the configurator",
-                        ));
-                    }
-                }
-            }
-        } else {
-            return Err(Error::OtherStr(
-                "`get_config({config:#?})`: the config is in the target epoch, but either routing \
-                 has not been done or the target was improperly mutated",
-            ));
-        }
-        Ok(res)
     }
 }

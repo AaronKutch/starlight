@@ -50,4 +50,31 @@ fn route_pure() {
     .unwrap();
 
     router.route().unwrap();
+
+    let target_epoch = target_epoch.resume();
+
+    router.config_target().unwrap();
+    corresponder
+        .transpose_lazy(&program.input)
+        .unwrap()
+        .retro_bool_(true)
+        .unwrap();
+    assert!(corresponder
+        .transpose_eval(&program.output)
+        .unwrap()
+        .eval_bool()
+        .unwrap());
+    corresponder
+        .transpose_lazy(&program.input)
+        .unwrap()
+        .retro_bool_(false)
+        .unwrap();
+    assert!(!corresponder
+        .transpose_eval(&program.output)
+        .unwrap()
+        .eval_bool()
+        .unwrap());
+
+    drop(target_epoch);
+    drop(program_epoch);
 }

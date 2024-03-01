@@ -1,7 +1,9 @@
+use std::num::NonZeroU64;
+
 use awint::{awint_dag::triple_arena::OrdArena, Awi};
 
 use crate::{
-    ensemble::{Ensemble, PBack, PExternal},
+    ensemble::{Ensemble, PBack, PExternal, Value},
     epoch::get_current_epoch,
     route::{EdgeKind, EmbeddingKind, PConfig, Programmability, Router},
     Error, LazyAwi,
@@ -89,14 +91,88 @@ impl Configurator {
 }
 
 impl Router {
-    /// Requires that the target epoch be resumed and is the active epoch
-    pub fn config_target(&self) -> Result<(), Error> {
-        todo!()
+    /// After routing is done, this function can be called to find the
+    /// configuration that the router determined. Note that if a bit is not
+    /// necessarily set to anything, it will be set to zero.
+    ///
+    /// # Errors
+    ///
+    /// - If the target epoch is not active or `config` is from the wrong
+    ///   `Epoch`
+    /// - If `config` was not registered in the `Configurator` used for the
+    ///   router
+    #[allow(unused)]
+    pub fn get_config<L: std::borrow::Borrow<LazyAwi>>(&self, config: &L) -> Result<Awi, Error> {
+        let config = config.borrow();
+        let epoch_shared = get_current_epoch()?;
+        let lock = epoch_shared.epoch_data.borrow();
+        let ensemble = &lock.ensemble;
+
+        let p_external = config.p_external();
+        let (_, rnode) = ensemble.notary.get_rnode(p_external)?;
+        let mut res = Awi::zero(rnode.nzbw());
+        if let Some(bits) = rnode.bits() {
+            for (bit_i, bit) in bits.iter().copied().enumerate() {
+                if let Some(bit) = bit {
+                    let bit = self
+                        .target_ensemble()
+                        .backrefs
+                        .get_val(bit)
+                        .unwrap()
+                        .p_self_equiv;
+                    if let Some(p_config) = self.configurator.find(bit) {
+                        let value = self
+                            .configurator
+                            .configurations
+                            .get_val(p_config)
+                            .unwrap()
+                            .value;
+                        let value = value.unwrap_or(false);
+                        res.set(bit_i, value).unwrap();
+                    } else {
+                        return Err(Error::OtherStr(
+                            "`get_config({config:#?})`: `config` is not registered as \
+                             configurable in the configurator",
+                        ));
+                    }
+                }
+            }
+        } else {
+            return Err(Error::OtherStr(
+                "`get_config({config:#?})`: the config is in the target epoch, but either routing \
+                 has not been done or the target was improperly mutated",
+            ));
+        }
+        Ok(res)
     }
 
-    /*pub fn ensemble_config_target(&self, ensemble: &mut Ensemble) -> Result<(), Error> {
+    /// Iterates through all of the configurable bits from the `Configurator`
+    /// and sets them in the current `Epoch`. Requires that the target epoch
+    /// be resumed and is the active epoch
+    pub fn config_target(&self) -> Result<(), Error> {
+        let epoch_shared = get_current_epoch()?;
+        let mut lock = epoch_shared.epoch_data.borrow_mut();
+        let ensemble = &mut lock.ensemble;
+        self.ensemble_config_target(ensemble)
+    }
+
+    pub fn ensemble_config_target(&self, ensemble: &mut Ensemble) -> Result<(), Error> {
+        for (p_config, p_equiv, config) in &self.configurator.configurations {
+            let value = if let Some(b) = config.value {
+                Value::Dynam(b)
+            } else {
+                Value::Unknown
+            };
+            if let Err(e) = ensemble.change_value(*p_equiv, value, NonZeroU64::new(1).unwrap()) {
+                return Err(Error::OtherString(format!(
+                    "`config_target`: when trying to change the target bit corresponding to \
+                     {p_config:#?}, encountered error that may be because the wrong `Epoch` is \
+                     active or because the target was improperly mutated: {e:?}"
+                )))
+            }
+        }
         Ok(())
-    }*/
+    }
 
     /// Sets all the configurations derived from final embeddings
     pub(crate) fn set_configurations(&mut self) -> Result<(), Error> {

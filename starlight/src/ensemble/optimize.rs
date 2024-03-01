@@ -39,9 +39,6 @@ pub enum Optimization {
     /// Removes all `LNode`s from an equivalence that has had a constant
     /// assigned to it, and notifies all referents.
     ConstifyEquiv(PBack),
-    /// Removes a `LNode` because there is at least one other `LNode` in the
-    /// equivalence that is stricly better
-    RemoveLNode(PBack),
     /// If a backref is removed, investigate this equivalence. Note that
     /// `InvestigateUsed`s overwrite each other when multiple ones are fired on
     /// the same equivalence.
@@ -65,7 +62,7 @@ pub enum Optimization {
 
     // Also note that `TNode`s should not be created, if so then we may need to enable generation
     // counters for `PTNode`s because of the delayed evaluator which requires consistent `PTNode`s
-
+    RemoveLNode(PBack),
     //InvertInput
     // (?) not sure if fusion + ordinary `const_eval_lnode` handles all cases cleanly,
     // might only do fission for routing
@@ -763,12 +760,6 @@ impl Ensemble {
                     self.backrefs.remove_key(p_back).unwrap();
                 }
             }
-            Optimization::RemoveLNode(p_back) => {
-                if !self.backrefs.contains(p_back) {
-                    return Ok(())
-                }
-                todo!()
-            }
             Optimization::InvestigateUsed(p_back) => {
                 if !self.backrefs.contains(p_back) {
                     return Ok(())
@@ -841,6 +832,12 @@ impl Ensemble {
                 // TODO fusion of structures like
                 // H(F(a, b), G(a, b)) definitely or any case like H(F(a, b), a)
                 // with common inputs
+            }
+            Optimization::RemoveLNode(p_back) => {
+                if !self.backrefs.contains(p_back) {
+                    return Ok(())
+                }
+                todo!()
             }
         }
         Ok(())
