@@ -40,7 +40,7 @@ impl Configurator {
     }
 
     /// Tell the router what bits it can use for programming the target. Uses
-    /// the currently active `Epoch`.
+    /// the current `Epoch`.
     pub fn configurable<L: std::borrow::Borrow<LazyAwi>>(
         &mut self,
         config: &L,
@@ -97,8 +97,8 @@ impl Router {
     ///
     /// # Errors
     ///
-    /// - If the target epoch is not active or `config` is from the wrong
-    ///   `Epoch`
+    /// - If the target epoch is not the current `Epoch` or `config` is from the
+    ///   wrong `Epoch`
     /// - If `config` was not registered in the `Configurator` used for the
     ///   router
     #[allow(unused)]
@@ -148,7 +148,7 @@ impl Router {
 
     /// Iterates through all of the configurable bits from the `Configurator`
     /// and sets them in the current `Epoch`. Requires that the target epoch
-    /// be resumed and is the active epoch
+    /// be resumed and is the current epoch
     pub fn config_target(&self) -> Result<(), Error> {
         let epoch_shared = get_current_epoch()?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();

@@ -154,7 +154,7 @@ impl LazyAwi {
         self.p_external
     }
 
-    /// Gets the associated `PState`, returns an error if the active `Epoch` is
+    /// Gets the associated `PState`, returns an error if the current `Epoch` is
     /// not correct or the `Epoch` was pruned.
     pub fn try_get_p_state(&self) -> Result<PState, Error> {
         let epoch = get_current_epoch()?;

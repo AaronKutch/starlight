@@ -180,7 +180,7 @@ impl EvalAwi {
     }
 
     /// Clones `self`, returning a perfectly equivalent `Eval` that will have
-    /// the same `eval` effects. Returns an error if the active `Epoch` is not
+    /// the same `eval` effects. Returns an error if the current `Epoch` is not
     /// correct.
     pub fn try_clone(&self) -> Result<Self, Error> {
         EvalAwi::try_clone_from(self.p_external())

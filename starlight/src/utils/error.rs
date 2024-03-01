@@ -30,8 +30,8 @@ pub enum Error {
     NoCurrentlyActiveEpoch,
     /// If there is an active `Epoch` but the operation needs a different one
     #[error(
-        "the currently active `starlight::Epoch` is not the correct one for this operation; some \
-         `Epoch` operations require that `self` is the current `Epoch`"
+        "the current `starlight::Epoch` is not the correct one for this operation; some `Epoch` \
+         operations require that `self` is the current `Epoch`"
     )]
     WrongCurrentlyActiveEpoch,
     /// If an `RNode` was requested that cannot be found
@@ -53,7 +53,7 @@ pub enum Error {
     CorrespondenceNotFound(PExternal),
     #[error(
         "when trying to transpose {0:#?}, found no corresponding `EvalAwi` or `LazyAwi` for the \
-         currently active `Epoch`"
+         current `Epoch`"
     )]
     CorrespondenceEmpty(PExternal),
     #[error(

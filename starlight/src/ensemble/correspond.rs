@@ -113,7 +113,7 @@ impl Corresponder {
     }
 
     /// Returns a vector of `LazyAwi`s for everything that was
-    /// corresponded with `l` and is usable with the currently active `Epoch`.
+    /// corresponded with `l` and is usable with the current `Epoch`.
     pub fn correspondences_lazy<L: std::borrow::Borrow<LazyAwi>>(
         &self,
         l: &L,
@@ -140,7 +140,7 @@ impl Corresponder {
     }
 
     /// If `l` has been corresponded with exactly one other `LazyAwi` valid in
-    /// the currently active `Epoch`, this will return a reference the
+    /// the current `Epoch`, this will return a reference the
     /// corresponding `LazyAwi`.
     pub fn transpose_lazy<L: std::borrow::Borrow<LazyAwi>>(&self, l: &L) -> Result<LazyAwi, Error> {
         let tmp = l.borrow();
@@ -157,7 +157,7 @@ impl Corresponder {
     }
 
     /// Returns a vector of `EvalAwi`s for everything that was
-    /// corresponded with `l` and is usable with the currently active `Epoch`.
+    /// corresponded with `l` and is usable with the current `Epoch`.
     pub fn correspondences_eval<E: std::borrow::Borrow<EvalAwi>>(
         &self,
         e: &E,
@@ -184,7 +184,7 @@ impl Corresponder {
     }
 
     /// If `l` has been corresponded with exactly one other `EvalAwi` valid in
-    /// the currently active `Epoch`, this will return a reference the
+    /// the current `Epoch`, this will return a reference the
     /// corresponding `EvalAwi`.
     pub fn transpose_eval<E: std::borrow::Borrow<EvalAwi>>(&self, e: &E) -> Result<EvalAwi, Error> {
         let tmp = e.borrow();
