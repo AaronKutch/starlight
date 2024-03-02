@@ -91,24 +91,34 @@ impl Configurator {
 }
 
 impl Router {
-    /// After routing is done, this function can be called to find the
-    /// configuration that the router determined. Note that if a bit is not
-    /// necessarily set to anything, it will be set to zero.
+    /// Finds the configuration associated with `config`. Note that if a bit is
+    /// not necessarily set to anything, it will be set to zero.
     ///
     /// # Errors
     ///
+    /// - If the routing is invalid because it has never been successfully
+    ///   routed or has been invalidated because of changes.
     /// - If the target epoch is not the current `Epoch` or `config` is from the
     ///   wrong `Epoch`
     /// - If `config` was not registered in the `Configurator` used for the
-    ///   router
+    ///   routing
     #[allow(unused)]
     pub fn get_config<L: std::borrow::Borrow<LazyAwi>>(&self, config: &L) -> Result<Awi, Error> {
+        if !self.is_valid_routing {
+            return Err(Error::RoutingIsInvalid)
+        }
         let config = config.borrow();
         let epoch_shared = get_current_epoch()?;
         let lock = epoch_shared.epoch_data.borrow();
         let ensemble = &lock.ensemble;
 
         let p_external = config.p_external();
+
+        // check that we are in the right epoch, the `p_equiv` lookup could collide
+        if ensemble.notary.get_rnode(p_external).is_err() {
+            return Err(Error::NotInTargetEpoch);
+        }
+
         let (_, rnode) = ensemble.notary.get_rnode(p_external)?;
         let mut res = Awi::zero(rnode.nzbw());
         if let Some(bits) = rnode.bits() {
@@ -147,17 +157,40 @@ impl Router {
     }
 
     /// Iterates through all of the configurable bits from the `Configurator`
-    /// and sets them in the current `Epoch`. Requires that the target epoch
-    /// be resumed and is the current epoch
+    /// and sets them in the target `Epoch`.
+    ///
+    /// # Errors
+    ///
+    /// - If the routing is invalid because it has never been successfully
+    ///   routed or has been invalidated because of changes.
+    /// - If the target epoch is not the current `Epoch`
     pub fn config_target(&self) -> Result<(), Error> {
+        if !self.is_valid_routing {
+            return Err(Error::RoutingIsInvalid)
+        }
         let epoch_shared = get_current_epoch()?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
         self.ensemble_config_target(ensemble)
     }
 
+    /// Iterates through all of the configurable bits from the `Configurator`
+    /// and sets them in the target `Ensemble`.
+    ///
+    /// # Errors
+    ///
+    /// - If the routing is invalid because it has never been successfully
+    ///   routed or has been invalidated because of changes.
+    /// - If the `ensemble` is not the target ensemble
     pub fn ensemble_config_target(&self, ensemble: &mut Ensemble) -> Result<(), Error> {
+        if !self.is_valid_routing {
+            return Err(Error::RoutingIsInvalid)
+        }
         for (p_config, p_equiv, config) in &self.configurator.configurations {
+            // check that we are in the right epoch, the `p_equiv` lookup could collide
+            if ensemble.notary.get_rnode(config.p_external).is_err() {
+                return Err(Error::NotInTargetEpoch);
+            }
             let value = if let Some(b) = config.value {
                 Value::Dynam(b)
             } else {

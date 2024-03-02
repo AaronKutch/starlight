@@ -253,9 +253,34 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         }
     }
 
+    // TODO recast the `Channeler`s, `Configurator`s, etc
+
     /// Assumes that the ensemble has been optimized
     pub fn new(ensemble: &Ensemble, configurator: &Configurator) -> Result<Self, Error> {
         let mut channeler = Self::empty();
+
+        // check that all the configurations point to things that exist, note this is
+        // only to protect against things like accidentally using the program as the
+        // target or if the configurator was used in multiple ensembles
+        for (_, p_equiv, config) in &configurator.configurations {
+            if let Ok((_, _rnode)) = ensemble.notary.get_rnode(config.p_external) {
+                #[cfg(debug_assertions)]
+                {
+                    if let Some(bit) = _rnode.bits().unwrap().get(config.bit_i) {
+                        let p_tmp = ensemble
+                            .backrefs
+                            .get_val(bit.unwrap())
+                            .unwrap()
+                            .p_self_equiv;
+                        assert_eq!(p_tmp, *p_equiv);
+                    } else {
+                        unreachable!()
+                    }
+                }
+            } else {
+                return Err(Error::ConfigurationNotFound(config.p_external))
+            }
+        }
 
         // for each equivalence make a `CNode` with associated `EnsembleBackref`, unless
         // it is one of the configurable bits

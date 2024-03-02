@@ -109,6 +109,11 @@ impl<K, V> SmallMap<K, V> {
     pub fn is_empty(&self) -> bool {
         self.set.is_empty()
     }
+
+    pub fn clear_and_shrink(&mut self) {
+        self.set.clear();
+        self.set.shrink_to_fit();
+    }
 }
 
 impl<K: Ord, V> SmallMap<K, V> {
@@ -188,6 +193,10 @@ impl<K> SmallSet<K> {
 
     pub fn is_empty(&self) -> bool {
         self.small_map.is_empty()
+    }
+
+    pub fn clear_and_shrink(&mut self) {
+        self.small_map.clear_and_shrink();
     }
 }
 

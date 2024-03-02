@@ -173,6 +173,15 @@ impl Router {
     }
 
     pub(crate) fn initialize_embeddings(&mut self) -> Result<(), Error> {
+        // in case of rerouting we need to clear old embeddings
+        self.embeddings.clear();
+        for cnode in self.program_channeler.cnodes.vals_mut() {
+            cnode.embeddings.clear_and_shrink();
+        }
+        for cedge in self.program_channeler.cedges.vals_mut() {
+            cedge.embeddings.clear_and_shrink();
+        }
+
         // Mappings will stay static because they are used for figuring out translating
         // program IO to target IO. Embeddings will represent bulk programmings of the
         // hierarchy. However, we know that the mappings correspond to some embeddings

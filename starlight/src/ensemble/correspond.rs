@@ -11,8 +11,8 @@ use crate::{
 /// Provides a controlled way to correspond `LazyAwi`s and `EvalAwi`s in and
 /// between different `Epoch`s.
 pub struct Corresponder {
-    a: OrdArena<PMeta, PExternal, PCorrespond>,
-    c: SurjectArena<PCorrespond, PMeta, NonZeroUsize>,
+    pub(crate) a: OrdArena<PMeta, PExternal, PCorrespond>,
+    pub(crate) c: SurjectArena<PCorrespond, PMeta, NonZeroUsize>,
 }
 
 impl Clone for Corresponder {

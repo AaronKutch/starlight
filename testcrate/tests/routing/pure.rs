@@ -24,10 +24,27 @@ impl SimpleCopyProgramInterface {
     }
 }
 
-// TODO corner cases
+#[test]
+fn route_empty() {
+    let (_, target_configurator, target_epoch) = FabricTargetInterface::target((2, 2));
+    let (_, program_epoch) = SimpleCopyProgramInterface::program();
+
+    let corresponder = Corresponder::new();
+
+    let mut router = Router::new(&target_epoch, &target_configurator, &program_epoch).unwrap();
+
+    router.route(&corresponder).unwrap();
+
+    let target_epoch = target_epoch.resume();
+
+    router.config_target().unwrap();
+
+    drop(target_epoch);
+    drop(program_epoch);
+}
 
 #[test]
-fn route_pure() {
+fn route_pure_single() {
     let (target, target_configurator, target_epoch) = FabricTargetInterface::target((2, 2));
     let (program, program_epoch) = SimpleCopyProgramInterface::program();
 
@@ -41,15 +58,9 @@ fn route_pure() {
         .correspond_eval(&program.output, &target.outputs[output_i])
         .unwrap();
 
-    let mut router = Router::new(
-        &target_epoch,
-        &target_configurator,
-        &program_epoch,
-        &corresponder,
-    )
-    .unwrap();
+    let mut router = Router::new(&target_epoch, &target_configurator, &program_epoch).unwrap();
 
-    router.route().unwrap();
+    router.route(&corresponder).unwrap();
 
     let target_epoch = target_epoch.resume();
 

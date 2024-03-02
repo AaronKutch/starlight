@@ -45,6 +45,9 @@ pub struct Router {
     pub(crate) mappings: OrdArena<PMapping, PBack, Mapping>,
     // routing embedding of part of the program in the target
     pub(crate) embeddings: Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>>,
+    // this should only be set after a successful routing, and be unset the moment any mappings,
+    // embeddings, or configurations are changed.
+    pub(crate) is_valid_routing: bool,
 }
 
 impl Router {
@@ -95,62 +98,16 @@ impl Router {
         target_epoch: &SuspendedEpoch,
         configurator: &Configurator,
         program_epoch: &SuspendedEpoch,
-        corresponder: &Corresponder,
     ) -> Result<Self, Error> {
         let target_channeler = Channeler::from_target(target_epoch, configurator)?;
         let program_channeler = Channeler::from_program(program_epoch)?;
-        let mut router = Self::new_from_channelers(
+        Ok(Self::new_from_channelers(
             target_epoch,
             target_channeler,
             configurator,
             program_epoch,
             program_channeler,
-        );
-        // use the corresponder to find `map_rnodes` points, coordinating from the
-        // program side since it should be one-to-many at most from that direction
-        let mut adv = router.program_ensemble().notary.rnodes().advancer();
-        while let Some(p_rnode) = adv.advance(router.program_ensemble().notary.rnodes()) {
-            let (program_p_external, program_rnode) = router
-                .program_ensemble()
-                .notary
-                .rnodes()
-                .get(p_rnode)
-                .unwrap();
-            let program_p_external = *program_p_external;
-            let is_driver = !program_rnode.read_only();
-            if let Ok(correspondences) = corresponder.correspondences(program_p_external) {
-                for target_p_external in correspondences {
-                    if let Some(target_p_rnode) = router
-                        .target_ensemble()
-                        .notary
-                        .rnodes()
-                        .find_key(&target_p_external)
-                    {
-                        let target_rnode = router
-                            .target_ensemble()
-                            .notary
-                            .rnodes()
-                            .get_val(target_p_rnode)
-                            .unwrap();
-                        if (!is_driver) != target_rnode.read_only() {
-                            return Err(Error::OtherString(format!(
-                                "in `Router::new()`, it appears that a correspondence is between \
-                                 a `LazyAwi` and a `EvalAwi` which shouldn't be possible, the two \
-                                 sides were {program_p_external:#?} and {target_p_external:#?}"
-                            )));
-                        }
-                        router.map_rnodes(program_p_external, target_p_external, is_driver)?;
-                    } else {
-                        return Err(Error::OtherString(format!(
-                            "in `Router::new()`, found a correspondence with program `RNode` \
-                             {program_p_external:#?} that is not contained in the target, the \
-                             correspondence was {target_p_external:#?}"
-                        )))
-                    }
-                }
-            }
-        }
-        Ok(router)
+        ))
     }
 
     /// Create the router from externally created `Channeler`s and no automatic
@@ -170,6 +127,7 @@ impl Router {
             program_channeler,
             mappings: OrdArena::new(),
             embeddings: Arena::new(),
+            is_valid_routing: false,
         }
     }
 
@@ -520,13 +478,14 @@ impl Router {
     }
 
     /// Tell the router what program input bits we want to map to what target
-    /// input bits. This is automatically handled by `Router::new`
+    /// input bits. This is automatically handled by `Router::route()`.
     pub fn map_rnodes(
         &mut self,
         program: PExternal,
         target: PExternal,
         is_driver: bool,
     ) -> Result<(), Error> {
+        self.is_valid_routing = false;
         if let Ok((_, program_rnode)) = self.program_ensemble.notary.get_rnode(program) {
             let program_rnode_bits = if let Some(bits) = program_rnode.bits() {
                 bits
@@ -652,6 +611,102 @@ impl Router {
         }
     }
 
+    /// Uses the corresponder to find `map_rnodes` points. This is automatically
+    /// handled by `Router::route()`.
+    pub fn map_rnodes_from_corresponder(
+        &mut self,
+        corresponder: &Corresponder,
+    ) -> Result<(), Error> {
+        for (_, p_external, p_correspond) in &corresponder.a {
+            if let Ok((_, program_rnode)) = self.program_ensemble().notary.get_rnode(*p_external) {
+                // we are oriented around the program side of the correspondence because there
+                // should be at most one per correspondence
+                let program_p_external = *p_external;
+                let is_driver = !program_rnode.read_only();
+                let mut target_count = 0;
+                let mut adv = corresponder.c.advancer_surject(*p_correspond);
+                // skip once
+                adv.advance(&corresponder.c);
+                while let Some(p_correspond) = adv.advance(&corresponder.c) {
+                    let p_meta = *corresponder.c.get_key(p_correspond).unwrap();
+                    let target_p_external = *corresponder.a.get_key(p_meta).unwrap();
+                    if let Ok((_, target_rnode)) =
+                        self.target_ensemble().notary.get_rnode(target_p_external)
+                    {
+                        if (!is_driver) != target_rnode.read_only() {
+                            return Err(Error::OtherString(format!(
+                                "in `Router::map_rnodes_from_corresponder()`, it appears that a \
+                                 correspondence is between a `LazyAwi` and a `EvalAwi` which \
+                                 shouldn't be possible, the two sides were \
+                                 {program_p_external:#?} and {target_p_external:#?}"
+                            )));
+                        }
+                        self.map_rnodes(program_p_external, target_p_external, is_driver)?;
+                        target_count += 1;
+                    } else if self
+                        .program_ensemble()
+                        .notary
+                        .rnodes()
+                        .find_key(&target_p_external)
+                        .is_some()
+                    {
+                        // probably a common mistake we should handle specially
+                        return Err(Error::CorrespondenceDoubleProgram(
+                            program_p_external,
+                            target_p_external,
+                        ));
+                    } else {
+                        return Err(Error::CorrespondenceNotFoundInEpoch(target_p_external));
+                    }
+                }
+                if target_count == 0 {
+                    return Err(Error::CorrespondenceWithoutTarget(program_p_external));
+                }
+            } else if self.target_ensemble().notary.get_rnode(*p_external).is_ok() {
+                // check that there is at least one program corresponded with this, the other
+                // branch will do the other kinds of checks
+                let mut program_count = 0;
+                let mut adv = corresponder.c.advancer_surject(*p_correspond);
+                // skip once
+                adv.advance(&corresponder.c);
+                while let Some(p_correspond) = adv.advance(&corresponder.c) {
+                    let p_meta = *corresponder.c.get_key(p_correspond).unwrap();
+                    let p_tmp = *corresponder.a.get_key(p_meta).unwrap();
+                    if self.program_ensemble().notary.get_rnode(p_tmp).is_ok() {
+                        program_count += 1;
+                    }
+                }
+                if program_count == 0 {
+                    return Err(Error::CorrespondenceWithoutProgram(*p_external));
+                }
+            } else {
+                return Err(Error::CorrespondenceNotFoundInEpoch(*p_external));
+            }
+        }
+        Ok(())
+    }
+
+    /// Clears any mappings currently registered for this `Router`
+    pub fn clear_mappings(&mut self) {
+        self.is_valid_routing = false;
+        self.mappings.clear();
+    }
+
+    /// The same as [Router::route] except that this uses any preexisting manual
+    /// mappings.
+    pub fn route_without_remapping(&mut self) -> Result<(), Error> {
+        self.initialize_embeddings()?;
+        route(self)?;
+        self.set_configurations()?;
+        self.is_valid_routing = true;
+        Ok(())
+    }
+
+    /// Routes the program on the target, finding the configuration needed to
+    /// match the functionality of target to the program. This resets any
+    /// mappings and configurations from previous calls and creates mappings
+    /// from the program to the target based on the `corresponder`.
+    ///
     /// This function should be called to perform the routing algorithms and
     /// determine how the target can be configured to match the
     /// functionality of the program.
@@ -659,10 +714,9 @@ impl Router {
     /// # Errors
     ///
     /// If the routing is infeasible an error is returned.
-    pub fn route(&mut self) -> Result<(), Error> {
-        self.initialize_embeddings()?;
-        route(self)?;
-        self.set_configurations()?;
-        Ok(())
+    pub fn route(&mut self, corresponder: &Corresponder) -> Result<(), Error> {
+        self.clear_mappings();
+        self.map_rnodes_from_corresponder(corresponder)?;
+        self.route_without_remapping()
     }
 }

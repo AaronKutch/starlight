@@ -61,6 +61,41 @@ pub enum Error {
          `EvalAwi` or `LazyAwi`"
     )]
     CorrespondenceNotATranspose(PExternal),
+    #[error(
+        "there is a correspondence with a program `EvalAwi` or `LazyAwi` {0:#?}, but there is \
+         nothing corresponding with it on the target"
+    )]
+    CorrespondenceWithoutTarget(PExternal),
+    #[error(
+        "there is a correspondence with a target `EvalAwi` or `LazyAwi` {0:#?}, but there is \
+         nothing corresponding with it on the program"
+    )]
+    CorrespondenceWithoutProgram(PExternal),
+    #[error(
+        "there is a correspondence with a program `EvalAwi` or `LazyAwi` {0:#?}, but the \
+         corresponding {1:#?} is also contained in the program, there should be exactly one \
+         program element in a given correspondence"
+    )]
+    CorrespondenceDoubleProgram(PExternal, PExternal),
+    #[error(
+        "there is a correspondence with `EvalAwi` or `LazyAwi` {0:#?}, but it is not contained in \
+         the program or target"
+    )]
+    CorrespondenceNotFoundInEpoch(PExternal),
+    /// Could not find something in a `Configurator`
+    #[error(
+        "when checking the configuration against a target `Epoch`, could not find {0:#?}, this is \
+         possibly because the program and target were swapped in arguments or a `Configurator` \
+         used things from a different `Epoch`"
+    )]
+    ConfigurationNotFound(PExternal),
+    #[error(
+        "the current configuration of the `Router` is invalid because it has never been \
+         successfully routed or has been invalidated by some change"
+    )]
+    RoutingIsInvalid,
+    #[error("the current active `Epoch` needs to be the target `Epoch` for this operation")]
+    NotInTargetEpoch,
     /// For miscellanious errors
     #[error("{0}")]
     OtherStr(&'static str),
