@@ -26,13 +26,6 @@ impl<const W: usize> std::borrow::Borrow<LazyAwi> for In<W> {
     }
 }
 
-#[allow(clippy::from_over_into)]
-impl<const W: usize> Into<LazyAwi> for In<W> {
-    fn into(self) -> LazyAwi {
-        self.0
-    }
-}
-
 macro_rules! retro_primitives {
     ($($f:ident $x:ident $w:expr);*;) => {
         $(
@@ -123,6 +116,22 @@ impl<const W: usize> In<W> {
 
     pub fn bw(&self) -> usize {
         self.0.bw()
+    }
+
+    /// Converts the `LazyAwi` into an `In<W>`, succeeding if `lazy_awi.bw() ==
+    /// W`. There is also a `TryFrom<LazyAwi>` impl for this.
+    pub fn try_from_lazy(lazy_awi: LazyAwi) -> Result<Self, Error> {
+        if lazy_awi.bw() == W {
+            Ok(Self(lazy_awi))
+        } else {
+            Err(Error::ConstBitwidthMismatch(lazy_awi.bw(), W))
+        }
+    }
+
+    /// Converts the `In<W>` into a `LazyAwi`. There is also a `From<In<W>>`
+    /// impl for this.
+    pub fn into_lazy(self) -> LazyAwi {
+        self.0
     }
 
     /// Initializes an `In<W>` with an unknown dynamic value
@@ -227,6 +236,23 @@ impl<const W: usize> fmt::Debug for In<W> {
     }
 }
 
+impl<const W: usize> TryFrom<LazyAwi> for In<W> {
+    type Error = Error;
+
+    /// Converts the `LazyAwi` into an `In<W>`, succeeding if `lazy_awi.bw() ==
+    /// W`.
+    fn try_from(lazy_awi: LazyAwi) -> Result<Self, Self::Error> {
+        Self::try_from_lazy(lazy_awi)
+    }
+}
+
+impl<const W: usize> From<In<W>> for LazyAwi {
+    /// Converts the `In<W>` into a `LazyAwi`
+    fn from(value: In<W>) -> Self {
+        value.into_lazy()
+    }
+}
+
 /// A wrapper around [crate::EvalAwi] that has a constant width.
 ///
 /// Note that when constructing from `dag::Bits`, you need to use
@@ -237,13 +263,6 @@ pub struct Out<const W: usize>(EvalAwi);
 impl<const W: usize> std::borrow::Borrow<EvalAwi> for Out<W> {
     fn borrow(&self) -> &EvalAwi {
         &self.0
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl<const W: usize> Into<EvalAwi> for Out<W> {
-    fn into(self) -> EvalAwi {
-        self.0
     }
 }
 
@@ -333,6 +352,22 @@ impl<const W: usize> Out<W> {
         self.0.bw()
     }
 
+    /// Converts the `EvalAwi` into an `Out<W>`, succeeding if `eval_awi.bw() ==
+    /// W`. There is also a `TryFrom<EvalAwi>` impl for this.
+    pub fn try_from_eval(eval_awi: EvalAwi) -> Result<Self, Error> {
+        if eval_awi.bw() == W {
+            Ok(Self(eval_awi))
+        } else {
+            Err(Error::ConstBitwidthMismatch(eval_awi.bw(), W))
+        }
+    }
+
+    /// Converts the `Out<W>` into an `EvalAwi`. There is also a `From<Out<W>>`
+    /// impl for this.
+    pub fn into_eval(self) -> EvalAwi {
+        self.0
+    }
+
     /// Used internally to create `Out<W>`s. Returns an error if the bitwidth of
     /// the `State` does not match `W`.
     ///
@@ -381,6 +416,23 @@ impl<const W: usize> fmt::Debug for Out<W> {
     /// active
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         format_auto_awi(&format!("Out<{W}>"), self.p_external(), self.nzbw(), f)
+    }
+}
+
+impl<const W: usize> TryFrom<EvalAwi> for Out<W> {
+    type Error = Error;
+
+    /// Converts the `EvalAwi` into an `Out<W>`, succeeding if `eval_awi.bw() ==
+    /// W`.
+    fn try_from(eval_awi: EvalAwi) -> Result<Self, Self::Error> {
+        Self::try_from_eval(eval_awi)
+    }
+}
+
+impl<const W: usize> From<Out<W>> for EvalAwi {
+    /// Converts the `Out<W>` into an `EvalAwi`
+    fn from(value: Out<W>) -> Self {
+        value.into_eval()
     }
 }
 
