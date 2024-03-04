@@ -633,7 +633,7 @@ impl Router {
                     if let Ok((_, target_rnode)) =
                         self.target_ensemble().notary.get_rnode(target_p_external)
                     {
-                        if (!is_driver) != target_rnode.read_only() {
+                        if is_driver == target_rnode.read_only() {
                             return Err(Error::OtherString(format!(
                                 "in `Router::map_rnodes_from_corresponder()`, it appears that a \
                                  correspondence is between a `LazyAwi` and a `EvalAwi` which \
@@ -696,6 +696,9 @@ impl Router {
     /// mappings.
     pub fn route_without_remapping(&mut self) -> Result<(), Error> {
         self.initialize_embeddings()?;
+        for configuration in self.configurator.configurations.vals_mut() {
+            configuration.value = None;
+        }
         route(self)?;
         self.set_configurations()?;
         self.is_valid_routing = true;
