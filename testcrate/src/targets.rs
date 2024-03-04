@@ -1,3 +1,5 @@
+//! This is here as a library so that local test binaries can use it
+
 use std::{array, collections::HashMap};
 
 use starlight::{

@@ -262,7 +262,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         // check that all the configurations point to things that exist, note this is
         // only to protect against things like accidentally using the program as the
         // target or if the configurator was used in multiple ensembles
-        for (_, p_equiv, config) in &configurator.configurations {
+        for (_, _p_equiv, config) in &configurator.configurations {
             if let Ok((_, _rnode)) = ensemble.notary.get_rnode(config.p_external) {
                 #[cfg(debug_assertions)]
                 {
@@ -272,7 +272,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                             .get_val(bit.unwrap())
                             .unwrap()
                             .p_self_equiv;
-                        assert_eq!(p_tmp, *p_equiv);
+                        assert_eq!(p_tmp, *_p_equiv);
                     } else {
                         unreachable!()
                     }

@@ -1,6 +1,5 @@
 use starlight::{route::Router, Corresponder, Epoch, Error, In, Out, SuspendedEpoch};
-
-use super::FabricTargetInterface;
+use testcrate::targets::FabricTargetInterface;
 
 struct SimpleCopyProgramInterface {
     input: In<1>,
