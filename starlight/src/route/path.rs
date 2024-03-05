@@ -63,7 +63,7 @@ impl<QCNode: Ptr, QCEdge: Ptr> Path<QCNode, QCEdge> {
 /// to one ore more `sink` nodes. Sinks can have different priorities.
 #[derive(Debug, Clone)]
 pub struct HyperPath<QCNode: Ptr, QCEdge: Ptr> {
-    source: QCNode,
+    pub source: QCNode,
     paths: Vec<Path<QCNode, QCEdge>>,
 }
 

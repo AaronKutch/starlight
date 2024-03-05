@@ -74,81 +74,149 @@ impl Router {
             .find_channeler_cnode(program_p_equiv)
             .unwrap();
 
-        if mapping.target_source.is_some() && (!mapping.target_sinks.is_empty()) {
-            // If a mapping has both a source and sinks, then we need an embedding of the
-            // program cnode that embeds in a target cnode that can cover all the sources
-            // and the sinks. The embedding then has a hyperpath that connects the sources
-            // and sinks.
-
-            // we are dealing with the single program node copying mapping case, which does
-            // not interact with anything else directly so we only deal with the common
-            // supernode of our source and sinks
-
+        if let Some(ref source_mapping_target) = mapping.target_source {
             // find the corresponding `QCNode` for the source
-            let target_source_p_equiv = mapping.target_source.as_ref().unwrap().target_p_equiv;
+            let target_source_p_equiv = source_mapping_target.target_p_equiv;
             let target_source_q_cnode = self
                 .target_channeler()
                 .find_channeler_cnode(target_source_p_equiv)
                 .unwrap();
-
             // begin constructing hyperpath for the embedding
             let mut hyperpath = HyperPath::<QCNode, QCEdge>::new(target_source_q_cnode);
 
-            // begin finding the common target cnode
-            let mut root_common_target_q_cnode = target_source_q_cnode;
+            if !mapping.target_sinks.is_empty() {
+                // If a mapping has both a source and sinks, then we need an embedding of the
+                // program cnode that embeds in a target cnode that can cover all the sources
+                // and the sinks. The embedding then has a hyperpath that connects the sources
+                // and sinks.
 
-            // do the same for the sinks
+                // we are dealing with the single program node copying mapping case, which does
+                // not interact with anything else directly so we only deal with the common
+                // supernode of our source and sinks
+
+                // begin finding the common target cnode
+                let mut root_common_target_q_cnode = target_source_q_cnode;
+
+                // do the same for the sinks
+                for (i, mapping_target) in mapping.target_sinks.iter().enumerate() {
+                    let target_sink_p_equiv = mapping_target.target_p_equiv;
+                    let target_sink_q_cnode = self
+                        .target_channeler()
+                        .find_channeler_cnode(target_sink_p_equiv)
+                        .unwrap();
+                    let path = Path::new(target_sink_q_cnode);
+                    hyperpath.push(path);
+                    root_common_target_q_cnode = if let Some(q_cnode) = self
+                        .target_channeler()
+                        .find_common_supernode(root_common_target_q_cnode, target_sink_q_cnode)
+                    {
+                        q_cnode
+                    } else {
+                        let s = self.debug_mapping(p_mapping);
+                        return Err(Error::OtherString(format!(
+                            "When trying to find an initial embedding for a program bit that is \
+                             mapped to both a target source and one or more target sinks (which \
+                             occurs when mapping a trivial copy operation in the program directly \
+                             onto a target), could not find a common supernode between the source \
+                             and sink {i} (meaning that the target is like a disconnected graph \
+                             and two parts of the mapping are on different parts that are \
+                             impossible to route between). The mapping is:\n{s}\nThe `CNodes` are \
+                             {root_common_target_q_cnode}, {target_sink_q_cnode}"
+                        )));
+                    };
+                }
+
+                // the endpoints of the hyperedge are initialized, initialize the paths by
+                // connecting them all through the common supernode
+
+                // get the common edges to the common root
+                let mut q = hyperpath.source();
+                let mut path_to_root = vec![];
+                while q != root_common_target_q_cnode {
+                    q = self.target_channeler().get_supernode(q).unwrap();
+                    path_to_root.push(Edge::new(EdgeKind::Concentrate, q));
+                }
+                // push on the path to root and a path back down to the sink
+                for path in hyperpath.paths_mut() {
+                    let mut path_to_sink = vec![];
+                    // note the order of operations because we reverse the `Vec` to avoid
+                    // insertions, we needed to use `get_supernode`
+                    let mut q = path.sink();
+                    while q != root_common_target_q_cnode {
+                        path_to_sink.push(Edge::new(EdgeKind::Dilute, q));
+                        q = self.target_channeler().get_supernode(q).unwrap();
+                    }
+                    path_to_sink.reverse();
+                    path.extend(path_to_root.iter().copied());
+                    path.extend(path_to_sink);
+                }
+
+                self.make_embedding0(Embedding {
+                    program: EmbeddingKind::Node(program_cnode),
+                    target_hyperpath: hyperpath,
+                })
+                .unwrap();
+            } else {
+                // If the mapping has just a source, then a hyperpath needs to
+                // go concentrating to a root node. If anything depending on the source does not
+                // also have the root node in common, then there is a disconnection which we
+                // easily detect later. There might not be a universal common root node in case
+                // of disconnected targets.
+
+                let mut q = hyperpath.source();
+                let mut path = Path::new(Ptr::invalid());
+                while let Some(tmp) = self.target_channeler().get_supernode(q) {
+                    q = tmp;
+                    path.push(Edge::new(EdgeKind::Concentrate, q));
+                }
+                let root_node = q;
+                path.sink = root_node;
+                hyperpath.push(path);
+
+                self.make_embedding0(Embedding {
+                    program: EmbeddingKind::Node(program_cnode),
+                    target_hyperpath: hyperpath,
+                })
+                .unwrap();
+            }
+        } else {
+            // The mapping just has sinks, then a hyper path
+            // needs to go from the root node diluting to the sinks, and we also do the root
+            // comparison from above
+
+            let mut hyperpath = HyperPath::<QCNode, QCEdge>::new(Ptr::invalid());
+
             for (i, mapping_target) in mapping.target_sinks.iter().enumerate() {
                 let target_sink_p_equiv = mapping_target.target_p_equiv;
                 let target_sink_q_cnode = self
                     .target_channeler()
                     .find_channeler_cnode(target_sink_p_equiv)
                     .unwrap();
-                let path = Path::<QCNode, QCEdge>::new(target_sink_q_cnode);
-                hyperpath.push(path);
-                root_common_target_q_cnode = if let Some(q_cnode) = self
-                    .target_channeler()
-                    .find_common_supernode(root_common_target_q_cnode, target_sink_q_cnode)
-                {
-                    q_cnode
-                } else {
+                let mut path = Path::new(target_sink_q_cnode);
+
+                let mut q = path.sink();
+                let mut path_to_sink = vec![Edge::new(EdgeKind::Dilute, q)];
+                while let Some(tmp) = self.target_channeler().get_supernode(q) {
+                    q = tmp;
+                    path_to_sink.push(Edge::new(EdgeKind::Dilute, q));
+                }
+                let root_node = path_to_sink.pop().unwrap().to;
+                if i == 0 {
+                    hyperpath.source = root_node;
+                } else if hyperpath.source() != root_node {
                     let s = self.debug_mapping(p_mapping);
                     return Err(Error::OtherString(format!(
                         "When trying to find an initial embedding for a program bit that is \
-                         mapped to both a target source and one or more target sinks (which \
-                         occurs when mapping a trivial copy operation in the program directly \
-                         onto a target), could not find a common supernode between the source and \
-                         sink {i} (meaning that the target is like a disconnected graph and two \
-                         parts of the mapping are on different parts that are impossible to route \
-                         between). The mapping is:\n{s}\nThe `CNodes` are \
-                         {root_common_target_q_cnode}, {target_sink_q_cnode}"
+                         mapped to more than one target sink, could not find a common supernode \
+                         between the sinks (meaning that the target is like a disconnected graph \
+                         and two parts of the mapping are on different parts that are impossible \
+                         to route between). The mapping is:\n{s}"
                     )));
-                };
-            }
-
-            // the endpoints of the hyperedge are initialized, initialize the paths by
-            // connecting them all through the common supernode
-
-            // get the common edges to the common root
-            let mut q = hyperpath.source();
-            let mut path_to_root = vec![];
-            while q != root_common_target_q_cnode {
-                q = self.target_channeler().get_supernode(q).unwrap();
-                path_to_root.push(Edge::new(EdgeKind::Concentrate, q));
-            }
-            // push on the path to root and a path back down to the sink
-            for path in hyperpath.paths_mut() {
-                let mut path_to_sink = vec![];
-                // note the order of operations because we reverse the `Vec` to avoid
-                // insertions, we needed to use `get_supernode`
-                let mut q = path.sink();
-                while q != root_common_target_q_cnode {
-                    path_to_sink.push(Edge::new(EdgeKind::Dilute, q));
-                    q = self.target_channeler().get_supernode(q).unwrap();
                 }
                 path_to_sink.reverse();
-                path.extend(path_to_root.iter().copied());
-                path.extend(path_to_sink.iter().copied());
+                path.extend(path_to_sink);
+
+                hyperpath.push(path);
             }
 
             self.make_embedding0(Embedding {
@@ -156,15 +224,6 @@ impl Router {
                 target_hyperpath: hyperpath,
             })
             .unwrap();
-        } else {
-            // If the mapping has just a source, then a hyper path needs to go concentrating
-            // to a root node. If the mapping just has sinks, then a hyper path
-            // needs to go from the root node diluting to the sinks.
-
-            // just find the root from the current location, embed the root, but if it is
-            // already embedded check it corresponds with the same program root, otherwise
-            // there must be a disconnection
-            todo!()
         }
 
         // TODO support custom `CEdge` mappings
