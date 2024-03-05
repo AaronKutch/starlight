@@ -81,37 +81,41 @@ impl Router {
                 .target_channeler()
                 .find_channeler_cnode(target_source_p_equiv)
                 .unwrap();
-            // begin constructing hyperpath for the embedding
-            let mut hyperpath = HyperPath::<QCNode, QCEdge>::new(target_source_q_cnode);
+
+            // create path from source to root
+            let mut q = target_source_q_cnode;
+            let mut path_to_root = vec![];
+            while let Some(tmp) = self.target_channeler().get_supernode(q) {
+                q = tmp;
+                path_to_root.push(Edge::new(EdgeKind::Concentrate, q));
+            }
+            let common_root_target_q_cnode = q;
+            let mut paths = vec![];
 
             if !mapping.target_sinks.is_empty() {
-                // If a mapping has both a source and sinks, then we need an embedding of the
-                // program cnode that embeds in a target cnode that can cover all the sources
-                // and the sinks. The embedding then has a hyperpath that connects the sources
-                // and sinks.
+                // If a mapping has both a source and sinks, then it is a trivial copy program
+                // node. The embedding then has a hyperpath that connects the sources
+                // to the sinks.
 
-                // we are dealing with the single program node copying mapping case, which does
-                // not interact with anything else directly so we only deal with the common
-                // supernode of our source and sinks
+                // TODO instead of going all the way to the root node like in other cases, we
+                // may just go to the common supernode of the source and sinks.
 
-                // begin finding the common target cnode
-                let mut root_common_target_q_cnode = target_source_q_cnode;
-
-                // do the same for the sinks
+                // create paths from root to sinks, which will be concatenated on top of
+                // `path_to_root`
                 for (i, mapping_target) in mapping.target_sinks.iter().enumerate() {
                     let target_sink_p_equiv = mapping_target.target_p_equiv;
                     let target_sink_q_cnode = self
                         .target_channeler()
                         .find_channeler_cnode(target_sink_p_equiv)
                         .unwrap();
-                    let path = Path::new(target_sink_q_cnode);
-                    hyperpath.push(path);
-                    root_common_target_q_cnode = if let Some(q_cnode) = self
-                        .target_channeler()
-                        .find_common_supernode(root_common_target_q_cnode, target_sink_q_cnode)
-                    {
-                        q_cnode
-                    } else {
+
+                    let mut q = target_sink_q_cnode;
+                    let mut path_to_sink = vec![Edge::new(EdgeKind::Dilute, q)];
+                    while let Some(tmp) = self.target_channeler().get_supernode(q) {
+                        q = tmp;
+                        path_to_sink.push(Edge::new(EdgeKind::Dilute, q));
+                    }
+                    if q != common_root_target_q_cnode {
                         let s = self.debug_mapping(p_mapping);
                         return Err(Error::OtherString(format!(
                             "When trying to find an initial embedding for a program bit that is \
@@ -120,40 +124,26 @@ impl Router {
                              onto a target), could not find a common supernode between the source \
                              and sink {i} (meaning that the target is like a disconnected graph \
                              and two parts of the mapping are on different parts that are \
-                             impossible to route between). The mapping is:\n{s}\nThe `CNodes` are \
-                             {root_common_target_q_cnode}, {target_sink_q_cnode}"
+                             impossible to route between). The mapping is:\n{s}\nThe roots are \
+                             {common_root_target_q_cnode}, {q}"
                         )));
-                    };
-                }
-
-                // the endpoints of the hyperedge are initialized, initialize the paths by
-                // connecting them all through the common supernode
-
-                // get the common edges to the common root
-                let mut q = hyperpath.source();
-                let mut path_to_root = vec![];
-                while q != root_common_target_q_cnode {
-                    q = self.target_channeler().get_supernode(q).unwrap();
-                    path_to_root.push(Edge::new(EdgeKind::Concentrate, q));
-                }
-                // push on the path to root and a path back down to the sink
-                for path in hyperpath.paths_mut() {
-                    let mut path_to_sink = vec![];
-                    // note the order of operations because we reverse the `Vec` to avoid
-                    // insertions, we needed to use `get_supernode`
-                    let mut q = path.sink();
-                    while q != root_common_target_q_cnode {
-                        path_to_sink.push(Edge::new(EdgeKind::Dilute, q));
-                        q = self.target_channeler().get_supernode(q).unwrap();
                     }
+                    // remove extra dilution to root
+                    path_to_sink.pop();
+                    // better than repeated insertion, TODO any reduction improvements to paths
+                    // should handle stuff like this, maybe just have `VecDeque` partials
                     path_to_sink.reverse();
-                    path.extend(path_to_root.iter().copied());
-                    path.extend(path_to_sink);
+                    let mut combined_path = vec![];
+                    // first the common part from the source to root
+                    combined_path.extend(path_to_root.iter().copied());
+                    combined_path.extend(path_to_sink);
+
+                    paths.push(Path::new(target_sink_q_cnode, combined_path));
                 }
 
                 self.make_embedding0(Embedding {
                     program: EmbeddingKind::Node(program_cnode),
-                    target_hyperpath: hyperpath,
+                    target_hyperpath: HyperPath::new(target_source_q_cnode, paths),
                 })
                 .unwrap();
             } else {
@@ -163,19 +153,12 @@ impl Router {
                 // easily detect later. There might not be a universal common root node in case
                 // of disconnected targets.
 
-                let mut q = hyperpath.source();
-                let mut path = Path::new(Ptr::invalid());
-                while let Some(tmp) = self.target_channeler().get_supernode(q) {
-                    q = tmp;
-                    path.push(Edge::new(EdgeKind::Concentrate, q));
-                }
-                let root_node = q;
-                path.sink = root_node;
-                hyperpath.push(path);
-
                 self.make_embedding0(Embedding {
                     program: EmbeddingKind::Node(program_cnode),
-                    target_hyperpath: hyperpath,
+                    target_hyperpath: HyperPath::new(target_source_q_cnode, vec![Path::new(
+                        common_root_target_q_cnode,
+                        path_to_root,
+                    )]),
                 })
                 .unwrap();
             }
@@ -184,17 +167,16 @@ impl Router {
             // needs to go from the root node diluting to the sinks, and we also do the root
             // comparison from above
 
-            let mut hyperpath = HyperPath::<QCNode, QCEdge>::new(Ptr::invalid());
-
+            let mut common_root_target_q_cnode = None;
+            let mut paths = vec![];
             for (i, mapping_target) in mapping.target_sinks.iter().enumerate() {
                 let target_sink_p_equiv = mapping_target.target_p_equiv;
                 let target_sink_q_cnode = self
                     .target_channeler()
                     .find_channeler_cnode(target_sink_p_equiv)
                     .unwrap();
-                let mut path = Path::new(target_sink_q_cnode);
 
-                let mut q = path.sink();
+                let mut q = target_sink_q_cnode;
                 let mut path_to_sink = vec![Edge::new(EdgeKind::Dilute, q)];
                 while let Some(tmp) = self.target_channeler().get_supernode(q) {
                     q = tmp;
@@ -202,8 +184,8 @@ impl Router {
                 }
                 let root_node = path_to_sink.pop().unwrap().to;
                 if i == 0 {
-                    hyperpath.source = root_node;
-                } else if hyperpath.source() != root_node {
+                    common_root_target_q_cnode = Some(root_node);
+                } else if common_root_target_q_cnode != Some(root_node) {
                     let s = self.debug_mapping(p_mapping);
                     return Err(Error::OtherString(format!(
                         "When trying to find an initial embedding for a program bit that is \
@@ -213,15 +195,15 @@ impl Router {
                          to route between). The mapping is:\n{s}"
                     )));
                 }
+                // remove extra dilution to root
+                path_to_sink.pop();
                 path_to_sink.reverse();
-                path.extend(path_to_sink);
-
-                hyperpath.push(path);
+                paths.push(Path::new(root_node, path_to_sink));
             }
 
             self.make_embedding0(Embedding {
                 program: EmbeddingKind::Node(program_cnode),
-                target_hyperpath: hyperpath,
+                target_hyperpath: HyperPath::new(common_root_target_q_cnode.unwrap(), paths),
             })
             .unwrap();
         }

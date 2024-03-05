@@ -407,6 +407,10 @@ fn route_path_on_level(
     let route_lvl = cnode.lvl;
     cnode.alg_visit = front_visit;
     cnode.alg_edge.0 = None;
+    if start == end {
+        // only exit after we have set the `alg_edge`
+        return Ok(true)
+    }
     // push initial edges from the entry
     let mut adv = router.target_channeler.cnodes.advancer_surject(start);
     while let Some(q_referent) = adv.advance(&router.target_channeler.cnodes) {

@@ -35,11 +35,8 @@ pub struct Path<QCNode: Ptr, QCEdge: Ptr> {
 }
 
 impl<QCNode: Ptr, QCEdge: Ptr> Path<QCNode, QCEdge> {
-    pub fn new(sink: QCNode) -> Self {
-        Self {
-            sink,
-            edges: vec![],
-        }
+    pub fn new(sink: QCNode, edges: Vec<Edge<QCNode, QCEdge>>) -> Self {
+        Self { sink, edges }
     }
 
     pub fn sink(&self) -> QCNode {
@@ -68,11 +65,8 @@ pub struct HyperPath<QCNode: Ptr, QCEdge: Ptr> {
 }
 
 impl<QCNode: Ptr, QCEdge: Ptr> HyperPath<QCNode, QCEdge> {
-    pub fn new(source: QCNode) -> Self {
-        Self {
-            source,
-            paths: vec![],
-        }
+    pub fn new(source: QCNode, paths: Vec<Path<QCNode, QCEdge>>) -> Self {
+        Self { source, paths }
     }
 
     pub fn source(&self) -> QCNode {
