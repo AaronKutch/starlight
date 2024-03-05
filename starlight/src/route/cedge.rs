@@ -323,7 +323,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     )));
                 }
             } else {
-                let p_cnode = channeler.make_top_level_cnode(vec![], 0, InternalBehavior::empty());
+                // the later `generate_hierarchy` call fixes the top level nodes
+                let p_cnode = channeler.make_cnode(vec![], 0, InternalBehavior::empty());
                 let replaced = channeler
                     .ensemble_backref_to_channeler_backref
                     .insert(equiv.p_self_equiv, p_cnode)

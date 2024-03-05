@@ -19,17 +19,12 @@ pub(crate) fn route(router: &mut Router) -> Result<(), Error> {
     // supernode chain of the target CNode including itself. Node and edge
     // embeddings should be in a ladder like ordering
 
-    // Embed all supernodes of the absolute embeddings in the common `CNode`, and
-    // make the paths between them all
+    // the `initialize_embeddings` call before this function establishes all
+    // neccessary initial embeddings implied by the mappings.
 
-    // TODO ?
-
-    // in order to program a target CEdge, the incidents of a base level program
-    // CEdge must be compatible with their embedded incidents in the target.
-    // Only then is it known to be possible to embed an edge (for bulk edges the
-    // substructure might not allow it when we then try to dilute, the only thing we
-    // can tell for sure is that a given embedding is not possible if the incidents
-    // are not compatible).
+    // in order for a `CEdge` embedding to occur, we require it to be possible
+    // within channel width constraints and available LUT bits (ignoring the sum of
+    // other `CEdge`s, the lagrangians will help to drive them apart)
 
     // If a program `CEdge` currently has all of its incidents already embedded, it
     // should be embedded now and conflicts resolved (requiring in general that
@@ -52,9 +47,6 @@ pub(crate) fn route(router: &mut Router) -> Result<(), Error> {
     // With the hierarchy, we can try a new kind of hyperpath finding that is
     // perhaps based purely on finding the immediate best local routing in each
     // dilution.
-
-    // Note: I suspect we need 4 "colors" of Lagrangian pressure in order to do a
-    // constraint violation cleanup
 
     let mut max_lvl = 0;
     for q_cnode in router.target_channeler().top_level_cnodes.keys() {
@@ -83,7 +75,8 @@ fn route_level(router: &mut Router, max_lvl: u16) -> Result<(), Error> {
     // - something analogous to adaboost at first, but adaboost deals with
     //   probabilistic things that don't need to be exact, and we need the strict
     //   absence of violations to have a successful routing. Towards the end there
-    //   will probably be a small fraction of things with violations.
+    //   will probably be a small fraction of things with violations, and will need
+    //   an explicit router.
 
     // - Granularity will lead to situations like fitting 3 * 1/3 program edges into
     //   2 * 1/2 target edges at the bulk level, and in general we would be forced
@@ -97,7 +90,7 @@ fn route_level(router: &mut Router, max_lvl: u16) -> Result<(), Error> {
     //   routing hell from making things too constrained early on, but not so
     //   violation free early on that we end up unnecessarily spread out later.
 
-    // - Currently, `route_embedding` relies on there being
+    // TODO or is the above true?
 
     let max_loops = 1u64;
     for _ in 0..max_loops {

@@ -1,5 +1,4 @@
 use std::{
-    cmp::max,
     collections::BinaryHeap,
     num::{NonZeroU32, NonZeroU64},
 };
@@ -53,8 +52,9 @@ impl<PCNode: Ptr, PCEdge: Ptr> CNode<PCNode, PCEdge> {
 
 impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
     /// Given the `subnodes` (which should point to unique `ThisCNode`s) for a
-    /// new top level `CNode`, this will manage the backrefs
-    pub fn make_top_level_cnode<I>(
+    /// new top level `CNode`, this will manage the backrefs. Note that
+    /// `top_level_cnodes` is not set correctly by this.
+    pub fn make_cnode<I>(
         &mut self,
         subnodes: I,
         lvl: u16,
@@ -76,9 +76,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             })
         });
         for p_subnode in subnodes {
-            if let Some(p) = self.top_level_cnodes.find_key(&p_subnode) {
-                self.top_level_cnodes.remove(p).unwrap();
-            }
             let p_supernode = self
                 .cnodes
                 .insert_key(p_cnode, Referent::SubNode(p_subnode))
@@ -86,7 +83,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             let cnode = self.cnodes.get_val_mut(p_subnode).unwrap();
             cnode.p_supernode = Some(p_supernode);
         }
-        let _ = self.top_level_cnodes.insert(p_cnode, ());
         p_cnode
     }
 
@@ -280,7 +276,7 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
             }
         }
         // concentrate
-        let p_next_lvl = channeler.make_top_level_cnode(
+        let p_next_lvl = channeler.make_cnode(
             related.iter().copied(),
             current_lvl.checked_add(1).unwrap(),
             InternalBehavior {
@@ -291,32 +287,12 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
         next_level_cnodes.push(p_next_lvl);
     }
 
-    // TODO optimize to just use `final_top_level_cnodes` in this final step,
-    // avoiding all other uses of `top_level_cnodes` in the middle
-
-    // if there are multiple cnodes are left in an anticlique, concentrate them into
-    // a single top level node
-    if channeler.top_level_cnodes.len() > 1 {
-        let mut set = vec![];
-        let mut max_lvl = 0;
-        let mut subnodes_in_tree = 0usize;
-        let mut lut_bits = 0usize;
-        for p_cnode in channeler.top_level_cnodes.keys().copied() {
-            set.push(p_cnode);
-            let cnode = channeler.cnodes.get_val(p_cnode).unwrap();
-            subnodes_in_tree = subnodes_in_tree
-                .checked_add(cnode.internal_behavior.subnodes_in_tree)
-                .unwrap();
-            lut_bits = lut_bits
-                .checked_add(cnode.internal_behavior().lut_bits)
-                .unwrap();
-            max_lvl = max(max_lvl, cnode.lvl);
-        }
-        channeler.make_top_level_cnode(set, max_lvl.checked_add(1).unwrap(), InternalBehavior {
-            subnodes_in_tree,
-            lut_bits,
-        });
+    // make all the top level nodes
+    for cnode in final_top_level_cnodes {
+        let replaced = channeler.top_level_cnodes.insert(cnode, ()).1;
+        assert!(replaced.is_none());
     }
+
     Ok(())
 }
 
@@ -335,8 +311,7 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
             continue
         }
         // need to also forward the internal behavior
-        let p_next_lvl =
-            channeler.make_top_level_cnode([p], current_lvl, cnode.internal_behavior().clone());
+        let p_next_lvl = channeler.make_cnode([p], current_lvl, cnode.internal_behavior().clone());
         next_level_cnodes.push(p_next_lvl);
     }
 

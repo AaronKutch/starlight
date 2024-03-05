@@ -65,7 +65,7 @@ impl Router {
         Ok(p_embedding)
     }
 
-    /// Makes a minimal embedding to express the given mapping.
+    /// Makes a necessary embedding to express the given mapping.
     fn make_embedding1(&mut self, p_mapping: PMapping) -> Result<(), Error> {
         let (program_p_equiv, mapping) = self.mappings.get(p_mapping).unwrap();
         let program_p_equiv = *program_p_equiv;
@@ -231,6 +231,8 @@ impl Router {
         Ok(())
     }
 
+    /// Clears embeddings and uses mappings to make embeddings that are known to
+    /// be neccessary for the routing to be possible.
     pub(crate) fn initialize_embeddings(&mut self) -> Result<(), Error> {
         // in case of rerouting we need to clear old embeddings
         self.embeddings.clear();

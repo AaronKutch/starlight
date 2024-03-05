@@ -21,9 +21,6 @@ pub enum Referent<PCNode: Ptr, PCEdge: Ptr> {
 pub struct Channeler<PCNode: Ptr, PCEdge: Ptr> {
     pub cnodes: SurjectArena<PCNode, Referent<PCNode, PCEdge>, CNode<PCNode, PCEdge>>,
     pub cedges: Arena<PCEdge, CEdge<PCNode>>,
-    /// The plan is that this always ends up with a single top level node, with
-    /// all unconnected graphs being connected with `Behavior::Noop` so that the
-    /// normal algorithm can allocate over them
     pub top_level_cnodes: OrdArena<PTopLevel, PCNode, ()>,
     // needed for the unit edges to find incidences
     pub ensemble_backref_to_channeler_backref: OrdArena<PBackrefToBackref, PBack, PCNode>,
