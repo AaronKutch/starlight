@@ -138,7 +138,7 @@ impl Router {
                     combined_path.extend(path_to_root.iter().copied());
                     combined_path.extend(path_to_sink);
 
-                    paths.push(Path::new(target_sink_q_cnode, combined_path));
+                    paths.push(Path::new(combined_path));
                 }
 
                 self.make_embedding0(Embedding {
@@ -156,7 +156,6 @@ impl Router {
                 self.make_embedding0(Embedding {
                     program: EmbeddingKind::Node(program_cnode),
                     target_hyperpath: HyperPath::new(target_source_q_cnode, vec![Path::new(
-                        common_root_target_q_cnode,
                         path_to_root,
                     )]),
                 })
@@ -198,7 +197,7 @@ impl Router {
                 // remove extra dilution to root
                 path_to_sink.pop();
                 path_to_sink.reverse();
-                paths.push(Path::new(root_node, path_to_sink));
+                paths.push(Path::new(path_to_sink));
             }
 
             self.make_embedding0(Embedding {

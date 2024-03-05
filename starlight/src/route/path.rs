@@ -29,18 +29,18 @@ impl<QCNode: Ptr, QCEdge: Ptr> Edge<QCNode, QCEdge> {
 /// A single path from a source to sink across multiple `CEdge`s
 #[derive(Debug, Clone)]
 pub struct Path<QCNode: Ptr, QCEdge: Ptr> {
-    pub sink: QCNode,
+    // the sink is on the last edge
     pub edges: Vec<Edge<QCNode, QCEdge>>,
     //critical_multiplier: u64,
 }
 
 impl<QCNode: Ptr, QCEdge: Ptr> Path<QCNode, QCEdge> {
-    pub fn new(sink: QCNode, edges: Vec<Edge<QCNode, QCEdge>>) -> Self {
-        Self { sink, edges }
+    pub fn new(edges: Vec<Edge<QCNode, QCEdge>>) -> Self {
+        Self { edges }
     }
 
     pub fn sink(&self) -> QCNode {
-        self.sink
+        self.edges().last().unwrap().to
     }
 
     pub fn edges(&self) -> &[Edge<QCNode, QCEdge>] {
