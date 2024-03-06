@@ -266,7 +266,7 @@ impl Router {
                     }
                 }
                 // need lowering to and configuration setting of `ArbitraryLut`s
-                EmbeddingKind::EdgeSpread(_) => todo!(),
+                EmbeddingKind::EdgeEmbed(_) => todo!(),
             }
         }
 

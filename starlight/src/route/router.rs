@@ -250,7 +250,7 @@ impl Router {
                         )))
                     }
                 }
-                EmbeddingKind::EdgeSpread(_) => todo!(),
+                EmbeddingKind::EdgeEmbed(_) => todo!(),
             }
             if let Some(hyperpath) = embedding.target_hyperpath() {
                 if !self.target_channeler().cnodes.contains(hyperpath.source()) {

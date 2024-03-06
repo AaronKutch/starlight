@@ -12,11 +12,23 @@ pub struct NodeSpread<PCNode: Ptr, QCNode: Ptr, QCEdge: Ptr> {
     pub target_hyperpath: HyperPath<QCNode, QCEdge>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum NodeOrEdge<PCNode: Ptr, PCEdge: Ptr> {
+    Node(PCNode),
+    Edge(PCEdge),
+}
+
+#[derive(Debug, Clone)]
+pub struct EdgeEmbed<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
+    pub program_edge: PCEdge,
+    pub target: NodeOrEdge<QCNode, QCEdge>,
+}
+
 #[derive(Debug, Clone)]
 pub enum EmbeddingKind<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
     /// A `CNode` needs to have its value spread across multiple target nodes
     NodeSpread(NodeSpread<PCNode, QCNode, QCEdge>),
-    EdgeSpread(PCEdge),
+    EdgeEmbed(EdgeEmbed<PCEdge, QCNode, QCEdge>),
 }
 
 #[derive(Debug, Clone)]
@@ -38,14 +50,14 @@ impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> Embedding<PCNode, PCEdg
     pub fn target_hyperpath(&self) -> Option<&HyperPath<QCNode, QCEdge>> {
         match &self.kind {
             EmbeddingKind::NodeSpread(node_spread) => Some(&node_spread.target_hyperpath),
-            EmbeddingKind::EdgeSpread(_) => todo!(),
+            EmbeddingKind::EdgeEmbed(_) => todo!(),
         }
     }
 
     pub fn target_hyperpath_mut(&mut self) -> Option<&mut HyperPath<QCNode, QCEdge>> {
         match &mut self.kind {
             EmbeddingKind::NodeSpread(node_spread) => Some(&mut node_spread.target_hyperpath),
-            EmbeddingKind::EdgeSpread(_) => todo!(),
+            EmbeddingKind::EdgeEmbed(_) => todo!(),
         }
     }
 }
@@ -79,7 +91,7 @@ impl Router {
                 embeddings.insert(p_embedding);
                 p_embedding
             }
-            EmbeddingKind::EdgeSpread(_) => {
+            EmbeddingKind::EdgeEmbed(_) => {
                 todo!()
             }
         })

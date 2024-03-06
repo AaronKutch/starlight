@@ -61,7 +61,40 @@ pub(crate) fn route(router: &mut Router) -> Result<(), Error> {
             break
         }
         max_lvl = max_lvl.checked_sub(1).unwrap();
-        route_level(router, max_lvl)?;
+        dilute_level(router, max_lvl)?;
+
+        // TODO after each dilution step, then we have a separate set of
+        // lagrangian adjustment routines run for a number of iterations or
+        // until there are sufficiently few violations
+
+        // things we may need to consider:
+
+        // - something analogous to adaboost at first, but adaboost deals with
+        //   probabilistic things that don't need to be exact, and we need the
+        //   strict absence of violations to have a successful routing. Towards
+        //   the end there will probably be a small fraction of things with
+        //   violations, and will need an explicit router.
+
+        // - Granularity will lead to situations like fitting 3 * 1/3 program
+        //   edges into 2 * 1/2 target edges at the bulk level, and in general
+        //   we would be forced to dilute all the way before resolving a
+        //   possible routing, or in other words a valid routing may necessarily
+        //   have violations at the concentrated level. I think the way to
+        //   resolve this is to propogate congestion sums up the tree and only
+        //   fire overall violation when the routing at the level cannot resolve
+        //   the higher discovered violations. Same level violations are allowed
+        //   until the base level, we use the Lagrangians to promote embedding
+        //   in the right average places. We have to bias it so that we do not
+        //   end up in routing hell from making things too constrained early on,
+        //   but not so violation free early on that we end up unnecessarily
+        //   spread out later.
+
+        // TODO or is the above true?
+
+        // - we may want something more sophisticated that allows the
+        //   Lagrangians to work on multiple levels. Or, if there is an
+        //   overdensity maybe we just reconcentrate everything, adjust weights,
+        //   and retry.
     }
 
     // the embeddings should form a valid routing now
@@ -69,67 +102,54 @@ pub(crate) fn route(router: &mut Router) -> Result<(), Error> {
     Ok(())
 }
 
-fn route_level(router: &mut Router, max_lvl: u16) -> Result<(), Error> {
-    // things we may need to consider:
-
-    // - something analogous to adaboost at first, but adaboost deals with
-    //   probabilistic things that don't need to be exact, and we need the strict
-    //   absence of violations to have a successful routing. Towards the end there
-    //   will probably be a small fraction of things with violations, and will need
-    //   an explicit router.
-
-    // - Granularity will lead to situations like fitting 3 * 1/3 program edges into
-    //   2 * 1/2 target edges at the bulk level, and in general we would be forced
-    //   to dilute all the way before resolving a possible routing, or in other
-    //   words a valid routing may necessarily have violations at the concentrated
-    //   level. I think the way to resolve this is to propogate congestion sums up
-    //   the tree and only fire overall violation when the routing at the level
-    //   cannot resolve the higher discovered violations. Same level violations are
-    //   allowed until the base level, we use the Lagrangians to promote embedding
-    //   in the right average places. We have to bias it so that we do not end up in
-    //   routing hell from making things too constrained early on, but not so
-    //   violation free early on that we end up unnecessarily spread out later.
-
-    // TODO or is the above true?
-
+/// Reduces the maximum level of hyperpaths. Currently requires that there is at
+/// most one extra level above the current one
+fn dilute_level(router: &mut Router, max_lvl: u16) -> Result<(), Error> {
     let max_loops = 1u64;
     for _ in 0..max_loops {
-        let violations = false;
+        // absolute violations correspond to things such as broken graphs or channel
+        // constraints, LUT bit constraints that cannot support something even when
+        // ignoring other hyperpaths
+        let absolute_violations = false;
 
         let mut adv = router.embeddings().advancer();
         while let Some(p_embedding) = adv.advance(router.embeddings()) {
-            route_embedding(router, max_lvl, p_embedding)?;
+            dilute_embedding(router, max_lvl, p_embedding)?;
         }
 
-        if !violations {
+        if !absolute_violations {
             break
         }
     }
     Ok(())
 }
 
-// currently assumes that hyperpath paths are like "trapezoids", one sequence of
-// `Concentrate` followed by zero or more traversals, followed by a sequence
-// `Dilute`s. Also assumes there is just one level of the trapezoid to dilute
-fn route_embedding(
+fn dilute_embedding(
     router: &mut Router,
     max_lvl: u16,
     p_embedding: PEmbedding,
 ) -> Result<(), Error> {
-    // as a consequence of the hierarchy generation rules, the subnodes of a node
-    // are no farther than two edge traversals apart from each other
+    // some embeddings will trigger other embeddings that need to complete before
+    // progressing
+    let mut embedding_work_stack = vec![p_embedding];
+    while let Some(p_embedding) = embedding_work_stack.pop() {
+        dilute_embedding_single(router, max_lvl, p_embedding, &mut embedding_work_stack)?;
+    }
+    Ok(())
+}
 
-    // Current idea: color the path nodes of the top `max_lvl + 1` of the trapezoid,
-    // and then do a Dijkstra search on level `max_lvl` that is constrained to only
-    // search in nodes that have the colored nodes as supernodes
-
+fn dilute_embedding_single(
+    router: &mut Router,
+    max_lvl: u16,
+    p_embedding: PEmbedding,
+    embedding_work_stack: &mut Vec<PEmbedding>,
+) -> Result<(), Error> {
     let embedding = router.embeddings.get(p_embedding).unwrap();
     match &embedding.kind {
         EmbeddingKind::NodeSpread(node_spread) => {
             let q_source = node_spread.target_hyperpath.source();
             let source = router.target_channeler().cnodes.get_val(q_source).unwrap();
             let source_lvl = source.lvl;
-            assert!(source_lvl <= max_lvl);
             // TODO when doing the Steiner tree optimization generalize the two front
             // priority queue to be like a Voronoi front with speed increase for critical
             // fronts. When two cells touch each other, they should continue one while
@@ -137,6 +157,7 @@ fn route_embedding(
             // triple points.
             let len = node_spread.target_hyperpath.paths().len();
             for path_i in 0..len {
+                // this will retry until the path is completely lowered
                 loop {
                     let path = &router
                         .embeddings
@@ -146,23 +167,30 @@ fn route_embedding(
                         .unwrap()
                         .paths()[path_i];
                     let mut node_lvl = source_lvl;
+                    if node_lvl > (max_lvl + 1) {
+                        unreachable!()
+                    }
                     // find a local plateau above `max_lvl`
-                    let mut edge_i = None;
+                    let mut edge_i = if node_lvl > max_lvl { Some(0) } else { None };
                     let mut edge_end_i = None;
                     for (i, edge) in path.edges().iter().copied().enumerate() {
                         match edge.kind {
                             EdgeKind::Transverse(..) => (),
                             EdgeKind::Concentrate => {
                                 node_lvl = node_lvl.checked_add(1).unwrap();
-                                edge_i = Some(i);
-                                edge_end_i = None;
+                                if node_lvl > max_lvl {
+                                    edge_i = Some(i);
+                                }
                             }
                             EdgeKind::Dilute => {
                                 node_lvl = node_lvl.checked_sub(1).unwrap();
-                                if edge_end_i.is_none() {
+                                if node_lvl == max_lvl {
                                     edge_end_i = Some(i);
                                 }
                             }
+                        }
+                        if node_lvl > (max_lvl + 1) {
+                            unreachable!()
                         }
                     }
                     if let Some(edge_i) = edge_i {
@@ -181,7 +209,9 @@ fn route_embedding(
                                 )));
                             }
                         } else {
+                            // the hyperpath has and end above the
                             // plateau does not have an end going down
+                            embedding_work_stack.push(p_embedding);
                             unreachable!();
                         }
                     } else {
@@ -191,7 +221,7 @@ fn route_embedding(
                 }
             }
         }
-        EmbeddingKind::EdgeSpread(_) => todo!(),
+        EmbeddingKind::EdgeEmbed(_) => todo!(),
     }
 
     Ok(())
