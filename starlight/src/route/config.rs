@@ -214,10 +214,10 @@ impl Router {
         // to detect if there are contradictions
 
         for embedding in self.embeddings.vals() {
-            match embedding.program {
-                EmbeddingKind::Node(_) => {
+            match embedding.kind {
+                EmbeddingKind::NodeSpread(ref node_spread) => {
                     // follow the `SelectorLut`s of the hyperpath
-                    for path in embedding.target_hyperpath.paths() {
+                    for path in node_spread.target_hyperpath.paths() {
                         for edge in path.edges() {
                             match edge.kind {
                                 EdgeKind::Transverse(q_cedge, source_i) => {
@@ -266,7 +266,7 @@ impl Router {
                     }
                 }
                 // need lowering to and configuration setting of `ArbitraryLut`s
-                EmbeddingKind::Edge(_) => todo!(),
+                EmbeddingKind::EdgeSpread(_) => todo!(),
             }
         }
 
