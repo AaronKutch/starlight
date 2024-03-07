@@ -75,20 +75,20 @@ impl Router {
         // register on both sides which will require a set for the target side.
         Ok(match embedding.kind {
             EmbeddingKind::NodeSpread(ref node_spread) => {
-                let embeddings = &mut self
+                let embedding_ref = &mut self
                     .program_channeler
                     .cnodes
                     .get_val_mut(node_spread.program_node)
                     .unwrap()
-                    .embeddings;
-                if !embeddings.is_empty() {
+                    .embedding;
+                if embedding_ref.is_some() {
                     return Err(Error::OtherString(format!(
                         "program node {:?} is already associated with an embedding",
                         node_spread.program_node
                     )));
                 }
                 let p_embedding = self.embeddings.insert(embedding);
-                embeddings.insert(p_embedding);
+                *embedding_ref = Some(p_embedding);
                 p_embedding
             }
             EmbeddingKind::EdgeEmbed(_) => {
@@ -179,8 +179,9 @@ impl Router {
                 ))
                 .unwrap();
 
-                // this case is not bound to any other part of the program
-                // graph, so we do not touch root embeddings
+                // this case is just a single program node not bound to any
+                // other part of the program graph, so we do not
+                // do anything else
             } else {
                 // If the mapping has just a source, then a hyperpath needs to
                 // go concentrating to a root node. If anything depending on the source does not
@@ -251,10 +252,10 @@ impl Router {
         // in case of rerouting we need to clear old embeddings
         self.embeddings.clear();
         for cnode in self.program_channeler.cnodes.vals_mut() {
-            cnode.embeddings.clear_and_shrink();
+            let _ = cnode.embedding.take();
         }
         for cedge in self.program_channeler.cedges.vals_mut() {
-            cedge.embeddings.clear_and_shrink();
+            let _ = cedge.embedding.take();
         }
 
         // Mappings will stay static because they are used for figuring out translating

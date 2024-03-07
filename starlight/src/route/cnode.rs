@@ -7,7 +7,6 @@ use awint::awint_dag::triple_arena::{Advancer, Ptr};
 
 use crate::{
     route::{ChannelWidths, Channeler, PEmbedding, Programmability, Referent},
-    utils::SmallSet,
     Error,
 };
 
@@ -37,7 +36,7 @@ pub struct CNode<PCNode: Ptr, PCEdge: Ptr> {
     pub lvl: u16,
     pub p_supernode: Option<PCNode>,
     pub internal_behavior: InternalBehavior,
-    pub embeddings: SmallSet<PEmbedding>,
+    pub embedding: Option<PEmbedding>,
     pub alg_visit: NonZeroU64,
     pub alg_entry_width: usize,
     // this is used in Dijkstras' and points backwards
@@ -69,7 +68,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 lvl,
                 p_supernode: None,
                 internal_behavior,
-                embeddings: SmallSet::new(),
+                embedding: None,
                 alg_visit: NonZeroU64::new(1).unwrap(),
                 alg_entry_width: 0,
                 alg_edge: (None, 0),

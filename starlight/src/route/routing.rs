@@ -171,7 +171,13 @@ fn dilute_embedding_single(
                         unreachable!()
                     }
                     // find a local plateau above `max_lvl`
-                    let mut edge_i = if node_lvl > max_lvl { Some(0) } else { None };
+                    let mut loose_start = false;
+                    let mut edge_i = if node_lvl > max_lvl {
+                        loose_start = true;
+                        Some(0)
+                    } else {
+                        None
+                    };
                     let mut edge_end_i = None;
                     for (i, edge) in path.edges().iter().copied().enumerate() {
                         match edge.kind {
@@ -195,24 +201,43 @@ fn dilute_embedding_single(
                     }
                     if let Some(edge_i) = edge_i {
                         if let Some(edge_end_i) = edge_end_i {
-                            let found =
-                                dilute_plateau(router, p_embedding, path_i, edge_i, edge_end_i)?;
-                            if !found {
-                                // for the combined source and sink embeddings which should have
-                                // simple absolute trapezoids, if `dilute_plateau` could not find
-                                // the path then one is not possible
-                                return Err(Error::OtherString(format!(
-                                    "could not find possible routing (disregarding width \
-                                     constraints) for embedding {p_embedding:?}, unless this is a \
-                                     poorly connected target or edge case, then this is probably \
-                                     a bug with the router"
-                                )));
+                            if loose_start {
+                                todo!()
+                            } else {
+                                let found = dilute_plateau(
+                                    router,
+                                    p_embedding,
+                                    path_i,
+                                    edge_i,
+                                    edge_end_i,
+                                )?;
+                                if !found {
+                                    // for the combined source and sink embeddings which should have
+                                    // simple absolute trapezoids, if `dilute_plateau` could not
+                                    // find the path then one is
+                                    // not possible
+                                    return Err(Error::OtherString(format!(
+                                        "could not find possible routing (disregarding width \
+                                         constraints) for embedding {p_embedding:?}, unless this \
+                                         is a poorly connected target or edge case, then this is \
+                                         probably a bug with the router"
+                                    )));
+                                }
                             }
+                        } else if loose_start {
+                            todo!()
                         } else {
-                            // the hyperpath has and end above the
-                            // plateau does not have an end going down
+                            // the hyperpath has a loose end above `max_lvl`, we need to check the
+                            // `CEdge`s on the _program_ side that use `max_lvl` supernode as a
+                            // source. If not embedded yet, it will be embedded and the input
+                            // becomes the new end of the hyperpath. If already embedded, it gets
+                            // diluted first, then we route on the level with the correct end.
+
+                            // the program supernodes should be embedded,
+                            //node_spread.program_node
+                            dilute_loose_end(router, p_embedding, path_i, edge_i)?;
                             embedding_work_stack.push(p_embedding);
-                            unreachable!();
+                            todo!();
                         }
                     } else {
                         // else there is nothing else to dilute
@@ -224,6 +249,23 @@ fn dilute_embedding_single(
         EmbeddingKind::EdgeEmbed(_) => todo!(),
     }
 
+    Ok(())
+}
+
+fn dilute_loose_end(
+    router: &mut Router,
+    p_embedding: PEmbedding,
+    path_i: usize,
+    edge_i: usize,
+) -> Result<(), Error> {
+    let embedding = router.embeddings.get(p_embedding).unwrap();
+    let q_source = embedding.target_hyperpath().unwrap().source();
+    let path = &embedding.target_hyperpath().unwrap().paths()[path_i];
+    let _start = if edge_i == 0 {
+        q_source
+    } else {
+        path.edges()[edge_i - 1].to
+    };
     Ok(())
 }
 

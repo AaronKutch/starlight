@@ -17,7 +17,6 @@ use crate::{
         cnode::{generate_hierarchy, InternalBehavior},
         CNode, Channeler, Configurator, PConfig, PEmbedding,
     },
-    utils::SmallSet,
     Error, SuspendedEpoch,
 };
 
@@ -140,7 +139,7 @@ pub struct CEdge<PCNode: Ptr> {
 
     programmability: Programmability,
 
-    pub embeddings: SmallSet<PEmbedding>,
+    pub embedding: Option<PEmbedding>,
 
     /// The weight needs to be at least 1 to prevent the algorithm from doing
     /// very bad routes
@@ -212,7 +211,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 sources: fixed_sources,
                 sink: fixed_sink,
                 programmability,
-                embeddings: SmallSet::new(),
+                embedding: None,
                 delay_weight,
                 lagrangian: 0,
                 alg_visit: NonZeroU64::new(1).unwrap(),
