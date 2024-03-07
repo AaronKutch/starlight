@@ -246,6 +246,7 @@ fn dilute_embedding_single(
                 }
             }
         }
+        EmbeddingKind::NodeEmbed(_) => todo!(),
         EmbeddingKind::EdgeEmbed(_) => todo!(),
     }
 

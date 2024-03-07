@@ -30,8 +30,10 @@ fn route_empty() {
     let corresponder = Corresponder::new();
 
     let mut router = Router::new(&target_epoch, &target_configurator, &program_epoch).unwrap();
+    router.verify_integrity().unwrap();
 
     router.route(&corresponder).unwrap();
+    router.verify_integrity().unwrap();
 
     let target_epoch = target_epoch.resume();
 
@@ -60,7 +62,9 @@ fn route_pure_single_small() {
                 .correspond_eval(&program.output, &target.outputs[output_i])
                 .unwrap();
 
+            router.verify_integrity().unwrap();
             router.route(&corresponder).unwrap();
+            router.verify_integrity().unwrap();
 
             router.config_target().unwrap();
 

@@ -43,6 +43,7 @@ fn route_errors_simple() {
     ));
 
     let mut router = Router::new(&target_epoch, &target_configurator, &program_epoch).unwrap();
+    router.verify_integrity().unwrap();
 
     let mut corresponder = Corresponder::new();
     // create a single element correspondence
@@ -53,6 +54,7 @@ fn route_errors_simple() {
         router.route(&corresponder),
         Err(Error::CorrespondenceWithoutTarget(_))
     ));
+    router.verify_integrity().unwrap();
 
     let mut corresponder = Corresponder::new();
     // create a single element correspondence
@@ -142,8 +144,11 @@ fn route_errors_simple() {
 
     let target_epoch = target_epoch.suspend();
 
+    router.verify_integrity().unwrap();
     router.map_rnodes_from_corresponder(&corresponder).unwrap();
+    router.verify_integrity().unwrap();
     router.route_without_remapping().unwrap();
+    router.verify_integrity().unwrap();
 
     let third_epoch = third_epoch.resume();
 

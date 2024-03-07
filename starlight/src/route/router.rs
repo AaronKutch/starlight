@@ -243,10 +243,30 @@ impl Router {
                     if !self
                         .program_channeler()
                         .cnodes
-                        .contains(node_spread.program_node)
+                        .contains(node_spread.program_cnode)
                     {
                         return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.program is invalid"
+                            "{p_embedding} {embedding:#?}.program_cnode is invalid"
+                        )))
+                    }
+                }
+                EmbeddingKind::NodeEmbed(node_embed) => {
+                    if !self
+                        .program_channeler()
+                        .cnodes
+                        .contains(node_embed.program_cnode)
+                    {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?}.program_cnode is invalid"
+                        )))
+                    }
+                    if !self
+                        .target_channeler()
+                        .cnodes
+                        .contains(node_embed.target_cnode)
+                    {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?}.target_cnode is invalid"
                         )))
                     }
                 }
@@ -297,13 +317,19 @@ impl Router {
                         match edge.kind {
                             EdgeKind::Transverse(q_cedge, source_i) => {
                                 let cedge = self.target_channeler().cedges.get(q_cedge).unwrap();
-                                q = cedge.sources()[source_i];
-                                if q != edge.to {
+                                let source = self
+                                    .target_channeler()
+                                    .cnodes
+                                    .get_val(cedge.sources()[source_i])
+                                    .unwrap()
+                                    .p_this_cnode;
+                                if q != source {
                                     return Err(Error::OtherString(format!(
-                                        "{p_embedding} {embedding:#?} path {i} is broken at \
-                                         traversal edge {j}"
+                                        "{p_embedding} {embedding:#?} path {i} source is broken \
+                                         at traversal edge {j} {cedge:#?}"
                                     )))
                                 }
+                                q = edge.to;
                             }
                             EdgeKind::Concentrate => {
                                 q = self.target_channeler().get_supernode(q).unwrap();
