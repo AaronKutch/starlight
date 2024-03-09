@@ -1,5 +1,11 @@
 use awint::awint_dag::triple_arena::Ptr;
 
+#[derive(Debug, Clone, Copy)]
+pub enum NodeOrEdge<PCNode: Ptr, PCEdge: Ptr> {
+    Node(PCNode),
+    Edge(PCEdge),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EdgeKind<QCEdge: Ptr> {
     /// Edge through a `CEdge` between `CNode`s on the same level. The `usize`
@@ -28,15 +34,22 @@ impl<QCNode: Ptr, QCEdge: Ptr> Edge<QCNode, QCEdge> {
 
 /// A single path from a source to sink across multiple `CEdge`s
 #[derive(Debug, Clone)]
-pub struct Path<QCNode: Ptr, QCEdge: Ptr> {
-    // the sink is on the last edge
+pub struct Path<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
+    /// In the Node case, if it is the same as the source, then it is a copying
+    /// path. Otherwise, it is a temporary higher level embedding case. In the
+    /// Edge case, this is for when the path is used to reach an edge embedding
+    pub program_sink: NodeOrEdge<PCNode, PCEdge>,
+    // the target sink is on the last edge
     pub edges: Vec<Edge<QCNode, QCEdge>>,
     //critical_multiplier: u64,
 }
 
-impl<QCNode: Ptr, QCEdge: Ptr> Path<QCNode, QCEdge> {
-    pub fn new(edges: Vec<Edge<QCNode, QCEdge>>) -> Self {
-        Self { edges }
+impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> Path<PCNode, PCEdge, QCNode, QCEdge> {
+    pub fn new(program_sink: NodeOrEdge<PCNode, PCEdge>, edges: Vec<Edge<QCNode, QCEdge>>) -> Self {
+        Self {
+            program_sink,
+            edges,
+        }
     }
 
     pub fn sink(&self) -> QCNode {
@@ -59,29 +72,38 @@ impl<QCNode: Ptr, QCEdge: Ptr> Path<QCNode, QCEdge> {
 /// Represents the "hyperpath" that a logical bit will take from a `source` node
 /// to one ore more `sink` nodes. Sinks can have different priorities.
 #[derive(Debug, Clone)]
-pub struct HyperPath<QCNode: Ptr, QCEdge: Ptr> {
+pub struct HyperPath<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
+    pub program_source: PCNode,
     pub source: QCNode,
-    paths: Vec<Path<QCNode, QCEdge>>,
+    paths: Vec<Path<PCNode, PCEdge, QCNode, QCEdge>>,
 }
 
-impl<QCNode: Ptr, QCEdge: Ptr> HyperPath<QCNode, QCEdge> {
-    pub fn new(source: QCNode, paths: Vec<Path<QCNode, QCEdge>>) -> Self {
-        Self { source, paths }
+impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> HyperPath<PCNode, PCEdge, QCNode, QCEdge> {
+    pub fn new(
+        program_source: PCNode,
+        source: QCNode,
+        paths: Vec<Path<PCNode, PCEdge, QCNode, QCEdge>>,
+    ) -> Self {
+        Self {
+            program_source,
+            source,
+            paths,
+        }
     }
 
     pub fn source(&self) -> QCNode {
         self.source
     }
 
-    pub fn push(&mut self, path: Path<QCNode, QCEdge>) {
+    pub fn push(&mut self, path: Path<PCNode, PCEdge, QCNode, QCEdge>) {
         self.paths.push(path)
     }
 
-    pub fn paths(&self) -> &[Path<QCNode, QCEdge>] {
+    pub fn paths(&self) -> &[Path<PCNode, PCEdge, QCNode, QCEdge>] {
         &self.paths
     }
 
-    pub fn paths_mut(&mut self) -> &mut [Path<QCNode, QCEdge>] {
+    pub fn paths_mut(&mut self) -> &mut [Path<PCNode, PCEdge, QCNode, QCEdge>] {
         &mut self.paths
     }
 }

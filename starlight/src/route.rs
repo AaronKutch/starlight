@@ -17,8 +17,8 @@ pub use cedge::{CEdge, ChannelWidths, Programmability, SelectorLut};
 pub use channel::{Channeler, Referent};
 pub use cnode::CNode;
 pub use config::{Config, Configurator};
-pub use embed::{EdgeEmbed, Embedding, EmbeddingKind, NodeOrEdge, NodeSpread};
-pub use path::{Edge, EdgeKind, HyperPath, Path};
+pub use embed::{EdgeEmbed, Embedding, EmbeddingKind};
+pub use path::{Edge, EdgeKind, HyperPath, NodeOrEdge, Path};
 pub use router::Router;
 pub(crate) use routing::route;
 

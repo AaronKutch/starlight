@@ -146,8 +146,8 @@ fn dilute_embedding_single(
 ) -> Result<(), Error> {
     let embedding = router.embeddings.get(p_embedding).unwrap();
     match &embedding.kind {
-        EmbeddingKind::NodeSpread(node_spread) => {
-            let q_source = node_spread.target_hyperpath.source();
+        EmbeddingKind::HyperPath(hyperpath) => {
+            let q_source = hyperpath.source();
             let source = router.target_channeler().cnodes.get_val(q_source).unwrap();
             let source_lvl = source.lvl;
             // TODO when doing the Steiner tree optimization generalize the two front
@@ -155,7 +155,7 @@ fn dilute_embedding_single(
             // fronts. When two cells touch each other, they should continue one while
             // recording the best intersection point, then later find the best points or
             // triple points.
-            let len = node_spread.target_hyperpath.paths().len();
+            let len = hyperpath.paths().len();
             for path_i in 0..len {
                 // this will retry until the path is completely lowered
                 loop {
@@ -163,7 +163,7 @@ fn dilute_embedding_single(
                         .embeddings
                         .get(p_embedding)
                         .unwrap()
-                        .target_hyperpath()
+                        .hyperpath()
                         .unwrap()
                         .paths()[path_i];
                     let mut node_lvl = source_lvl;
@@ -259,15 +259,7 @@ fn dilute_loose_end(
     path_i: usize,
     edge_i: usize,
 ) -> Result<(), Error> {
-    let embedding = router.embeddings.get(p_embedding).unwrap();
-    let q_source = embedding.target_hyperpath().unwrap().source();
-    let path = &embedding.target_hyperpath().unwrap().paths()[path_i];
-    let _start = if edge_i == 0 {
-        q_source
-    } else {
-        path.edges()[edge_i - 1].to
-    };
-    Ok(())
+    todo!()
 }
 
 // Subroutine to dilute a "plateau" by one level. `edge_i..edge_end_i` should be
@@ -281,8 +273,8 @@ fn dilute_plateau(
     edge_end_i: usize,
 ) -> Result<bool, Error> {
     let embedding = router.embeddings.get(p_embedding).unwrap();
-    let q_source = embedding.target_hyperpath().unwrap().source();
-    let path = &embedding.target_hyperpath().unwrap().paths()[path_i];
+    let q_source = embedding.hyperpath().unwrap().source();
+    let path = &embedding.hyperpath().unwrap().paths()[path_i];
     let start = if edge_i == 0 {
         q_source
     } else {
@@ -325,7 +317,7 @@ fn dilute_plateau(
         // TODO there is probably a way to optimize this
         max_backbone_lvl = max_backbone_lvl.map(|x| x + 1);
         let embedding = router.embeddings.get(p_embedding).unwrap();
-        let path = &embedding.target_hyperpath().unwrap().paths()[path_i];
+        let path = &embedding.hyperpath().unwrap().paths()[path_i];
         for edge in &path.edges()[edge_i..edge_end_i] {
             let mut q_supernode = router
                 .target_channeler
@@ -369,7 +361,7 @@ fn dilute_plateau(
         .embeddings
         .get(p_embedding)
         .unwrap()
-        .target_hyperpath()
+        .hyperpath()
         .unwrap()
         .paths()[path_i]
         .edges();
@@ -383,7 +375,7 @@ fn dilute_plateau(
         .embeddings
         .get_mut(p_embedding)
         .unwrap()
-        .target_hyperpath_mut()
+        .hyperpath_mut()
         .unwrap()
         .paths_mut()[path_i]
         .edges = completed_path;
