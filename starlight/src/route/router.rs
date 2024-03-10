@@ -5,8 +5,8 @@ use awint::awint_dag::triple_arena::{Advancer, OrdArena};
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
     route::{
-        route, Channeler, Configurator, EdgeKind, Embedding, EmbeddingKind, NodeOrEdge, PCEdge,
-        PCNode, PEmbedding, PMapping, QCEdge, QCNode,
+        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PCEdge, PCNode,
+        PEdgeEmbed, PMapping, PNodeEmbed, QCEdge, QCNode,
     },
     triple_arena::Arena,
     Corresponder, Error, SuspendedEpoch,
@@ -43,7 +43,8 @@ pub struct Router {
     // `ThisEquiv` `PBack` mapping from program to target
     pub(crate) mappings: OrdArena<PMapping, PBack, Mapping>,
     // routing embedding of part of the program in the target
-    pub(crate) embeddings: Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>>,
+    pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed<PCNode, PCEdge, QCNode, QCEdge>>,
+    pub(crate) edge_embeddings: Arena<PEdgeEmbed, EdgeEmbed<PCEdge, QCNode, QCEdge>>,
     // this should only be set after a successful routing, and be unset the moment any mappings,
     // embeddings, or configurations are changed.
     pub(crate) is_valid_routing: bool,
@@ -125,7 +126,8 @@ impl Router {
             program_ensemble: program_epoch.ensemble(|ensemble| ensemble.clone()),
             program_channeler,
             mappings: OrdArena::new(),
-            embeddings: Arena::new(),
+            node_embeddings: Arena::new(),
+            edge_embeddings: Arena::new(),
             is_valid_routing: false,
         }
     }
@@ -150,8 +152,12 @@ impl Router {
         &self.mappings
     }
 
-    pub fn embeddings(&self) -> &Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>> {
-        &self.embeddings
+    pub fn node_embeddings(&self) -> &Arena<PNodeEmbed, NodeEmbed<PCNode, PCEdge, QCNode, QCEdge>> {
+        &self.node_embeddings
+    }
+
+    pub fn edge_embeddings(&self) -> &Arena<PEdgeEmbed, EdgeEmbed<PCEdge, QCNode, QCEdge>> {
+        &self.edge_embeddings
     }
 
     fn verify_integrity_of_mapping_target(
@@ -236,132 +242,126 @@ impl Router {
             }
         }
         // embedding validities
-        for (p_embedding, embedding) in self.embeddings() {
-            match &embedding.kind {
-                EmbeddingKind::HyperPath(hyperpath) => {
-                    if !self
-                        .program_channeler()
-                        .cnodes
-                        .contains(hyperpath.program_source)
-                    {
-                        return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.program_source is invalid"
-                        )))
-                    }
-                    if !self
-                        .target_channeler()
-                        .cnodes
-                        .contains(hyperpath.target_source)
-                    {
-                        return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.hyperpath.target_source is invalid"
-                        )))
-                    }
-                    for path in hyperpath.paths() {
-                        match path.program_sink {
-                            NodeOrEdge::Node(p_node) => {
-                                if !self.program_channeler().cnodes.contains(p_node) {
-                                    return Err(Error::OtherString(format!(
-                                        "{p_embedding} {embedding:#?} path program sink node is \
-                                         invalid"
-                                    )))
-                                }
-                            }
-                            NodeOrEdge::Edge(p_edge) => {
-                                if !self.program_channeler().cedges.contains(p_edge) {
-                                    return Err(Error::OtherString(format!(
-                                        "{p_embedding} {embedding:#?} path program sink edge is \
-                                         invalid"
-                                    )))
-                                }
-                            }
-                        }
-                        if !self.target_channeler().cnodes.contains(path.target_sink()) {
+        for (p_embedding, embedding) in self.node_embeddings() {
+            let hyperpath = &embedding.target_hyperpath;
+            if !self
+                .program_channeler()
+                .cnodes
+                .contains(hyperpath.program_source)
+            {
+                return Err(Error::OtherString(format!(
+                    "{p_embedding} {embedding:#?}.program_source is invalid"
+                )))
+            }
+            if !self
+                .target_channeler()
+                .cnodes
+                .contains(hyperpath.target_source)
+            {
+                return Err(Error::OtherString(format!(
+                    "{p_embedding} {embedding:#?}.hyperpath.target_source is invalid"
+                )))
+            }
+            for path in hyperpath.paths() {
+                match path.program_sink {
+                    NodeOrEdge::Node(p_node) => {
+                        if !self.program_channeler().cnodes.contains(p_node) {
                             return Err(Error::OtherString(format!(
-                                "{p_embedding} {embedding:#?} path target sink is invalid"
+                                "{p_embedding} {embedding:#?} path program sink node is invalid"
                             )))
                         }
-                        for edge in path.edges() {
-                            if !self.target_channeler().cnodes.contains(edge.to) {
-                                return Err(Error::OtherString(format!(
-                                    "{p_embedding} {embedding:#?} path edge.to is invalid"
-                                )))
-                            }
-                            match edge.kind {
-                                EdgeKind::Transverse(q_cedge, source_i) => {
-                                    if let Some(cedge) = self.target_channeler().cedges.get(q_cedge)
-                                    {
-                                        if cedge.sources().get(source_i).is_none() {
-                                            return Err(Error::OtherString(format!(
-                                                "{p_embedding} {embedding:#?} path sink source_i \
-                                                 is out of range"
-                                            )))
-                                        }
-                                    } else {
-                                        return Err(Error::OtherString(format!(
-                                            "{p_embedding} {embedding:#?} path edge.kind is \
-                                             invalid"
-                                        )))
-                                    }
-                                }
-                                EdgeKind::Concentrate => (),
-                                EdgeKind::Dilute => (),
-                            }
-                        }
                     }
-                    // check path continuity
-                    for (i, path) in hyperpath.paths().iter().enumerate() {
-                        let mut q = hyperpath.target_source;
-                        for (j, edge) in path.edges().iter().enumerate() {
-                            match edge.kind {
-                                EdgeKind::Transverse(q_cedge, source_i) => {
-                                    let cedge =
-                                        self.target_channeler().cedges.get(q_cedge).unwrap();
-                                    let source = self
-                                        .target_channeler()
-                                        .cnodes
-                                        .get_val(cedge.sources()[source_i])
-                                        .unwrap()
-                                        .p_this_cnode;
-                                    if q != source {
-                                        return Err(Error::OtherString(format!(
-                                            "{p_embedding} {embedding:#?} path {i} source is \
-                                             broken at traversal edge {j} {cedge:#?}"
-                                        )))
-                                    }
-                                    q = edge.to;
-                                }
-                                EdgeKind::Concentrate => {
-                                    q = self.target_channeler().get_supernode(q).unwrap();
-                                    if q != edge.to {
-                                        return Err(Error::OtherString(format!(
-                                            "{p_embedding} {embedding:#?} path {i} is broken at \
-                                             concentration edge {j}"
-                                        )))
-                                    }
-                                }
-                                EdgeKind::Dilute => {
-                                    let supernode =
-                                        self.target_channeler().get_supernode(edge.to).unwrap();
-                                    if q != supernode {
-                                        return Err(Error::OtherString(format!(
-                                            "{p_embedding} {embedding:#?} path {i} is broken at \
-                                             dilution edge {j}"
-                                        )))
-                                    }
-                                    q = edge.to;
-                                }
-                            }
-                        }
-                        if q != path.target_sink() {
+                    NodeOrEdge::Edge(p_edge) => {
+                        if !self.program_channeler().cedges.contains(p_edge) {
                             return Err(Error::OtherString(format!(
-                                "{p_embedding} {embedding:#?} path {i} ending does not match sink"
+                                "{p_embedding} {embedding:#?} path program sink edge is invalid"
                             )))
                         }
                     }
                 }
-                EmbeddingKind::EdgeEmbed(_) => todo!(),
+                if !self.target_channeler().cnodes.contains(path.target_sink()) {
+                    return Err(Error::OtherString(format!(
+                        "{p_embedding} {embedding:#?} path target sink is invalid"
+                    )))
+                }
+                for edge in path.edges() {
+                    if !self.target_channeler().cnodes.contains(edge.to) {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?} path edge.to is invalid"
+                        )))
+                    }
+                    match edge.kind {
+                        EdgeKind::Transverse(q_cedge, source_i) => {
+                            if let Some(cedge) = self.target_channeler().cedges.get(q_cedge) {
+                                if cedge.sources().get(source_i).is_none() {
+                                    return Err(Error::OtherString(format!(
+                                        "{p_embedding} {embedding:#?} path sink source_i is out \
+                                         of range"
+                                    )))
+                                }
+                            } else {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:#?} path edge.kind is invalid"
+                                )))
+                            }
+                        }
+                        EdgeKind::Concentrate => (),
+                        EdgeKind::Dilute => (),
+                    }
+                }
             }
+            // check path continuity
+            for (i, path) in hyperpath.paths().iter().enumerate() {
+                let mut q = hyperpath.target_source;
+                for (j, edge) in path.edges().iter().enumerate() {
+                    match edge.kind {
+                        EdgeKind::Transverse(q_cedge, source_i) => {
+                            let cedge = self.target_channeler().cedges.get(q_cedge).unwrap();
+                            let source = self
+                                .target_channeler()
+                                .cnodes
+                                .get_val(cedge.sources()[source_i])
+                                .unwrap()
+                                .p_this_cnode;
+                            if q != source {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:#?} path {i} source is broken at \
+                                     traversal edge {j} {cedge:#?}"
+                                )))
+                            }
+                            q = edge.to;
+                        }
+                        EdgeKind::Concentrate => {
+                            q = self.target_channeler().get_supernode(q).unwrap();
+                            if q != edge.to {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:#?} path {i} is broken at \
+                                     concentration edge {j}"
+                                )))
+                            }
+                        }
+                        EdgeKind::Dilute => {
+                            let supernode = self.target_channeler().get_supernode(edge.to).unwrap();
+                            if q != supernode {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:#?} path {i} is broken at dilution \
+                                     edge {j}"
+                                )))
+                            }
+                            q = edge.to;
+                        }
+                    }
+                }
+                if q != path.target_sink() {
+                    return Err(Error::OtherString(format!(
+                        "{p_embedding} {embedding:#?} path {i} ending does not match sink"
+                    )))
+                }
+            }
+        }
+
+        for (_p_embedding, _embedding) in self.edge_embeddings() {
+            todo!()
         }
         Ok(())
     }

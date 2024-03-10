@@ -9,49 +9,27 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
+pub struct NodeEmbed<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
+    pub target_hyperpath: HyperPath<PCNode, PCEdge, QCNode, QCEdge>,
+}
+
+impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> NodeEmbed<PCNode, PCEdge, QCNode, QCEdge> {
+    pub fn new(target_hyperpath: HyperPath<PCNode, PCEdge, QCNode, QCEdge>) -> Self {
+        Self { target_hyperpath }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct EdgeEmbed<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
     pub program_edge: PCEdge,
     pub target: NodeOrEdge<QCNode, QCEdge>,
 }
 
-#[derive(Debug, Clone)]
-pub enum EmbeddingKind<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
-    /// A `CNode` needs to have its value spread across multiple target nodes
-    HyperPath(HyperPath<PCNode, PCEdge, QCNode, QCEdge>),
-    /// A one-to-one mapping of a program edge onto a programmable target edge,
-    /// which can happen at the base level or higher up
-    EdgeEmbed(EdgeEmbed<PCEdge, QCNode, QCEdge>),
-}
-
-#[derive(Debug, Clone)]
-pub struct Embedding<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
-    pub kind: EmbeddingKind<PCNode, PCEdge, QCNode, QCEdge>,
-}
-
-impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> Embedding<PCNode, PCEdge, QCNode, QCEdge> {
-    pub fn new_hyperpath(hyperpath: HyperPath<PCNode, PCEdge, QCNode, QCEdge>) -> Self {
+impl<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> EdgeEmbed<PCEdge, QCNode, QCEdge> {
+    pub fn new(program_edge: PCEdge, target: NodeOrEdge<QCNode, QCEdge>) -> Self {
         Self {
-            kind: EmbeddingKind::HyperPath(hyperpath),
-        }
-    }
-
-    // TODO after the routing algorithm settles, the places where these are called
-    // should mostly be replaced by passing around the path and maybe using
-    // `Option::take` internally.
-
-    pub fn hyperpath(&self) -> Option<&HyperPath<PCNode, PCEdge, QCNode, QCEdge>> {
-        if let EmbeddingKind::HyperPath(ref hyperpath) = self.kind {
-            Some(hyperpath)
-        } else {
-            None
-        }
-    }
-
-    pub fn hyperpath_mut(&mut self) -> Option<&mut HyperPath<PCNode, PCEdge, QCNode, QCEdge>> {
-        if let EmbeddingKind::HyperPath(ref mut hyperpath) = self.kind {
-            Some(hyperpath)
-        } else {
-            None
+            program_edge,
+            target,
         }
     }
 }
@@ -65,22 +43,22 @@ impl Router {
     /// that root nodes agree, otherwise it returns an error.
     fn make_hyperpath_embedding(
         &mut self,
+        embed_from: PCNode,
         hyperpath: HyperPath<PCNode, PCEdge, QCNode, QCEdge>,
     ) -> Result<(), Error> {
         let embedding_ref = &mut self
             .program_channeler
             .cnodes
-            .get_val_mut(hyperpath.program_source)
+            .get_val_mut(embed_from)
             .unwrap()
             .embedding;
         if embedding_ref.is_some() {
             return Err(Error::OtherString(format!(
-                "program node {:?} is already associated with an embedding, there is probably a \
-                 bug in the router",
-                hyperpath.program_source
+                "program node {embed_from:?} is already associated with an embedding, there is \
+                 probably a bug in the router",
             )));
         }
-        let p_embedding = self.embeddings.insert(Embedding::new_hyperpath(hyperpath));
+        let p_embedding = self.node_embeddings.insert(NodeEmbed::new(hyperpath));
         *embedding_ref = Some(p_embedding);
         Ok(())
     }
@@ -167,11 +145,10 @@ impl Router {
 
                 // this case is just a single program node not bound to any
                 // other part of the program graph, so we do not need to embed any root
-                self.make_hyperpath_embedding(HyperPath::new(
+                self.make_hyperpath_embedding(
                     program_cnode,
-                    target_source_q_cnode,
-                    paths,
-                ))
+                    HyperPath::new(program_cnode, target_source_q_cnode, paths),
+                )
                 .unwrap();
             } else {
                 // If the mapping has just a source, then a hyperpath needs to
@@ -184,11 +161,13 @@ impl Router {
                     p = tmp;
                 }
                 let program_root = p;
-                self.make_hyperpath_embedding(HyperPath::new(
+                self.make_hyperpath_embedding(
                     program_cnode,
-                    target_source_q_cnode,
-                    vec![Path::new(NodeOrEdge::Node(program_root), path_to_root)],
-                ))
+                    HyperPath::new(program_cnode, target_source_q_cnode, vec![Path::new(
+                        NodeOrEdge::Node(program_root),
+                        path_to_root,
+                    )]),
+                )
                 .unwrap();
             }
         } else {
@@ -249,8 +228,11 @@ impl Router {
                 paths.push(Path::new(NodeOrEdge::Node(program_cnode), path_to_sink));
             }
 
-            self.make_hyperpath_embedding(HyperPath::new(program_root, target_root, paths))
-                .unwrap();
+            self.make_hyperpath_embedding(
+                program_cnode,
+                HyperPath::new(program_root, target_root, paths),
+            )
+            .unwrap();
         }
 
         // TODO support custom `CEdge` mappings
@@ -262,7 +244,8 @@ impl Router {
     /// be neccessary for the routing to be possible.
     pub(crate) fn initialize_embeddings(&mut self) -> Result<(), Error> {
         // in case of rerouting we need to clear old embeddings
-        self.embeddings.clear();
+        self.node_embeddings.clear();
+        self.edge_embeddings.clear();
         for cnode in self.program_channeler.cnodes.vals_mut() {
             let _ = cnode.embedding.take();
         }

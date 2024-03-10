@@ -15,7 +15,7 @@ use crate::{
     route::{
         channel::Referent,
         cnode::{generate_hierarchy, InternalBehavior},
-        CNode, Channeler, Configurator, PConfig, PEmbedding,
+        CNode, Channeler, Configurator, PConfig, PEdgeEmbed,
     },
     Error, SuspendedEpoch,
 };
@@ -139,7 +139,7 @@ pub struct CEdge<PCNode: Ptr> {
 
     programmability: Programmability,
 
-    pub embedding: Option<PEmbedding>,
+    pub embedding: Option<PEdgeEmbed>,
 
     /// The weight needs to be at least 1 to prevent the algorithm from doing
     /// very bad routes

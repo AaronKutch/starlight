@@ -5,7 +5,7 @@ use awint::{awint_dag::triple_arena::OrdArena, Awi};
 use crate::{
     ensemble::{Ensemble, PBack, PExternal, Value},
     epoch::get_current_epoch,
-    route::{EdgeKind, EmbeddingKind, PConfig, Programmability, Router},
+    route::{EdgeKind, PConfig, Programmability, Router},
     Error, LazyAwi,
 };
 
@@ -213,61 +213,57 @@ impl Router {
         // otherwise we have to set them all to `None` at the start because it is used
         // to detect if there are contradictions
 
-        for embedding in self.embeddings.vals() {
-            match embedding.kind {
-                EmbeddingKind::HyperPath(ref hyperpath) => {
-                    // follow the `SelectorLut`s of the hyperpath
-                    for path in hyperpath.paths() {
-                        for edge in path.edges() {
-                            match edge.kind {
-                                EdgeKind::Transverse(q_cedge, source_i) => {
-                                    let cedge = self.target_channeler.cedges.get(q_cedge).unwrap();
-                                    match cedge.programmability() {
-                                        // no-op with respect to configuration
-                                        Programmability::TNode => (),
-                                        // there are identity like cases where we might want to
-                                        // traverse these kinds
-                                        Programmability::StaticLut(_) => todo!(),
-                                        Programmability::ArbitraryLut(_) => todo!(),
-                                        Programmability::SelectorLut(selector_lut) => {
-                                            let inx_config = selector_lut.inx_config();
-                                            assert!(source_i < (1 << inx_config.len()));
-                                            let i = Awi::from_usize(source_i);
-                                            for (inx_i, p_config) in
-                                                inx_config.iter().copied().enumerate()
-                                            {
-                                                let value = &mut self
-                                                    .configurator
-                                                    .configurations
-                                                    .get_val_mut(p_config)
-                                                    .unwrap()
-                                                    .value;
-                                                let desired_value = Some(i.get(inx_i).unwrap());
-                                                if value.is_some() && (*value != desired_value) {
-                                                    // means hyperpaths or base embeddings are
-                                                    // conflicting
-                                                    panic!(
-                                                        "bug in router, a configuration bit has \
-                                                         already been set and contradicts another \
-                                                         desired configuration"
-                                                    );
-                                                }
-                                                *value = desired_value;
-                                            }
+        for embedding in self.node_embeddings.vals() {
+            // follow the `SelectorLut`s of the hyperpath
+            for path in embedding.target_hyperpath.paths() {
+                for edge in path.edges() {
+                    match edge.kind {
+                        EdgeKind::Transverse(q_cedge, source_i) => {
+                            let cedge = self.target_channeler.cedges.get(q_cedge).unwrap();
+                            match cedge.programmability() {
+                                // no-op with respect to configuration
+                                Programmability::TNode => (),
+                                // there are identity like cases where we might want to
+                                // traverse these kinds
+                                Programmability::StaticLut(_) => todo!(),
+                                Programmability::ArbitraryLut(_) => todo!(),
+                                Programmability::SelectorLut(selector_lut) => {
+                                    let inx_config = selector_lut.inx_config();
+                                    assert!(source_i < (1 << inx_config.len()));
+                                    let i = Awi::from_usize(source_i);
+                                    for (inx_i, p_config) in inx_config.iter().copied().enumerate()
+                                    {
+                                        let value = &mut self
+                                            .configurator
+                                            .configurations
+                                            .get_val_mut(p_config)
+                                            .unwrap()
+                                            .value;
+                                        let desired_value = Some(i.get(inx_i).unwrap());
+                                        if value.is_some() && (*value != desired_value) {
+                                            // means hyperpaths or base embeddings are
+                                            // conflicting
+                                            panic!(
+                                                "bug in router, a configuration bit has already \
+                                                 been set and contradicts another desired \
+                                                 configuration"
+                                            );
                                         }
-                                        // the hyperpath should be fully lowered
-                                        Programmability::Bulk(_) => unreachable!(),
+                                        *value = desired_value;
                                     }
                                 }
-                                // the hyperpath should be fully lowered into base level traversals
-                                EdgeKind::Concentrate | EdgeKind::Dilute => unreachable!(),
+                                // the hyperpath should be fully lowered
+                                Programmability::Bulk(_) => unreachable!(),
                             }
                         }
+                        // the hyperpath should be fully lowered into base level traversals
+                        EdgeKind::Concentrate | EdgeKind::Dilute => unreachable!(),
                     }
                 }
-                // need lowering to and configuration setting of `ArbitraryLut`s
-                EmbeddingKind::EdgeEmbed(_) => todo!(),
             }
+        }
+        for _embedding in self.edge_embeddings.vals() {
+            todo!()
         }
 
         Ok(())

@@ -6,7 +6,7 @@ use std::{
 use awint::awint_dag::triple_arena::{Advancer, Ptr};
 
 use crate::{
-    route::{ChannelWidths, Channeler, PEmbedding, Programmability, Referent},
+    route::{ChannelWidths, Channeler, PNodeEmbed, Programmability, Referent},
     Error,
 };
 
@@ -36,7 +36,7 @@ pub struct CNode<PCNode: Ptr, PCEdge: Ptr> {
     pub lvl: u16,
     pub p_supernode: Option<PCNode>,
     pub internal_behavior: InternalBehavior,
-    pub embedding: Option<PEmbedding>,
+    pub embedding: Option<PNodeEmbed>,
     pub alg_visit: NonZeroU64,
     pub alg_entry_width: usize,
     // this is used in Dijkstras' and points backwards

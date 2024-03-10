@@ -17,7 +17,7 @@ pub use cedge::{CEdge, ChannelWidths, Programmability, SelectorLut};
 pub use channel::{Channeler, Referent};
 pub use cnode::CNode;
 pub use config::{Config, Configurator};
-pub use embed::{EdgeEmbed, Embedding, EmbeddingKind};
+pub use embed::{EdgeEmbed, NodeEmbed};
 pub use path::{Edge, EdgeKind, HyperPath, NodeOrEdge, Path};
 pub use router::Router;
 pub(crate) use routing::route;
@@ -31,7 +31,8 @@ ptr_struct!(
     PCEdge;
     QCNode;
     QCEdge;
-    PEmbedding;
+    PNodeEmbed;
+    PEdgeEmbed;
     PConfig;
     PMapping
 );
@@ -46,7 +47,8 @@ ptr_struct!(
     PCEdge();
     QCNode();
     QCEdge();
-    PEmbedding();
+    PNodeEmbed();
+    PEdgeEmbed();
     PConfig();
     PMapping()
 );
@@ -57,7 +59,8 @@ ptr_struct!(
     PCEdge[NonZeroU32](NonZeroU32);
     QCNode[NonZeroU32](NonZeroU32);
     QCEdge[NonZeroU32](NonZeroU32);
-    PEmbedding[NonZeroU32](NonZeroU32);
+    PNodeEmbed[NonZeroU32](NonZeroU32);
+    PEdgeEmbed[NonZeroU32](NonZeroU32);
     PConfig[NonZeroU32](NonZeroU32);
     PMapping[NonZeroU32](NonZeroU32)
 );
@@ -72,7 +75,8 @@ ptr_struct!(
     PCEdge[NonZeroU32]();
     QCNode[NonZeroU32]();
     QCEdge[NonZeroU32]();
-    PEmbedding[NonZeroU32]();
+    PNodeEmbed[NonZeroU32]();
+    PEdgeEmbed[NonZeroU32]();
     PConfig[NonZeroU32]();
     PMapping[NonZeroU32]()
 );

@@ -6,9 +6,9 @@ use std::{
 
 use awint::awint_dag::triple_arena::Advancer;
 
-use super::NodeOrEdge;
+use super::{NodeOrEdge, PNodeEmbed};
 use crate::{
-    route::{Edge, EdgeKind, EmbeddingKind, PEmbedding, QCNode, Referent, Router},
+    route::{Edge, EdgeKind, QCNode, Referent, Router},
     Error,
 };
 
@@ -113,9 +113,15 @@ fn dilute_level(router: &mut Router, max_lvl: u16) -> Result<(), Error> {
         // ignoring other hyperpaths
         let absolute_violations = false;
 
-        let mut adv = router.embeddings().advancer();
-        while let Some(p_embedding) = adv.advance(router.embeddings()) {
-            dilute_embedding(router, max_lvl, p_embedding)?;
+        // TODO edge dilution first
+
+        let mut embeddings_to_process = vec![];
+        let mut adv = router.node_embeddings().advancer();
+        while let Some(p_embedding) = adv.advance(router.node_embeddings()) {
+            embeddings_to_process.push(p_embedding);
+            while !embeddings_to_process.is_empty() {
+                dilute_embedding(router, max_lvl, &mut embeddings_to_process)?;
+            }
         }
 
         if !absolute_violations {
@@ -128,125 +134,100 @@ fn dilute_level(router: &mut Router, max_lvl: u16) -> Result<(), Error> {
 fn dilute_embedding(
     router: &mut Router,
     max_lvl: u16,
-    p_embedding: PEmbedding,
+    embeddings_to_process: &mut Vec<PNodeEmbed>,
 ) -> Result<(), Error> {
-    // some embeddings will trigger other embeddings that need to complete before
-    // progressing
-    let mut embedding_work_stack = vec![p_embedding];
-    while let Some(p_embedding) = embedding_work_stack.pop() {
-        dilute_embedding_single(router, max_lvl, p_embedding, &mut embedding_work_stack)?;
+    let p_embedding = embeddings_to_process.pop().unwrap();
+    let embedding = router.node_embeddings.get(p_embedding).unwrap();
+    let hyperpath = &embedding.target_hyperpath;
+    let p_program_source = hyperpath.program_source;
+    let program_source = router
+        .program_channeler()
+        .cnodes
+        .get_val(p_program_source)
+        .unwrap();
+    let program_source_lvl = program_source.lvl;
+    let q_target_source = hyperpath.target_source;
+    let target_source = router
+        .target_channeler()
+        .cnodes
+        .get_val(q_target_source)
+        .unwrap();
+    let target_source_lvl = target_source.lvl;
+    if target_source_lvl > (max_lvl + 1) {
+        unreachable!()
     }
-    Ok(())
-}
+    let len = hyperpath.paths().len();
+    for path_i in 0..len {
+        // this will retry until the path is completely lowered to `max_lvl` or below
+        loop {
+            let path = &router
+                .node_embeddings()
+                .get(p_embedding)
+                .unwrap()
+                .target_hyperpath
+                .paths()[path_i];
+            let mut node_lvl = target_source_lvl;
+            // find a local plateau above `max_lvl`
 
-fn dilute_embedding_single(
-    router: &mut Router,
-    max_lvl: u16,
-    p_embedding: PEmbedding,
-    embedding_work_stack: &mut Vec<PEmbedding>,
-) -> Result<(), Error> {
-    let embedding = router.embeddings.get(p_embedding).unwrap();
-    match &embedding.kind {
-        EmbeddingKind::HyperPath(hyperpath) => {
-            let p_program_source = hyperpath.program_source;
-            let program_source = router
-                .program_channeler()
-                .cnodes
-                .get_val(p_program_source)
-                .unwrap();
-            let program_source_lvl = program_source.lvl;
-            let q_target_source = hyperpath.target_source;
-            let target_source = router
-                .target_channeler()
-                .cnodes
-                .get_val(q_target_source)
-                .unwrap();
-            let target_source_lvl = target_source.lvl;
-            if target_source_lvl > (max_lvl + 1) {
-                unreachable!()
-            }
-            let len = hyperpath.paths().len();
-            for path_i in 0..len {
-                // this will retry until the path is completely lowered to `max_lvl` or below
-                loop {
-                    let path = &router
-                        .embeddings
-                        .get(p_embedding)
-                        .unwrap()
-                        .hyperpath()
-                        .unwrap()
-                        .paths()[path_i];
-                    let mut node_lvl = target_source_lvl;
-                    // find a local plateau above `max_lvl`
-
-                    let mut loose_start = false;
-                    let mut edge_i = if node_lvl > max_lvl {
-                        loose_start = true;
-                        Some(0)
-                    } else {
-                        None
-                    };
-                    let mut edge_end_i = None;
-                    for (i, edge) in path.edges().iter().copied().enumerate() {
-                        match edge.kind {
-                            EdgeKind::Transverse(..) => (),
-                            EdgeKind::Concentrate => {
-                                node_lvl = node_lvl.checked_add(1).unwrap();
-                                if node_lvl > max_lvl {
-                                    edge_i = Some(i);
-                                }
-                            }
-                            EdgeKind::Dilute => {
-                                node_lvl = node_lvl.checked_sub(1).unwrap();
-                                if node_lvl == max_lvl {
-                                    edge_end_i = Some(i);
-                                }
-                            }
-                        }
-                        if node_lvl > (max_lvl + 1) {
-                            unreachable!()
+            let mut loose_start = false;
+            let mut edge_i = if node_lvl > max_lvl {
+                loose_start = true;
+                Some(0)
+            } else {
+                None
+            };
+            let mut edge_end_i = None;
+            for (i, edge) in path.edges().iter().copied().enumerate() {
+                match edge.kind {
+                    EdgeKind::Transverse(..) => (),
+                    EdgeKind::Concentrate => {
+                        node_lvl = node_lvl.checked_add(1).unwrap();
+                        if node_lvl > max_lvl {
+                            edge_i = Some(i);
                         }
                     }
-
-                    match path.program_sink {
-                        NodeOrEdge::Node(p_program_sink) => {
-                            if p_program_source == p_program_sink {
-                                // copy case, neither or both ends should exist
-                                assert!(!loose_start);
-                                if let (Some(edge_i), Some(edge_end_i)) = (edge_i, edge_end_i) {
-                                    let found = dilute_plateau(
-                                        router,
-                                        p_embedding,
-                                        path_i,
-                                        edge_i,
-                                        edge_end_i,
-                                    )?;
-                                    if !found {
-                                        // for the combined source and sink embeddings, if
-                                        // `dilute_plateau` could not
-                                        // find the path then one is
-                                        // not possible
-                                        return Err(Error::OtherString(format!(
-                                            "could not find possible routing for direct copy case \
-                                             (disregarding width constraints) for embedding \
-                                             {p_embedding:?}, unless this is a poorly connected \
-                                             target or edge case, then this is probably a bug \
-                                             with the router"
-                                        )));
-                                    }
-                                } else {
-                                    break
-                                }
-                            } else {
-                                todo!()
-                            }
+                    EdgeKind::Dilute => {
+                        node_lvl = node_lvl.checked_sub(1).unwrap();
+                        if node_lvl == max_lvl {
+                            edge_end_i = Some(i);
                         }
-                        NodeOrEdge::Edge(_) => todo!(),
                     }
                 }
+                if node_lvl > (max_lvl + 1) {
+                    unreachable!()
+                }
+            }
+
+            match path.program_sink {
+                NodeOrEdge::Node(p_program_sink) => {
+                    if p_program_source == p_program_sink {
+                        // copy case, neither or both ends should exist
+                        assert!(!loose_start);
+                        if let (Some(edge_i), Some(edge_end_i)) = (edge_i, edge_end_i) {
+                            let found =
+                                dilute_plateau(router, p_embedding, path_i, edge_i, edge_end_i)?;
+                            if !found {
+                                // for the combined source and sink embeddings, if
+                                // `dilute_plateau` could not
+                                // find the path then one is
+                                // not possible
+                                return Err(Error::OtherString(format!(
+                                    "could not find possible routing for direct copy case \
+                                     (disregarding width constraints) for embedding \
+                                     {p_embedding:?}, unless this is a poorly connected target or \
+                                     edge case, then this is probably a bug with the router"
+                                )));
+                            }
+                        } else {
+                            break
+                        }
+                    } else {
+                        todo!()
+                    }
+                }
+                NodeOrEdge::Edge(_) => todo!(),
             }
         }
-        EmbeddingKind::EdgeEmbed(_) => todo!(),
     }
 
     Ok(())
@@ -257,14 +238,14 @@ fn dilute_embedding_single(
 // if a valid path could not be found
 fn dilute_plateau(
     router: &mut Router,
-    p_embedding: PEmbedding,
+    p_embedding: PNodeEmbed,
     path_i: usize,
     edge_i: usize,
     edge_end_i: usize,
 ) -> Result<bool, Error> {
-    let embedding = router.embeddings.get(p_embedding).unwrap();
-    let target_source = embedding.hyperpath().unwrap().target_source;
-    let path = &embedding.hyperpath().unwrap().paths()[path_i];
+    let embedding = router.node_embeddings.get(p_embedding).unwrap();
+    let target_source = embedding.target_hyperpath.target_source;
+    let path = &embedding.target_hyperpath.paths()[path_i];
     let start = if edge_i == 0 {
         target_source
     } else {
@@ -306,8 +287,8 @@ fn dilute_plateau(
 
         // TODO there is probably a way to optimize this
         max_backbone_lvl = max_backbone_lvl.map(|x| x + 1);
-        let embedding = router.embeddings.get(p_embedding).unwrap();
-        let path = &embedding.hyperpath().unwrap().paths()[path_i];
+        let embedding = router.node_embeddings.get(p_embedding).unwrap();
+        let path = &embedding.target_hyperpath.paths()[path_i];
         for edge in &path.edges()[edge_i..edge_end_i] {
             let mut q_supernode = router
                 .target_channeler
@@ -348,11 +329,10 @@ fn dilute_plateau(
     }
     // splice the new part into the old
     let edges = router
-        .embeddings
+        .node_embeddings()
         .get(p_embedding)
         .unwrap()
-        .hyperpath()
-        .unwrap()
+        .target_hyperpath
         .paths()[path_i]
         .edges();
     let mut completed_path = edges[..edge_i].to_vec();
@@ -362,11 +342,10 @@ fn dilute_plateau(
     completed_path.extend(edges[(edge_end_i + 1)..].iter().copied());
     // update the path
     router
-        .embeddings
+        .node_embeddings
         .get_mut(p_embedding)
         .unwrap()
-        .hyperpath_mut()
-        .unwrap()
+        .target_hyperpath
         .paths_mut()[path_i]
         .edges = completed_path;
     Ok(true)
