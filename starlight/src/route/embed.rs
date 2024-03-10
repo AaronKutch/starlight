@@ -9,12 +9,6 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct NodeEmbed<PCNode: Ptr, QCNode: Ptr> {
-    pub program_cnode: PCNode,
-    pub target_cnode: QCNode,
-}
-
-#[derive(Debug, Clone)]
 pub struct EdgeEmbed<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
     pub program_edge: PCEdge,
     pub target: NodeOrEdge<QCNode, QCEdge>,
@@ -24,9 +18,6 @@ pub struct EdgeEmbed<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
 pub enum EmbeddingKind<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
     /// A `CNode` needs to have its value spread across multiple target nodes
     HyperPath(HyperPath<PCNode, PCEdge, QCNode, QCEdge>),
-    /// A one-to-one mapping of nodes, used for keeping track of connections in
-    /// supernodes
-    NodeEmbed(NodeEmbed<PCNode, QCNode>),
     /// A one-to-one mapping of a program edge onto a programmable target edge,
     /// which can happen at the base level or higher up
     EdgeEmbed(EdgeEmbed<PCEdge, QCNode, QCEdge>),
@@ -41,15 +32,6 @@ impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> Embedding<PCNode, PCEdg
     pub fn new_hyperpath(hyperpath: HyperPath<PCNode, PCEdge, QCNode, QCEdge>) -> Self {
         Self {
             kind: EmbeddingKind::HyperPath(hyperpath),
-        }
-    }
-
-    pub fn new_node_embed(program_cnode: PCNode, target_cnode: QCNode) -> Self {
-        Self {
-            kind: EmbeddingKind::NodeEmbed(NodeEmbed {
-                program_cnode,
-                target_cnode,
-            }),
         }
     }
 
@@ -100,52 +82,6 @@ impl Router {
         }
         let p_embedding = self.embeddings.insert(Embedding::new_hyperpath(hyperpath));
         *embedding_ref = Some(p_embedding);
-        Ok(())
-    }
-
-    /// This will do nothing without error if the root is already embedded and
-    /// that the embedding is a node embedding with target equal to
-    /// `target_root`.
-    fn make_root_embedding(
-        &mut self,
-        program_root: PCNode,
-        target_root: QCNode,
-    ) -> Result<(), Error> {
-        let embedding_ref = &mut self
-            .program_channeler
-            .cnodes
-            .get_val_mut(program_root)
-            .unwrap()
-            .embedding;
-        if let Some(p_embedding) = embedding_ref {
-            if let EmbeddingKind::NodeEmbed(ref node_embed) =
-                self.embeddings.get(*p_embedding).unwrap().kind
-            {
-                if target_root != node_embed.target_cnode {
-                    // TODO need to test that the error works and that we have a dedicated error
-                    // showing the two mappings that contradict, may need to store a `PMapping`
-                    // in the embedding
-                    return Err(Error::OtherString(format!(
-                        "when checking that a common root channel node is equal to a previously \
-                         set embedding root, found that {:?} and {:?} are unequal. This probably \
-                         means that the target is not fully connected, and two parts of the \
-                         program have been corresponded on two parts of the target that cannot \
-                         reach one another, meaning that the routing is impossible.",
-                        target_root, node_embed.target_cnode
-                    )));
-                }
-            } else {
-                return Err(Error::OtherStr(
-                    "when checking an already embedded root, found it to be embedded with an \
-                     unexpected kind of embedding, there is probably a bug in the router",
-                ));
-            }
-        } else {
-            let p_embedding = self
-                .embeddings
-                .insert(Embedding::new_node_embed(program_root, target_root));
-            *embedding_ref = Some(p_embedding);
-        }
         Ok(())
     }
 
@@ -248,7 +184,6 @@ impl Router {
                     p = tmp;
                 }
                 let program_root = p;
-                self.make_root_embedding(program_root, target_root)?;
                 self.make_hyperpath_embedding(HyperPath::new(
                     program_cnode,
                     target_source_q_cnode,
@@ -311,11 +246,10 @@ impl Router {
                 // remove extra dilution to root
                 path_to_sink.pop();
                 path_to_sink.reverse();
-                paths.push(Path::new(NodeOrEdge::Node(program_root), path_to_sink));
+                paths.push(Path::new(NodeOrEdge::Node(program_cnode), path_to_sink));
             }
 
-            self.make_root_embedding(program_root, target_root)?;
-            self.make_hyperpath_embedding(HyperPath::new(program_cnode, target_root, paths))
+            self.make_hyperpath_embedding(HyperPath::new(program_root, target_root, paths))
                 .unwrap();
         }
 

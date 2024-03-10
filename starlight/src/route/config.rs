@@ -265,8 +265,6 @@ impl Router {
                         }
                     }
                 }
-                // there should be no remaining `NodeEmbed`s at the base level in a valid routing
-                EmbeddingKind::NodeEmbed(_) => unreachable!(),
                 // need lowering to and configuration setting of `ArbitraryLut`s
                 EmbeddingKind::EdgeEmbed(_) => todo!(),
             }

@@ -356,26 +356,6 @@ impl Router {
                         }
                     }
                 }
-                EmbeddingKind::NodeEmbed(node_embed) => {
-                    if !self
-                        .program_channeler()
-                        .cnodes
-                        .contains(node_embed.program_cnode)
-                    {
-                        return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.program_cnode is invalid"
-                        )))
-                    }
-                    if !self
-                        .target_channeler()
-                        .cnodes
-                        .contains(node_embed.target_cnode)
-                    {
-                        return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.target_cnode is invalid"
-                        )))
-                    }
-                }
                 EmbeddingKind::EdgeEmbed(_) => todo!(),
             }
         }

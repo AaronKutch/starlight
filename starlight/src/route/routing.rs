@@ -150,14 +150,12 @@ fn dilute_embedding_single(
             let q_source = hyperpath.source();
             let source = router.target_channeler().cnodes.get_val(q_source).unwrap();
             let source_lvl = source.lvl;
-            // TODO when doing the Steiner tree optimization generalize the two front
-            // priority queue to be like a Voronoi front with speed increase for critical
-            // fronts. When two cells touch each other, they should continue one while
-            // recording the best intersection point, then later find the best points or
-            // triple points.
+            if source_lvl > (max_lvl + 1) {
+                unreachable!()
+            }
             let len = hyperpath.paths().len();
             for path_i in 0..len {
-                // this will retry until the path is completely lowered
+                // this will retry until the path is completely lowered to `max_lvl` or below
                 loop {
                     let path = &router
                         .embeddings
@@ -167,10 +165,8 @@ fn dilute_embedding_single(
                         .unwrap()
                         .paths()[path_i];
                     let mut node_lvl = source_lvl;
-                    if node_lvl > (max_lvl + 1) {
-                        unreachable!()
-                    }
                     // find a local plateau above `max_lvl`
+
                     let mut loose_start = false;
                     let mut edge_i = if node_lvl > max_lvl {
                         loose_start = true;
@@ -246,7 +242,6 @@ fn dilute_embedding_single(
                 }
             }
         }
-        EmbeddingKind::NodeEmbed(_) => todo!(),
         EmbeddingKind::EdgeEmbed(_) => todo!(),
     }
 
