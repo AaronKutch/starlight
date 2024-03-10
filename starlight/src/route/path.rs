@@ -52,7 +52,7 @@ impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> Path<PCNode, PCEdge, QC
         }
     }
 
-    pub fn sink(&self) -> QCNode {
+    pub fn target_sink(&self) -> QCNode {
         self.edges().last().unwrap().to
     }
 
@@ -74,25 +74,21 @@ impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> Path<PCNode, PCEdge, QC
 #[derive(Debug, Clone)]
 pub struct HyperPath<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
     pub program_source: PCNode,
-    pub source: QCNode,
+    pub target_source: QCNode,
     paths: Vec<Path<PCNode, PCEdge, QCNode, QCEdge>>,
 }
 
 impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> HyperPath<PCNode, PCEdge, QCNode, QCEdge> {
     pub fn new(
         program_source: PCNode,
-        source: QCNode,
+        target_source: QCNode,
         paths: Vec<Path<PCNode, PCEdge, QCNode, QCEdge>>,
     ) -> Self {
         Self {
             program_source,
-            source,
+            target_source,
             paths,
         }
-    }
-
-    pub fn source(&self) -> QCNode {
-        self.source
     }
 
     pub fn push(&mut self, path: Path<PCNode, PCEdge, QCNode, QCEdge>) {

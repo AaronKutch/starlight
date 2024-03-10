@@ -147,7 +147,7 @@ fn dilute_embedding_single(
     let embedding = router.embeddings.get(p_embedding).unwrap();
     match &embedding.kind {
         EmbeddingKind::HyperPath(hyperpath) => {
-            let q_source = hyperpath.source();
+            let q_source = hyperpath.target_source;
             let source = router.target_channeler().cnodes.get_val(q_source).unwrap();
             let source_lvl = source.lvl;
             if source_lvl > (max_lvl + 1) {
@@ -268,7 +268,7 @@ fn dilute_plateau(
     edge_end_i: usize,
 ) -> Result<bool, Error> {
     let embedding = router.embeddings.get(p_embedding).unwrap();
-    let q_source = embedding.hyperpath().unwrap().source();
+    let q_source = embedding.hyperpath().unwrap().target_source;
     let path = &embedding.hyperpath().unwrap().paths()[path_i];
     let start = if edge_i == 0 {
         q_source

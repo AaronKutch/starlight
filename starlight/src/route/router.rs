@@ -245,12 +245,16 @@ impl Router {
                         .contains(hyperpath.program_source)
                     {
                         return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.program_cnode is invalid"
+                            "{p_embedding} {embedding:#?}.program_source is invalid"
                         )))
                     }
-                    if !self.target_channeler().cnodes.contains(hyperpath.source()) {
+                    if !self
+                        .target_channeler()
+                        .cnodes
+                        .contains(hyperpath.target_source)
+                    {
                         return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.target_hyperpath.source is invalid"
+                            "{p_embedding} {embedding:#?}.hyperpath.target_source is invalid"
                         )))
                     }
                     for path in hyperpath.paths() {
@@ -272,9 +276,9 @@ impl Router {
                                 }
                             }
                         }
-                        if !self.target_channeler().cnodes.contains(path.sink()) {
+                        if !self.target_channeler().cnodes.contains(path.target_sink()) {
                             return Err(Error::OtherString(format!(
-                                "{p_embedding} {embedding:#?} path sink is invalid"
+                                "{p_embedding} {embedding:#?} path target sink is invalid"
                             )))
                         }
                         for edge in path.edges() {
@@ -307,7 +311,7 @@ impl Router {
                     }
                     // check path continuity
                     for (i, path) in hyperpath.paths().iter().enumerate() {
-                        let mut q = hyperpath.source();
+                        let mut q = hyperpath.target_source;
                         for (j, edge) in path.edges().iter().enumerate() {
                             match edge.kind {
                                 EdgeKind::Transverse(q_cedge, source_i) => {
@@ -349,7 +353,7 @@ impl Router {
                                 }
                             }
                         }
-                        if q != path.sink() {
+                        if q != path.target_sink() {
                             return Err(Error::OtherString(format!(
                                 "{p_embedding} {embedding:#?} path {i} ending does not match sink"
                             )))
