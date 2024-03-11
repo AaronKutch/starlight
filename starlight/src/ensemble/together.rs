@@ -5,11 +5,10 @@ use awint::awint_dag::{
     PState,
 };
 
-use super::Delayer;
 use crate::{
     ensemble::{
-        value::Evaluator, LNode, LNodeKind, Notary, Optimizer, PBack, PLNode, PRNode, PTNode,
-        Stator, TNode, Value,
+        value::Evaluator, Delayer, LNode, LNodeKind, Notary, Optimizer, PBack, PLNode, PRNode,
+        PTNode, Stator, TNode, Value,
     },
     triple_arena::{Arena, SurjectArena},
     Error,

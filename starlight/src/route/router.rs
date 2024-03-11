@@ -5,8 +5,8 @@ use awint::awint_dag::triple_arena::{Advancer, OrdArena};
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
     route::{
-        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PCEdge, PCNode,
-        PEdgeEmbed, PMapping, PNodeEmbed, QCEdge, QCNode,
+        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, PCEdge, PCNode, PEdgeEmbed,
+        PMapping, PNodeEmbed, QCEdge, QCNode,
     },
     triple_arena::Arena,
     Corresponder, Error, SuspendedEpoch,
@@ -43,7 +43,7 @@ pub struct Router {
     // `ThisEquiv` `PBack` mapping from program to target
     pub(crate) mappings: OrdArena<PMapping, PBack, Mapping>,
     // routing embedding of part of the program in the target
-    pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed<PCNode, PCEdge, QCNode, QCEdge>>,
+    pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed<PCEdge, QCNode, QCEdge>>,
     pub(crate) edge_embeddings: Arena<PEdgeEmbed, EdgeEmbed<PCEdge, QCNode, QCEdge>>,
     // this should only be set after a successful routing, and be unset the moment any mappings,
     // embeddings, or configurations are changed.
@@ -152,7 +152,7 @@ impl Router {
         &self.mappings
     }
 
-    pub fn node_embeddings(&self) -> &Arena<PNodeEmbed, NodeEmbed<PCNode, PCEdge, QCNode, QCEdge>> {
+    pub fn node_embeddings(&self) -> &Arena<PNodeEmbed, NodeEmbed<PCEdge, QCNode, QCEdge>> {
         &self.node_embeddings
     }
 
@@ -244,14 +244,12 @@ impl Router {
         // embedding validities
         for (p_embedding, embedding) in self.node_embeddings() {
             let hyperpath = &embedding.target_hyperpath;
-            if !self
-                .program_channeler()
-                .cnodes
-                .contains(hyperpath.program_source)
-            {
-                return Err(Error::OtherString(format!(
-                    "{p_embedding} {embedding:#?}.program_source is invalid"
-                )))
+            if let Some(program_source) = hyperpath.program_source {
+                if !self.program_channeler().cedges.contains(program_source) {
+                    return Err(Error::OtherString(format!(
+                        "{p_embedding} {embedding:#?}.program_source is invalid"
+                    )))
+                }
             }
             if !self
                 .target_channeler()
@@ -263,20 +261,11 @@ impl Router {
                 )))
             }
             for path in hyperpath.paths() {
-                match path.program_sink {
-                    NodeOrEdge::Node(p_node) => {
-                        if !self.program_channeler().cnodes.contains(p_node) {
-                            return Err(Error::OtherString(format!(
-                                "{p_embedding} {embedding:#?} path program sink node is invalid"
-                            )))
-                        }
-                    }
-                    NodeOrEdge::Edge(p_edge) => {
-                        if !self.program_channeler().cedges.contains(p_edge) {
-                            return Err(Error::OtherString(format!(
-                                "{p_embedding} {embedding:#?} path program sink edge is invalid"
-                            )))
-                        }
+                if let Some(program_sink) = path.program_sink {
+                    if !self.program_channeler().cedges.contains(program_sink) {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?} path program sink is invalid"
+                        )))
                     }
                 }
                 if !self.target_channeler().cnodes.contains(path.target_sink()) {

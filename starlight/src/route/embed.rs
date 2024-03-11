@@ -3,18 +3,18 @@ use awint::awint_dag::triple_arena::{Advancer, Ptr};
 use crate::{
     route::{
         Edge, EdgeKind, HyperPath, NodeOrEdge, PCEdge, PCNode, PMapping, Path, QCEdge, QCNode,
-        Router,
+        Referent, Router,
     },
     Error,
 };
 
 #[derive(Debug, Clone)]
-pub struct NodeEmbed<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
-    pub target_hyperpath: HyperPath<PCNode, PCEdge, QCNode, QCEdge>,
+pub struct NodeEmbed<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
+    pub target_hyperpath: HyperPath<PCEdge, QCNode, QCEdge>,
 }
 
-impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> NodeEmbed<PCNode, PCEdge, QCNode, QCEdge> {
-    pub fn new(target_hyperpath: HyperPath<PCNode, PCEdge, QCNode, QCEdge>) -> Self {
+impl<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> NodeEmbed<PCEdge, QCNode, QCEdge> {
+    pub fn new(target_hyperpath: HyperPath<PCEdge, QCNode, QCEdge>) -> Self {
         Self { target_hyperpath }
     }
 }
@@ -44,7 +44,7 @@ impl Router {
     fn make_hyperpath_embedding(
         &mut self,
         embed_from: PCNode,
-        hyperpath: HyperPath<PCNode, PCEdge, QCNode, QCEdge>,
+        hyperpath: HyperPath<PCEdge, QCNode, QCEdge>,
     ) -> Result<(), Error> {
         let embedding_ref = &mut self
             .program_channeler
@@ -140,33 +140,35 @@ impl Router {
                     combined_path.extend(path_to_sink);
 
                     // copy as itself
-                    paths.push(Path::new(NodeOrEdge::Node(program_cnode), combined_path));
+                    paths.push(Path::new(None, combined_path));
                 }
 
                 // this case is just a single program node not bound to any
                 // other part of the program graph, so we do not need to embed any root
                 self.make_hyperpath_embedding(
                     program_cnode,
-                    HyperPath::new(program_cnode, target_source_q_cnode, paths),
+                    HyperPath::new(None, target_source_q_cnode, paths),
                 )
                 .unwrap();
             } else {
-                // If the mapping has just a source, then a hyperpath needs to
-                // go concentrating to a root node. If anything depending on the source does not
-                // also have the root node in common, then there is a disconnection which is
-                // detected when embedding the root now or later call.
+                // If the mapping has just a source, then for every program sink there needs to
+                // be a hyperpath concentrating to the root node on the target side.
 
-                let mut p = program_cnode;
-                while let Some(tmp) = self.program_channeler().get_supernode(p) {
-                    p = tmp;
+                let mut paths = vec![];
+                let mut adv = self
+                    .program_channeler()
+                    .cnodes
+                    .advancer_surject(program_cnode);
+                while let Some(p_referent) = adv.advance(&self.program_channeler().cnodes) {
+                    if let Referent::CEdgeIncidence(p_cedge, Some(_)) =
+                        *self.program_channeler().cnodes.get_key(p_referent).unwrap()
+                    {
+                        paths.push(Path::new(Some(p_cedge), path_to_root.clone()));
+                    }
                 }
-                let program_root = p;
                 self.make_hyperpath_embedding(
                     program_cnode,
-                    HyperPath::new(program_cnode, target_source_q_cnode, vec![Path::new(
-                        NodeOrEdge::Node(program_root),
-                        path_to_root,
-                    )]),
+                    HyperPath::new(None, target_source_q_cnode, paths),
                 )
                 .unwrap();
             }
@@ -189,12 +191,6 @@ impl Router {
                 }
                 q
             };
-
-            let mut p = program_cnode;
-            while let Some(tmp) = self.program_channeler().get_supernode(p) {
-                p = tmp;
-            }
-            let program_root = p;
 
             let mut paths = vec![];
             for mapping_target in &mapping.target_sinks {
@@ -225,12 +221,32 @@ impl Router {
                 // remove extra dilution to root
                 path_to_sink.pop();
                 path_to_sink.reverse();
-                paths.push(Path::new(NodeOrEdge::Node(program_cnode), path_to_sink));
+                paths.push(Path::new(None, path_to_sink));
             }
+
+            // for the program_source, there should be exactly one source from an edge
+
+            // TODO can there be zero? What kind of constant related cases are there?
+
+            let mut program_source = None;
+            let mut adv = self
+                .program_channeler()
+                .cnodes
+                .advancer_surject(program_cnode);
+            while let Some(p_referent) = adv.advance(&self.program_channeler().cnodes) {
+                if let Referent::CEdgeIncidence(p_cedge, None) =
+                    *self.program_channeler().cnodes.get_key(p_referent).unwrap()
+                {
+                    assert!(program_source.is_none());
+                    program_source = Some(p_cedge);
+                }
+            }
+
+            assert!(program_source.is_some());
 
             self.make_hyperpath_embedding(
                 program_cnode,
-                HyperPath::new(program_root, target_root, paths),
+                HyperPath::new(program_source, target_root, paths),
             )
             .unwrap();
         }

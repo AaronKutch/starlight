@@ -6,9 +6,8 @@ use std::{
 
 use awint::awint_dag::triple_arena::Advancer;
 
-use super::{NodeOrEdge, PNodeEmbed};
 use crate::{
-    route::{Edge, EdgeKind, QCNode, Referent, Router},
+    route::{Edge, EdgeKind, PNodeEmbed, QCNode, Referent, Router},
     Error,
 };
 
@@ -139,13 +138,7 @@ fn dilute_embedding(
     let p_embedding = embeddings_to_process.pop().unwrap();
     let embedding = router.node_embeddings.get(p_embedding).unwrap();
     let hyperpath = &embedding.target_hyperpath;
-    let p_program_source = hyperpath.program_source;
-    let program_source = router
-        .program_channeler()
-        .cnodes
-        .get_val(p_program_source)
-        .unwrap();
-    let program_source_lvl = program_source.lvl;
+    let program_source = hyperpath.program_source;
     let q_target_source = hyperpath.target_source;
     let target_source = router
         .target_channeler()
@@ -198,34 +191,33 @@ fn dilute_embedding(
                 }
             }
 
-            match path.program_sink {
-                NodeOrEdge::Node(p_program_sink) => {
-                    if p_program_source == p_program_sink {
-                        // copy case, neither or both ends should exist
-                        assert!(!loose_start);
-                        if let (Some(edge_i), Some(edge_end_i)) = (edge_i, edge_end_i) {
-                            let found =
-                                dilute_plateau(router, p_embedding, path_i, edge_i, edge_end_i)?;
-                            if !found {
-                                // for the combined source and sink embeddings, if
-                                // `dilute_plateau` could not
-                                // find the path then one is
-                                // not possible
-                                return Err(Error::OtherString(format!(
-                                    "could not find possible routing for direct copy case \
-                                     (disregarding width constraints) for embedding \
-                                     {p_embedding:?}, unless this is a poorly connected target or \
-                                     edge case, then this is probably a bug with the router"
-                                )));
-                            }
-                        } else {
-                            break
+            match (program_source, path.program_sink) {
+                (None, None) => {
+                    // direct copy case, either both exist or they don't
+                    assert!(!loose_start);
+                    assert!(edge_i.is_some() == edge_end_i.is_some());
+                    if let (Some(edge_i), Some(edge_end_i)) = (edge_i, edge_end_i) {
+                        let found =
+                            dilute_plateau(router, p_embedding, path_i, edge_i, edge_end_i)?;
+                        if !found {
+                            // for the combined source and sink embeddings, if
+                            // `dilute_plateau` could not
+                            // find the path then one is
+                            // not possible
+                            return Err(Error::OtherString(format!(
+                                "could not find possible routing for direct copy case \
+                                 (disregarding width constraints) for embedding {p_embedding:?}, \
+                                 unless this is a poorly connected target or edge case, then this \
+                                 is probably a bug with the router"
+                            )));
                         }
                     } else {
-                        todo!()
+                        break
                     }
                 }
-                NodeOrEdge::Edge(_) => todo!(),
+                (None, Some(_)) => todo!(),
+                (Some(_), None) => todo!(),
+                (Some(_), Some(_)) => todo!(),
             }
         }
     }
