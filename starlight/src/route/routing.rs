@@ -7,7 +7,7 @@ use std::{
 use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
-    route::{Edge, EdgeKind, PNodeEmbed, QCNode, Referent, Router},
+    route::{Edge, EdgeKind, PEdgeEmbed, PNodeEmbed, Programmability, QCNode, Referent, Router},
     Error,
 };
 
@@ -112,14 +112,22 @@ fn dilute_level(router: &mut Router, max_lvl: u16) -> Result<(), Error> {
         // ignoring other hyperpaths
         let absolute_violations = false;
 
-        // TODO edge dilution first
+        // edge dilution must occur first
+        let mut embeddings_to_process = vec![];
+        let mut adv = router.edge_embeddings().advancer();
+        while let Some(p_embedding) = adv.advance(router.edge_embeddings()) {
+            embeddings_to_process.push(p_embedding);
+            while !embeddings_to_process.is_empty() {
+                dilute_edge_embedding(router, max_lvl, &mut embeddings_to_process)?;
+            }
+        }
 
         let mut embeddings_to_process = vec![];
         let mut adv = router.node_embeddings().advancer();
         while let Some(p_embedding) = adv.advance(router.node_embeddings()) {
             embeddings_to_process.push(p_embedding);
             while !embeddings_to_process.is_empty() {
-                dilute_embedding(router, max_lvl, &mut embeddings_to_process)?;
+                dilute_node_embedding(router, max_lvl, &mut embeddings_to_process)?;
             }
         }
 
@@ -130,14 +138,36 @@ fn dilute_level(router: &mut Router, max_lvl: u16) -> Result<(), Error> {
     Ok(())
 }
 
-fn dilute_embedding(
+fn dilute_edge_embedding(
+    router: &mut Router,
+    max_lvl: u16,
+    embeddings_to_process: &mut Vec<PEdgeEmbed>,
+) -> Result<(), Error> {
+    let p_embedding = embeddings_to_process.pop().unwrap();
+    let embedding = router.edge_embeddings.get(p_embedding).unwrap();
+    let program_edge = router
+        .program_channeler()
+        .cedges
+        .get(embedding.program_edge)
+        .unwrap();
+    match program_edge.programmability() {
+        Programmability::TNode => todo!(),
+        Programmability::StaticLut(_) => todo!(),
+        Programmability::ArbitraryLut(_) => todo!(),
+        Programmability::SelectorLut(_) => todo!(),
+        Programmability::Bulk(_) => todo!(),
+    }
+    Ok(())
+}
+
+fn dilute_node_embedding(
     router: &mut Router,
     max_lvl: u16,
     embeddings_to_process: &mut Vec<PNodeEmbed>,
 ) -> Result<(), Error> {
     let p_embedding = embeddings_to_process.pop().unwrap();
     let embedding = router.node_embeddings.get(p_embedding).unwrap();
-    let hyperpath = &embedding.target_hyperpath;
+    let hyperpath = &embedding.hyperpath;
     let program_source = hyperpath.program_source;
     let q_target_source = hyperpath.target_source;
     let target_source = router
@@ -157,7 +187,7 @@ fn dilute_embedding(
                 .node_embeddings()
                 .get(p_embedding)
                 .unwrap()
-                .target_hyperpath
+                .hyperpath
                 .paths()[path_i];
             let mut node_lvl = target_source_lvl;
             // find a local plateau above `max_lvl`
@@ -236,8 +266,8 @@ fn dilute_plateau(
     edge_end_i: usize,
 ) -> Result<bool, Error> {
     let embedding = router.node_embeddings.get(p_embedding).unwrap();
-    let target_source = embedding.target_hyperpath.target_source;
-    let path = &embedding.target_hyperpath.paths()[path_i];
+    let target_source = embedding.hyperpath.target_source;
+    let path = &embedding.hyperpath.paths()[path_i];
     let start = if edge_i == 0 {
         target_source
     } else {
@@ -280,7 +310,7 @@ fn dilute_plateau(
         // TODO there is probably a way to optimize this
         max_backbone_lvl = max_backbone_lvl.map(|x| x + 1);
         let embedding = router.node_embeddings.get(p_embedding).unwrap();
-        let path = &embedding.target_hyperpath.paths()[path_i];
+        let path = &embedding.hyperpath.paths()[path_i];
         for edge in &path.edges()[edge_i..edge_end_i] {
             let mut q_supernode = router
                 .target_channeler
@@ -324,7 +354,7 @@ fn dilute_plateau(
         .node_embeddings()
         .get(p_embedding)
         .unwrap()
-        .target_hyperpath
+        .hyperpath
         .paths()[path_i]
         .edges();
     let mut completed_path = edges[..edge_i].to_vec();
@@ -337,7 +367,7 @@ fn dilute_plateau(
         .node_embeddings
         .get_mut(p_embedding)
         .unwrap()
-        .target_hyperpath
+        .hyperpath
         .paths_mut()[path_i]
         .edges = completed_path;
     Ok(true)

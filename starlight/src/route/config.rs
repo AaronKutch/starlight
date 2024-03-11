@@ -215,7 +215,7 @@ impl Router {
 
         for embedding in self.node_embeddings.vals() {
             // follow the `SelectorLut`s of the hyperpath
-            for path in embedding.target_hyperpath.paths() {
+            for path in embedding.hyperpath.paths() {
                 for edge in path.edges() {
                     match edge.kind {
                         EdgeKind::Transverse(q_cedge, source_i) => {

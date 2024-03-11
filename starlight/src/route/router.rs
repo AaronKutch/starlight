@@ -5,8 +5,8 @@ use awint::awint_dag::triple_arena::{Advancer, OrdArena};
 use crate::{
     ensemble::{Ensemble, PBack, PExternal},
     route::{
-        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, PCEdge, PCNode, PEdgeEmbed,
-        PMapping, PNodeEmbed, QCEdge, QCNode,
+        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PCEdge, PCNode,
+        PEdgeEmbed, PMapping, PNodeEmbed, QCEdge, QCNode,
     },
     triple_arena::Arena,
     Corresponder, Error, SuspendedEpoch,
@@ -43,7 +43,7 @@ pub struct Router {
     // `ThisEquiv` `PBack` mapping from program to target
     pub(crate) mappings: OrdArena<PMapping, PBack, Mapping>,
     // routing embedding of part of the program in the target
-    pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed<PCEdge, QCNode, QCEdge>>,
+    pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed<PCNode, PCEdge, QCNode, QCEdge>>,
     pub(crate) edge_embeddings: Arena<PEdgeEmbed, EdgeEmbed<PCEdge, QCNode, QCEdge>>,
     // this should only be set after a successful routing, and be unset the moment any mappings,
     // embeddings, or configurations are changed.
@@ -152,7 +152,7 @@ impl Router {
         &self.mappings
     }
 
-    pub fn node_embeddings(&self) -> &Arena<PNodeEmbed, NodeEmbed<PCEdge, QCNode, QCEdge>> {
+    pub fn node_embeddings(&self) -> &Arena<PNodeEmbed, NodeEmbed<PCNode, PCEdge, QCNode, QCEdge>> {
         &self.node_embeddings
     }
 
@@ -241,13 +241,22 @@ impl Router {
                 self.verify_integrity_of_mapping_target(mapping_target)?;
             }
         }
-        // embedding validities
+        // node embedding validities
         for (p_embedding, embedding) in self.node_embeddings() {
-            let hyperpath = &embedding.target_hyperpath;
+            if !self
+                .program_channeler()
+                .cnodes
+                .contains(embedding.program_node)
+            {
+                return Err(Error::OtherString(format!(
+                    "{p_embedding} {embedding:#?}.program_node is invalid"
+                )))
+            }
+            let hyperpath = &embedding.hyperpath;
             if let Some(program_source) = hyperpath.program_source {
                 if !self.program_channeler().cedges.contains(program_source) {
                     return Err(Error::OtherString(format!(
-                        "{p_embedding} {embedding:#?}.program_source is invalid"
+                        "{p_embedding} {embedding:#?}.hyperpath.program_source is invalid"
                     )))
                 }
             }
@@ -348,9 +357,93 @@ impl Router {
                 }
             }
         }
-
-        for (_p_embedding, _embedding) in self.edge_embeddings() {
-            todo!()
+        // edge embedding validities
+        for (p_embedding, embedding) in self.edge_embeddings() {
+            if !self
+                .program_channeler()
+                .cedges
+                .contains(embedding.program_edge)
+            {
+                return Err(Error::OtherString(format!(
+                    "{p_embedding} {embedding:#?}.program_edge is invalid"
+                )))
+            }
+            match embedding.target {
+                NodeOrEdge::Node(q_cnode) => {
+                    if !self.target_channeler().cnodes.contains(q_cnode) {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?}.target is invalid"
+                        )))
+                    }
+                }
+                NodeOrEdge::Edge(q_cedge) => {
+                    if !self.target_channeler().cedges.contains(q_cedge) {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?}.target is invalid"
+                        )))
+                    }
+                }
+            }
+        }
+        // check validity and roundtrip embeddings
+        for cnode in self.program_channeler().cnodes.vals() {
+            if let Some(p_embedding) = cnode.embedding {
+                if let Some(embedding) = self.node_embeddings().get(p_embedding) {
+                    if embedding.program_node != cnode.p_this_cnode {
+                        return Err(Error::OtherString(format!(
+                            "{cnode:#?} embedding roundtrip fail"
+                        )))
+                    }
+                } else {
+                    return Err(Error::OtherString(format!(
+                        "{cnode:#?} embedding is invalid"
+                    )))
+                }
+            }
+        }
+        for (p_cedge, edge) in &self.program_channeler().cedges {
+            if let Some(p_embedding) = edge.embedding {
+                if let Some(embedding) = self.edge_embeddings().get(p_embedding) {
+                    if embedding.program_edge != p_cedge {
+                        return Err(Error::OtherString(format!(
+                            "{p_cedge} {edge:#?} embedding roundtrip fail"
+                        )))
+                    }
+                } else {
+                    return Err(Error::OtherString(format!(
+                        "{p_cedge} {edge:#?} embedding is invalid"
+                    )))
+                }
+            }
+        }
+        // in other direction
+        for (p_embedding, embedding) in self.node_embeddings() {
+            if self
+                .program_channeler()
+                .cnodes
+                .get_val(embedding.program_node)
+                .unwrap()
+                .embedding
+                != Some(p_embedding)
+            {
+                return Err(Error::OtherString(format!(
+                    "{p_embedding} {embedding:#?} roundtrip fail"
+                )))
+            }
+        }
+        for (p_embedding, embedding) in self.edge_embeddings() {
+            if self
+                .program_channeler()
+                .cedges
+                .get(embedding.program_edge)
+                .unwrap()
+                .embedding
+                != Some(p_embedding)
+            {
+                return Err(Error::OtherString(format!(
+                    "{p_embedding} {embedding:#?} roundtrip fail"
+                )))
+            }
         }
         Ok(())
     }

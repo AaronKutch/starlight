@@ -9,13 +9,17 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct NodeEmbed<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
-    pub target_hyperpath: HyperPath<PCEdge, QCNode, QCEdge>,
+pub struct NodeEmbed<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
+    pub program_node: PCNode,
+    pub hyperpath: HyperPath<PCEdge, QCNode, QCEdge>,
 }
 
-impl<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> NodeEmbed<PCEdge, QCNode, QCEdge> {
-    pub fn new(target_hyperpath: HyperPath<PCEdge, QCNode, QCEdge>) -> Self {
-        Self { target_hyperpath }
+impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> NodeEmbed<PCNode, PCEdge, QCNode, QCEdge> {
+    pub fn new(program_node: PCNode, hyperpath: HyperPath<PCEdge, QCNode, QCEdge>) -> Self {
+        Self {
+            program_node,
+            hyperpath,
+        }
     }
 }
 
@@ -58,7 +62,9 @@ impl Router {
                  probably a bug in the router",
             )));
         }
-        let p_embedding = self.node_embeddings.insert(NodeEmbed::new(hyperpath));
+        let p_embedding = self
+            .node_embeddings
+            .insert(NodeEmbed::new(embed_from, hyperpath));
         *embedding_ref = Some(p_embedding);
         Ok(())
     }
