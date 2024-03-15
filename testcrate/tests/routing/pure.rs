@@ -1,6 +1,6 @@
 //! pure routing with no combinatorics
 
-use starlight::{route::Router, Corresponder, Epoch, In, Out, SuspendedEpoch};
+use starlight::{dag, delay, route::Router, Corresponder, Epoch, In, Out, SuspendedEpoch};
 use testcrate::targets::FabricTargetInterface;
 struct SimpleCopyProgramInterface {
     input: In<1>,
@@ -9,7 +9,10 @@ struct SimpleCopyProgramInterface {
 
 impl SimpleCopyProgramInterface {
     pub fn definition() -> Self {
+        use dag::*;
         let input = In::opaque();
+        let mut x = Awi::from_bits(&input);
+        delay(&mut x, 1);
         let output = Out::from_bits(&input).unwrap();
         Self { input, output }
     }
@@ -45,7 +48,7 @@ fn route_empty() {
 
 #[test]
 fn route_pure_single_small() {
-    let (target, target_configurator, target_epoch) = FabricTargetInterface::target((2, 2));
+    let (target, target_configurator, target_epoch) = FabricTargetInterface::target((3, 3));
     let (program, program_epoch) = SimpleCopyProgramInterface::program();
     let mut router = Router::new(&target_epoch, &target_configurator, &program_epoch).unwrap();
     let target_epoch = target_epoch.resume();
