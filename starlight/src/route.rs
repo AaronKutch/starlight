@@ -4,6 +4,7 @@ mod cnode;
 mod config;
 #[cfg(feature = "debug")]
 mod debug;
+mod dilute;
 mod embed;
 mod path;
 mod router;
@@ -17,6 +18,7 @@ pub use cedge::{CEdge, ChannelWidths, Programmability, SelectorLut, Source};
 pub use channel::{Channeler, Referent};
 pub use cnode::CNode;
 pub use config::{Config, Configurator};
+pub(crate) use dilute::dilute_level;
 pub use embed::{EdgeEmbed, NodeEmbed};
 pub use path::{Edge, EdgeKind, HyperPath, NodeOrEdge, Path};
 pub use router::Router;
