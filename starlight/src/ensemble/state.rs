@@ -317,8 +317,9 @@ impl Ensemble {
                         if let Some(p_bit) = self.stator.states[p_state].p_self_bits[i] {
                             // unwrap because this should never fail, events would process
                             // incorrectly
+                            let p_equiv = self.get_p_equiv(p_bit).unwrap();
                             self.change_value(
-                                p_bit,
+                                p_equiv,
                                 Value::Const(x.get(i).unwrap()),
                                 NonZeroU64::new(1).unwrap(),
                             )
@@ -811,9 +812,10 @@ fn lower_elementary_to_lnodes_intermediate(
                             // initial event for the initial value, need to do this in general
                             // because the state bit can get optimized away before we actually use
                             // it
+                            let p_equiv = this.get_p_equiv(p_looper).unwrap();
                             this.evaluator.push_event(Event {
                                 partial_ord_num: NonZeroU64::new(1).unwrap(),
-                                change_kind: ChangeKind::Manual(p_looper, init_val),
+                                change_kind: ChangeKind::Manual(p_equiv, init_val),
                             });
                         }
                     }
@@ -894,9 +896,10 @@ fn lower_elementary_to_lnodes_intermediate(
                                     ));
                                 }
                             };
+                            let p_equiv = this.get_p_equiv(p_looper).unwrap();
                             this.evaluator.push_event(Event {
                                 partial_ord_num: NonZeroU64::new(1).unwrap(),
-                                change_kind: ChangeKind::Manual(p_looper, init_val),
+                                change_kind: ChangeKind::Manual(p_equiv, init_val),
                             });
                         }
                     }

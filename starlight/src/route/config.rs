@@ -196,9 +196,7 @@ impl Router {
             } else {
                 Value::Unknown
             };
-            if let Err(e) =
-                ensemble.change_value(p_equiv.into_p_back(), value, NonZeroU64::new(1).unwrap())
-            {
+            if let Err(e) = ensemble.change_value(*p_equiv, value, NonZeroU64::new(1).unwrap()) {
                 return Err(Error::OtherString(format!(
                     "`config_target`: when trying to change the target bit corresponding to \
                      {p_config:#?}, encountered error that may be because the wrong `Epoch` is \

@@ -224,9 +224,9 @@ impl Ensemble {
             for p_tnode in events.tnode_drives.iter().copied() {
                 if let Some(tnode) = self.tnodes.get(p_tnode) {
                     let val = self.backrefs.get_val(tnode.p_driver).unwrap().val;
-                    let p_self = tnode.p_self;
+                    let p_equiv = self.get_p_equiv(tnode.p_self).unwrap();
                     // TODO if we don't unwrap, we need to reregister events
-                    self.change_value(p_self, val, NonZeroU64::new(1).unwrap())
+                    self.change_value(p_equiv, val, NonZeroU64::new(1).unwrap())
                         .unwrap();
                 }
             }

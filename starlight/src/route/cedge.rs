@@ -242,7 +242,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             .p_self_equiv;
         let p0 = self
             .ensemble_backref_to_channeler_backref
-            .find_key(&p_equiv.into());
+            .find_key(&p_equiv);
         if let Some(p0) = p0 {
             let channeler_p_back = *self
                 .ensemble_backref_to_channeler_backref
@@ -364,7 +364,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 let p_cnode = channeler.make_cnode(vec![], 0, InternalBehavior::empty());
                 let replaced = channeler
                     .ensemble_backref_to_channeler_backref
-                    .insert(p_equiv.into(), p_cnode)
+                    .insert(p_equiv, p_cnode)
                     .1;
                 assert!(replaced.is_none());
             }

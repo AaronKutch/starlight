@@ -15,9 +15,9 @@ impl PEquiv {
     }
 }
 
-impl Into<PBack> for PEquiv {
-    fn into(self) -> PBack {
-        self.0
+impl From<PEquiv> for PBack {
+    fn from(value: PEquiv) -> Self {
+        value.0
     }
 }
 

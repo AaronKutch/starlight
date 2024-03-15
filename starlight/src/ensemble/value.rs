@@ -7,7 +7,7 @@ use std::{
 use awint::{awi::*, awint_dag::triple_arena::Advancer};
 
 use crate::{
-    ensemble::{Ensemble, PBack, PLNode, PTNode, Referent},
+    ensemble::{Ensemble, PBack, PEquiv, PLNode, PTNode, Referent},
     Error,
 };
 
@@ -198,7 +198,7 @@ pub enum ChangeKind {
     // around due to the other requirement to avoid handles and start from anywhere, which leads
     // to downstream values getting initialized as unknown rather than the correct initial value
     // getting propogated.
-    Manual(PBack, Value),
+    Manual(PEquiv, Value),
 }
 
 /// Note that the `Eq`, `Ord`, etc traits are implemented to only order on
@@ -325,11 +325,11 @@ impl Ensemble {
     /// caused `change_value` need to be reinserted
     pub fn change_value(
         &mut self,
-        p_back: PBack,
+        p_equiv: PEquiv,
         value: Value,
         source_partial_ord_num: NonZeroU64,
     ) -> Result<(), Error> {
-        if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
+        if let Some(equiv) = self.backrefs.get_val_mut(p_equiv.into()) {
             if equiv.val == value {
                 // no change needed
                 return Ok(())
@@ -349,7 +349,7 @@ impl Ensemble {
             self.switch_to_change_phase();
 
             // create any needed events
-            let mut adv = self.backrefs.advancer_surject(p_back);
+            let mut adv = self.backrefs.advancer_surject(p_equiv.into());
             while let Some(p_back) = adv.advance(&self.backrefs) {
                 let referent = *self.backrefs.get_key(p_back).unwrap();
                 match referent {
@@ -383,12 +383,15 @@ impl Ensemble {
         match event.change_kind {
             ChangeKind::LNode(p_lnode) => self.eval_lnode(p_lnode),
             ChangeKind::TNode(p_tnode) => self.eval_tnode(p_tnode),
-            ChangeKind::Manual(p_back, val) => self.manual_change(p_back, val),
+            ChangeKind::Manual(p_equiv, val) => {
+                self.manual_change(p_equiv, val).unwrap();
+                Ok(())
+            }
         }
     }
 
-    pub fn manual_change(&mut self, p_back: PBack, val: Value) -> Result<(), Error> {
-        self.change_value(p_back, val, NonZeroU64::new(1).unwrap())
+    pub fn manual_change(&mut self, p_equiv: PEquiv, val: Value) -> Result<(), Error> {
+        self.change_value(p_equiv, val, NonZeroU64::new(1).unwrap())
     }
 
     /// Evaluates the `LNode` and pushes new events as needed. Note that any
@@ -396,7 +399,8 @@ impl Ensemble {
     pub fn eval_lnode(&mut self, p_lnode: PLNode) -> Result<(), Error> {
         let p_back = self.lnodes.get(p_lnode).unwrap().p_self;
         let (val, partial_ord_num) = self.calculate_lnode_value(p_lnode)?;
-        self.change_value(p_back, val, partial_ord_num)
+        let p_equiv = self.get_p_equiv(p_back).unwrap();
+        self.change_value(p_equiv, val, partial_ord_num)
     }
 
     /// Evaluates the `TNode` and pushes new events or delayed events as needed.
@@ -408,7 +412,8 @@ impl Ensemble {
             let p_driver = tnode.p_driver;
             let equiv = self.backrefs.get_val(p_driver).unwrap();
             let partial_ord_num = equiv.evaluator_partial_order;
-            self.change_value(tnode.p_self, equiv.val, partial_ord_num)
+            let p_equiv = self.get_p_equiv(tnode.p_self).unwrap();
+            self.change_value(p_equiv, equiv.val, partial_ord_num)
         } else {
             self.delayer
                 .insert_delayed_tnode_event(p_tnode, tnode.delay());

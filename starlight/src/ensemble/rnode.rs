@@ -473,7 +473,8 @@ impl Ensemble {
                     };
                     // if an error occurs, no event is inserted and we do not insert anything
                     // here, the change is treated as having never occured
-                    ensemble.change_value(p_back, bit, NonZeroU64::new(1).unwrap())?;
+                    let p_equiv = ensemble.get_p_equiv(p_back).unwrap();
+                    ensemble.change_value(p_equiv, bit, NonZeroU64::new(1).unwrap())?;
                 }
             }
         }

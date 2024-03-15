@@ -5,9 +5,8 @@ use std::{
 
 use awint::awint_dag::triple_arena::{Advancer, Ptr};
 
-use super::cedge::Source;
 use crate::{
-    route::{ChannelWidths, Channeler, PNodeEmbed, Programmability, Referent},
+    route::{ChannelWidths, Channeler, PNodeEmbed, Programmability, Referent, Source},
     Error,
 };
 
