@@ -3,7 +3,7 @@ use std::fmt::Write;
 use awint::awint_dag::triple_arena::{Advancer, OrdArena};
 
 use crate::{
-    ensemble::{Ensemble, PBack, PExternal},
+    ensemble::{Ensemble, PEquiv, PExternal},
     route::{
         route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PCEdge, PCNode,
         PEdgeEmbed, PMapping, PNodeEmbed, QCEdge, QCNode,
@@ -16,7 +16,7 @@ use crate::{
 pub struct MappingTarget {
     pub target_p_external: PExternal,
     pub target_bit_i: usize,
-    pub target_p_equiv: PBack,
+    pub target_p_equiv: PEquiv,
 }
 
 /// The corresponding program `PBack` is in the key that this `Mapping` should
@@ -40,8 +40,8 @@ pub struct Router {
     pub(crate) configurator: Configurator,
     program_ensemble: Ensemble,
     pub(crate) program_channeler: Channeler<PCNode, PCEdge>,
-    // `ThisEquiv` `PBack` mapping from program to target
-    pub(crate) mappings: OrdArena<PMapping, PBack, Mapping>,
+    // `PEquiv` mapping from program to target
+    pub(crate) mappings: OrdArena<PMapping, PEquiv, Mapping>,
     // routing embedding of part of the program in the target
     pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed<PCNode, PCEdge, QCNode, QCEdge>>,
     pub(crate) edge_embeddings: Arena<PEdgeEmbed, EdgeEmbed<PCEdge, QCNode, QCEdge>>,
@@ -148,7 +148,7 @@ impl Router {
         &self.program_channeler
     }
 
-    pub fn mappings(&self) -> &OrdArena<PMapping, PBack, Mapping> {
+    pub fn mappings(&self) -> &OrdArena<PMapping, PEquiv, Mapping> {
         &self.mappings
     }
 

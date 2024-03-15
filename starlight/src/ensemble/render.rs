@@ -2,13 +2,13 @@ use std::collections::VecDeque;
 
 use awint::awint_dag::triple_arena::{ptr_struct, Advancer, OrdArena};
 
-use crate::ensemble::{Ensemble, PBack, PExternal, PLNode, PRNode, PTNode, Referent};
+use crate::ensemble::{Ensemble, PEquiv, PExternal, PLNode, PRNode, PTNode, Referent};
 
 ptr_struct!(PRenderNode);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RenderNodeKind {
-    Equiv(PBack),
+    Equiv(PEquiv),
     LNode(PLNode),
     TNode(PTNode),
     RNode(PRNode),
@@ -51,8 +51,8 @@ impl Ensemble {
             // acquire all web edges
             let mut edges = vec![];
             match kind {
-                RenderNodeKind::Equiv(p_back) => {
-                    let mut adv = self.backrefs.advancer_surject(p_back);
+                RenderNodeKind::Equiv(p_equiv) => {
+                    let mut adv = self.backrefs.advancer_surject(p_equiv.into());
                     while let Some(p_ref) = adv.advance(&self.backrefs) {
                         match *self.backrefs.get_key(p_ref).unwrap() {
                             Referent::ThisEquiv => (),
@@ -73,31 +73,33 @@ impl Ensemble {
                 }
                 RenderNodeKind::LNode(p_lnode) => {
                     let lnode = self.lnodes.get(p_lnode).unwrap();
-                    edges.push(RenderNodeKind::Equiv(lnode.p_self));
-                    lnode.inputs(|p| edges.push(RenderNodeKind::Equiv(p)));
+                    edges.push(RenderNodeKind::Equiv(
+                        self.get_p_equiv(lnode.p_self).unwrap(),
+                    ));
+                    lnode.inputs(|p| {
+                        edges.push(RenderNodeKind::Equiv(self.get_p_equiv(p).unwrap()))
+                    });
                 }
                 RenderNodeKind::TNode(p_tnode) => {
                     let tnode = self.tnodes.get(p_tnode).unwrap();
-                    edges.push(RenderNodeKind::Equiv(tnode.p_self));
-                    edges.push(RenderNodeKind::Equiv(tnode.p_driver));
+                    edges.push(RenderNodeKind::Equiv(
+                        self.get_p_equiv(tnode.p_self).unwrap(),
+                    ));
+                    edges.push(RenderNodeKind::Equiv(
+                        self.get_p_equiv(tnode.p_driver).unwrap(),
+                    ));
                 }
                 RenderNodeKind::RNode(p_rnode) => {
                     let rnode = self.notary.rnodes().get_val(p_rnode).unwrap();
                     if let Some(bits) = rnode.bits() {
                         for p in bits.iter().copied() {
                             if let Some(p) = p {
-                                edges.push(RenderNodeKind::Equiv(p));
+                                edges.push(RenderNodeKind::Equiv(self.get_p_equiv(p).unwrap()));
                             }
                         }
                     }
                 }
             };
-            // convert any `PBack`s into self equivalence `PBack`s
-            for edge in &mut edges {
-                if let RenderNodeKind::Equiv(p_back) = edge {
-                    *p_back = self.backrefs.get_val(*p_back).unwrap().p_self_equiv;
-                }
-            }
             // to reduce the iterating we will need to do, the initial position will use the
             // position of the render node we are coming from
             let p = map.find_key(&kind).unwrap();

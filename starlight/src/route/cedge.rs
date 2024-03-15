@@ -11,7 +11,7 @@ use awint::{
 
 use crate::{
     awint_dag::smallvec::SmallVec,
-    ensemble::{DynamicValue, Ensemble, LNodeKind, PBack},
+    ensemble::{DynamicValue, Ensemble, LNodeKind, PBack, PEquiv},
     route::{
         channel::Referent,
         cnode::{generate_hierarchy, InternalBehavior},
@@ -234,7 +234,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
 
     // translate from any ensemble backref to the equivalence backref to the
     // channeler backref
-    fn translate(&self, ensemble: &Ensemble, ensemble_backref: PBack) -> (PBack, Option<PCNode>) {
+    fn translate(&self, ensemble: &Ensemble, ensemble_backref: PBack) -> (PEquiv, Option<PCNode>) {
         let p_equiv = ensemble
             .backrefs
             .get_val(ensemble_backref)
@@ -242,7 +242,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             .p_self_equiv;
         let p0 = self
             .ensemble_backref_to_channeler_backref
-            .find_key(&p_equiv);
+            .find_key(&p_equiv.into());
         if let Some(p0) = p0 {
             let channeler_p_back = *self
                 .ensemble_backref_to_channeler_backref
@@ -295,7 +295,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 let mut input_count = 0;
                 // we have a configurable bit, check if it is by itself or can affect other
                 // things
-                let mut adv = ensemble.backrefs.advancer_surject(equiv.p_self_equiv);
+                let mut adv = ensemble.backrefs.advancer_surject(p_equiv.into());
                 while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                     use crate::ensemble::Referent::*;
                     match ensemble.backrefs.get_key(p_ref).unwrap() {
@@ -337,7 +337,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 // finding alternative paths, or how do we handle it?
 
                 let mut driver_count = 0;
-                let mut adv = ensemble.backrefs.advancer_surject(p_equiv);
+                let mut adv = ensemble.backrefs.advancer_surject(p_equiv.into());
                 while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                     use crate::ensemble::Referent::*;
                     match *ensemble.backrefs.get_key(p_ref).unwrap() {
@@ -354,7 +354,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 }
                 if driver_count > 1 {
                     return Err(Error::OtherString(format!(
-                        "ensemble equivalence {p_equiv} has more than one driver (this can be \
+                        "ensemble equivalence {p_equiv:?} has more than one driver (this can be \
                          from a valid equivalence case from certain LUT optimizations, or from a \
                          bug), this is currently unsupported by the `Router`",
                     )));
@@ -364,7 +364,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 let p_cnode = channeler.make_cnode(vec![], 0, InternalBehavior::empty());
                 let replaced = channeler
                     .ensemble_backref_to_channeler_backref
-                    .insert(equiv.p_self_equiv, p_cnode)
+                    .insert(p_equiv.into(), p_cnode)
                     .1;
                 assert!(replaced.is_none());
             }
@@ -401,7 +401,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             let mut nodes = vec![];
             let (p_equiv, p_forward) = channeler.translate(ensemble, tnode.p_driver);
             let p_forward = p_forward.unwrap();
-            let node_visit = &mut ensemble.backrefs.get_val_mut(p_equiv).unwrap().alg_visit;
+            let node_visit = &mut ensemble
+                .backrefs
+                .get_val_mut(p_equiv.into())
+                .unwrap()
+                .alg_visit;
             if *node_visit == visit {
                 // already done, avoid quadratics
                 continue

@@ -7,45 +7,12 @@ use awint::awint_dag::{
 
 use crate::{
     ensemble::{
-        value::Evaluator, Delayer, LNode, LNodeKind, Notary, Optimizer, PBack, PLNode, PRNode,
-        PTNode, Stator, TNode, Value,
+        value::Evaluator, Delayer, Equiv, LNode, LNodeKind, Notary, Optimizer, PBack, PEquiv,
+        PLNode, PRNode, PTNode, Stator, TNode, Value,
     },
     triple_arena::{Arena, SurjectArena},
     Error,
 };
-
-#[derive(Debug, Clone)]
-pub struct Equiv {
-    /// `Ptr` back to this equivalence through a `Referent::ThisEquiv` in the
-    /// backref surject associated with this `Equiv`
-    pub p_self_equiv: PBack,
-    /// Output of the equivalence surject
-    pub val: Value,
-    /// Used by the evaluator
-    pub evaluator_partial_order: NonZeroU64,
-    /// Algorithm visit number
-    pub alg_visit: NonZeroU64,
-}
-
-impl Recast<PBack> for Equiv {
-    fn recast<R: Recaster<Item = PBack>>(
-        &mut self,
-        recaster: &R,
-    ) -> Result<(), <R as Recaster>::Item> {
-        self.p_self_equiv.recast(recaster)
-    }
-}
-
-impl Equiv {
-    pub fn new(p_self_equiv: PBack, val: Value) -> Self {
-        Self {
-            p_self_equiv,
-            val,
-            evaluator_partial_order: NonZeroU64::new(1).unwrap(),
-            alg_visit: NonZeroU64::new(1).unwrap(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 pub enum Referent {
@@ -107,10 +74,10 @@ impl Ensemble {
         // first check that equivalences aren't broken by themselves
         for p_back in self.backrefs.ptrs() {
             let equiv = self.backrefs.get_val(p_back).unwrap();
-            if let Some(Referent::ThisEquiv) = self.backrefs.get_key(equiv.p_self_equiv) {
+            if let Some(Referent::ThisEquiv) = self.backrefs.get_key(equiv.p_self_equiv.into()) {
                 if !self
                     .backrefs
-                    .in_same_set(p_back, equiv.p_self_equiv)
+                    .in_same_set(p_back, equiv.p_self_equiv.into())
                     .unwrap()
                 {
                     return Err(Error::OtherString(format!(
@@ -125,7 +92,7 @@ impl Ensemble {
             // need to roundtrip in both directions to ensure existence and uniqueness of a
             // `ThisEquiv` for each equivalence surject
             if let Some(Referent::ThisEquiv) = self.backrefs.get_key(p_back) {
-                if p_back != equiv.p_self_equiv {
+                if p_back != equiv.p_self_equiv.into() {
                     return Err(Error::OtherString(format!(
                         "{equiv:?}.p_self_equiv roundtrip fail"
                     )))
@@ -478,6 +445,10 @@ impl Ensemble {
         Ok(())
     }
 
+    pub fn get_p_equiv(&self, p_back: PBack) -> Option<PEquiv> {
+        Some(self.backrefs.get_val(p_back)?.p_self_equiv)
+    }
+
     /// Inserts a `LNode` with `lit` value and returns a `PBack` to it
     pub fn make_literal(&mut self, lit: Option<bool>) -> PBack {
         self.backrefs.insert_with(|p_self_equiv| {
@@ -513,7 +484,7 @@ impl Ensemble {
         let (removed_equiv, _) = self.backrefs.union(p_equiv0, p_equiv1).unwrap();
         // remove the extra `ThisEquiv`
         self.backrefs
-            .remove_key(removed_equiv.p_self_equiv)
+            .remove_key(removed_equiv.p_self_equiv.into())
             .unwrap();
         Ok(())
     }

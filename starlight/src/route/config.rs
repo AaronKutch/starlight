@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use awint::{awint_dag::triple_arena::OrdArena, Awi};
 
 use crate::{
-    ensemble::{Ensemble, PBack, PExternal, Value},
+    ensemble::{Ensemble, PEquiv, PExternal, Value},
     epoch::get_current_epoch,
     route::{EdgeKind, PConfig, Programmability, Router},
     Error, LazyAwi,
@@ -24,8 +24,8 @@ pub struct Config {
 /// configure different behaviors.
 #[derive(Debug, Clone)]
 pub struct Configurator {
-    // `ThisEquiv` `PBack` to `PExternal` mapping for bits we are allowed to configure
-    pub configurations: OrdArena<PConfig, PBack, Config>,
+    // `PEquiv` to `PExternal` mapping for bits we are allowed to configure
+    pub configurations: OrdArena<PConfig, PEquiv, Config>,
 }
 
 impl Configurator {
@@ -35,7 +35,7 @@ impl Configurator {
         }
     }
 
-    pub fn find(&self, p_equiv: PBack) -> Option<PConfig> {
+    pub fn find(&self, p_equiv: PEquiv) -> Option<PConfig> {
         self.configurations.find_key(&p_equiv)
     }
 
@@ -196,7 +196,9 @@ impl Router {
             } else {
                 Value::Unknown
             };
-            if let Err(e) = ensemble.change_value(*p_equiv, value, NonZeroU64::new(1).unwrap()) {
+            if let Err(e) =
+                ensemble.change_value(p_equiv.into_p_back(), value, NonZeroU64::new(1).unwrap())
+            {
                 return Err(Error::OtherString(format!(
                     "`config_target`: when trying to change the target bit corresponding to \
                      {p_config:#?}, encountered error that may be because the wrong `Epoch` is \

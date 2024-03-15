@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use awint::awint_dag::triple_arena::{Arena, OrdArena, Ptr, SurjectArena};
 
 use crate::{
-    ensemble::PBack,
+    ensemble::PEquiv,
     route::{CEdge, CNode, PBackrefToBackref, PTopLevel, Programmability},
     Error,
 };
@@ -23,7 +23,7 @@ pub struct Channeler<PCNode: Ptr, PCEdge: Ptr> {
     pub cedges: Arena<PCEdge, CEdge<PCNode>>,
     pub top_level_cnodes: OrdArena<PTopLevel, PCNode, ()>,
     // needed for the unit edges to find incidences
-    pub ensemble_backref_to_channeler_backref: OrdArena<PBackrefToBackref, PBack, PCNode>,
+    pub ensemble_backref_to_channeler_backref: OrdArena<PBackrefToBackref, PEquiv, PCNode>,
     // used by algorithms to avoid `OrdArena`s
     pub alg_visit: NonZeroU64,
 }
@@ -44,7 +44,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         self.alg_visit
     }
 
-    pub fn find_channeler_cnode(&self, ensemble_backref: PBack) -> Option<PCNode> {
+    pub fn find_channeler_cnode(&self, ensemble_backref: PEquiv) -> Option<PCNode> {
         let p = self
             .ensemble_backref_to_channeler_backref
             .find_key(&ensemble_backref)?;

@@ -315,11 +315,10 @@ impl Ensemble {
                     debug_assert_eq!(self.stator.states[p_state].p_self_bits.len(), x.bw());
                     for i in 0..x.bw() {
                         if let Some(p_bit) = self.stator.states[p_state].p_self_bits[i] {
-                            let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
                             // unwrap because this should never fail, events would process
                             // incorrectly
                             self.change_value(
-                                p_equiv,
+                                p_bit,
                                 Value::Const(x.get(i).unwrap()),
                                 NonZeroU64::new(1).unwrap(),
                             )
@@ -812,10 +811,9 @@ fn lower_elementary_to_lnodes_intermediate(
                             // initial event for the initial value, need to do this in general
                             // because the state bit can get optimized away before we actually use
                             // it
-                            let p_back = this.backrefs.get_val(p_looper).unwrap().p_self_equiv;
                             this.evaluator.push_event(Event {
                                 partial_ord_num: NonZeroU64::new(1).unwrap(),
-                                change_kind: ChangeKind::Manual(p_back, init_val),
+                                change_kind: ChangeKind::Manual(p_looper, init_val),
                             });
                         }
                     }
@@ -896,10 +894,9 @@ fn lower_elementary_to_lnodes_intermediate(
                                     ));
                                 }
                             };
-                            let p_back = this.backrefs.get_val(p_looper).unwrap().p_self_equiv;
                             this.evaluator.push_event(Event {
                                 partial_ord_num: NonZeroU64::new(1).unwrap(),
-                                change_kind: ChangeKind::Manual(p_back, init_val),
+                                change_kind: ChangeKind::Manual(p_looper, init_val),
                             });
                         }
                     }

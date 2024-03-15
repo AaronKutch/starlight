@@ -7,7 +7,8 @@ use awint::{
 
 use crate::{
     ensemble::{
-        DynamicValue, Ensemble, Equiv, LNode, LNodeKind, PBack, PRNode, PTNode, Referent, State,
+        DynamicValue, Ensemble, Equiv, LNode, LNodeKind, PBack, PEquiv, PRNode, PTNode, Referent,
+        State,
     },
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
@@ -73,7 +74,7 @@ impl DebugNodeTrait<PState> for State {
 
 #[derive(Debug, Clone)]
 pub struct StateBit {
-    p_equiv: Option<PBack>,
+    p_equiv: Option<PEquiv>,
     p_state: PState,
     i: usize,
 }
@@ -88,7 +89,7 @@ pub struct TNodeTmp {
 #[derive(Debug, Clone)]
 pub struct RNodeTmp {
     p_self: PBack,
-    p_equiv: PBack,
+    p_equiv: PEquiv,
     p_rnode: PRNode,
     i: u64,
 }
@@ -115,7 +116,7 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 },
                 sinks: {
                     if let Some(p_equiv) = state_bit.p_equiv {
-                        vec![(p_equiv, "".to_string())]
+                        vec![(p_equiv.into(), "".to_string())]
                     } else {
                         vec![]
                     }
@@ -186,7 +187,7 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 sinks: vec![],
             },
             NodeKind::RNode(rnode) => DebugNode {
-                sources: vec![(rnode.p_equiv, String::new())],
+                sources: vec![(rnode.p_equiv.into(), String::new())],
                 center: {
                     vec![
                         format!("{}", rnode.p_self),
@@ -247,7 +248,7 @@ impl Ensemble {
                         lnode.inputs_mut(|inp| {
                             if let Referent::Input(_) = self.backrefs.get_key(*inp).unwrap() {
                                 let p_input = self.backrefs.get_val(*inp).unwrap().p_self_equiv;
-                                *inp = p_input;
+                                *inp = p_input.into();
                             }
                         });
                         NodeKind::LNode(lnode)
@@ -258,8 +259,8 @@ impl Ensemble {
                         let p_self = self.backrefs.get_val(tnode.p_self).unwrap().p_self_equiv;
                         let p_driver = self.backrefs.get_val(tnode.p_driver).unwrap().p_self_equiv;
                         NodeKind::TNode(TNodeTmp {
-                            p_self,
-                            p_driver,
+                            p_self: p_self.into(),
+                            p_driver: p_driver.into(),
                             p_tnode,
                         })
                     }

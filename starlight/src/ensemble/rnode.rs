@@ -333,7 +333,7 @@ impl Ensemble {
                         let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
                         let p_back_new = self
                             .backrefs
-                            .insert_key(p_equiv, Referent::ThisRNode(p_rnode))
+                            .insert_key(p_equiv.into(), Referent::ThisRNode(p_rnode))
                             .unwrap();
                         self.notary.rnodes[p_rnode].bits.push(Some(p_back_new));
                     } else {

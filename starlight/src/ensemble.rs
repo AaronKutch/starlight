@@ -1,6 +1,7 @@
 mod correspond;
 #[cfg(feature = "debug")]
 mod debug;
+mod equiv;
 mod lnode;
 mod optimize;
 #[cfg(feature = "debug")]
@@ -16,12 +17,13 @@ use std::num::NonZeroU32;
 
 use awint::awint_dag::triple_arena::ptr_struct;
 pub use correspond::Corresponder;
+pub use equiv::{Equiv, PEquiv};
 pub use lnode::{LNode, LNodeKind};
 pub use optimize::Optimizer;
 pub use rnode::{Notary, PExternal, RNode};
 pub use state::{State, Stator};
 pub use tnode::{Delay, Delayer, TNode};
-pub use together::{Ensemble, Equiv, Referent};
+pub use together::{Ensemble, Referent};
 pub use value::{
     BasicValue, BasicValueKind, ChangeKind, CommonValue, DynamicValue, EvalPhase, Evaluator, Event,
     Value,
