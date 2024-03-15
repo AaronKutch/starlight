@@ -151,11 +151,9 @@ fn dilute_edge_embedding(
         .get(embedding.program_edge)
         .unwrap();
     match program_edge.programmability() {
-        Programmability::TNode => todo!(),
         Programmability::StaticLut(_) => todo!(),
-        Programmability::ArbitraryLut(_) => todo!(),
-        Programmability::SelectorLut(_) => todo!(),
         Programmability::Bulk(_) => todo!(),
+        Programmability::ArbitraryLut(_) | Programmability::SelectorLut(_) => unreachable!(),
     }
     Ok(())
 }
@@ -344,7 +342,7 @@ fn dilute_plateau(
                 kind: EdgeKind::Transverse(q_cedge, j),
                 to: cnode.p_this_cnode,
             });
-            q_cnode = cedge.sources()[j];
+            q_cnode = cedge.sources()[j].p_cnode;
         } else {
             break
         }
@@ -478,7 +476,10 @@ fn route_path_on_level(
         {
             let cedge = router.target_channeler.cedges.get(q_cedge).unwrap();
             priority.push(Reverse((
-                cedge.delay_weight.get().saturating_add(cedge.lagrangian),
+                cedge.sources()[source_j]
+                    .delay_weight
+                    .get()
+                    .saturating_add(cedge.lagrangian),
                 q_cedge,
                 source_j,
             )));
@@ -537,7 +538,7 @@ fn route_path_on_level(
                     {
                         let cedge = router.target_channeler.cedges.get(q_cedge1).unwrap();
                         priority.push(Reverse((
-                            cost.saturating_add(cedge.delay_weight.get())
+                            cost.saturating_add(cedge.sources()[source_j1].delay_weight.get())
                                 .saturating_add(cedge.lagrangian),
                             q_cedge1,
                             source_j1,

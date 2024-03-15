@@ -221,8 +221,6 @@ impl Router {
                         EdgeKind::Transverse(q_cedge, source_i) => {
                             let cedge = self.target_channeler.cedges.get(q_cedge).unwrap();
                             match cedge.programmability() {
-                                // no-op with respect to configuration
-                                Programmability::TNode => (),
                                 // there are identity like cases where we might want to
                                 // traverse these kinds
                                 Programmability::StaticLut(_) => todo!(),

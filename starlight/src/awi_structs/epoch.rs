@@ -269,6 +269,12 @@ impl EpochShared {
         f(&self.epoch_data.borrow().ensemble)
     }
 
+    /// Mutable access to the `Ensemble`. Warning: you can break invariants
+    /// through this.
+    pub fn ensemble_mut<O, F: FnMut(&mut Ensemble) -> O>(&self, mut f: F) -> O {
+        f(&mut self.epoch_data.borrow_mut().ensemble)
+    }
+
     /// Takes the `Vec<PState>` corresponding to just states added when the
     /// current `EpochShared` was active. This also means that
     /// `remove_associated` done immediately after this will only remove
@@ -689,8 +695,15 @@ impl SuspendedEpoch {
         &self.inner.epoch_shared
     }
 
+    /// Access to the `Ensemble`
     pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, f: F) -> O {
         self.shared().ensemble(f)
+    }
+
+    /// Mutable access to the `Ensemble`. Warning: you can break invariants
+    /// through this.
+    pub fn ensemble_mut<O, F: FnMut(&mut Ensemble) -> O>(&self, f: F) -> O {
+        self.shared().ensemble_mut(f)
     }
 }
 
@@ -756,10 +769,18 @@ impl Epoch {
         SuspendedEpoch { inner: self.inner }
     }
 
+    /// Access to the `Ensemble`
     pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, f: F) -> O {
         self.shared().ensemble(f)
     }
 
+    /// Mutable access to the `Ensemble`. Warning: you can break invariants
+    /// through this.
+    pub fn ensemble_mut<O, F: FnMut(&mut Ensemble) -> O>(&self, f: F) -> O {
+        self.shared().ensemble_mut(f)
+    }
+
+    /// Clones the `Ensemble`
     pub fn clone_ensemble(&self) -> Ensemble {
         self.ensemble(|ensemble| ensemble.clone())
     }

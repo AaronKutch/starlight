@@ -23,6 +23,8 @@ pub struct Equiv {
     pub val: Value,
     /// Used by the evaluator
     pub evaluator_partial_order: NonZeroU64,
+    /// Algorithm visit number
+    pub alg_visit: NonZeroU64,
 }
 
 impl Recast<PBack> for Equiv {
@@ -40,6 +42,7 @@ impl Equiv {
             p_self_equiv,
             val,
             evaluator_partial_order: NonZeroU64::new(1).unwrap(),
+            alg_visit: NonZeroU64::new(1).unwrap(),
         }
     }
 }
@@ -78,6 +81,7 @@ pub struct Ensemble {
     pub evaluator: Evaluator,
     pub delayer: Delayer,
     pub optimizer: Optimizer,
+    pub alg_visit: NonZeroU64,
     pub debug_counter: u64,
 }
 
@@ -92,6 +96,7 @@ impl Ensemble {
             evaluator: Evaluator::new(),
             delayer: Delayer::new(),
             optimizer: Optimizer::new(),
+            alg_visit: NonZeroU64::new(2).unwrap(),
             debug_counter: 0,
         }
     }
@@ -511,6 +516,11 @@ impl Ensemble {
             .remove_key(removed_equiv.p_self_equiv)
             .unwrap();
         Ok(())
+    }
+
+    pub fn next_alg_visit(&mut self) -> NonZeroU64 {
+        self.alg_visit = self.alg_visit.checked_add(1).unwrap();
+        self.alg_visit
     }
 
     pub fn inc_debug_counter(&mut self) {

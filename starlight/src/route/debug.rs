@@ -47,7 +47,10 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for NodeKind<PCNode, PCEdg
                     for (source, source_forwarded) in
                         cedge.sources().iter().zip(cedge_forwarded.sources().iter())
                     {
-                        v.push((*source_forwarded, format!("{source:?}")));
+                        v.push((
+                            source_forwarded.p_cnode,
+                            format!("{:?} {}", source.p_cnode, source.delay_weight),
+                        ));
                     }
                     v
                 },
@@ -105,7 +108,10 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode, 
                     for (source, source_forwarded) in
                         cedge.sources().iter().zip(cedge_forwarded.sources().iter())
                     {
-                        v.push((*source_forwarded, format!("{source:?}")));
+                        v.push((
+                            source_forwarded.p_cnode,
+                            format!("{:?} {}", source.p_cnode, source.delay_weight),
+                        ));
                     }
                     v
                 },
@@ -153,7 +159,10 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for HierarchyNodeKind<PCNo
                     for (source, source_forwarded) in
                         cedge.sources().iter().zip(cedge_forwarded.sources().iter())
                     {
-                        v.push((*source_forwarded, format!("{source:?}")));
+                        v.push((
+                            source_forwarded.p_cnode,
+                            format!("{:?} {}", source.p_cnode, source.delay_weight),
+                        ));
                     }
                     v
                 },
@@ -184,7 +193,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                         let cedge = self.cedges.get(p_cedge).unwrap().clone();
                         let mut cedge_forwarded = cedge.clone();
                         for source in cedge_forwarded.sources_mut() {
-                            *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;
+                            source.p_cnode =
+                                self.cnodes.get_val(source.p_cnode).unwrap().p_this_cnode;
                         }
                         if i.is_none() {
                             *cedge_forwarded.sink_mut() =
@@ -231,7 +241,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                             {
                                 let mut cedge_forwarded = cedge.clone();
                                 for source in cedge_forwarded.sources_mut() {
-                                    *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;
+                                    source.p_cnode =
+                                        self.cnodes.get_val(source.p_cnode).unwrap().p_this_cnode;
                                 }
                                 if i.is_none() {
                                     *cedge_forwarded.sink_mut() =
@@ -277,7 +288,8 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                             let cedge = self.cedges.get(p_cedge).unwrap().clone();
                             let mut cedge_forwarded = cedge.clone();
                             for source in cedge_forwarded.sources_mut() {
-                                *source = self.cnodes.get_val(*source).unwrap().p_this_cnode;
+                                source.p_cnode =
+                                    self.cnodes.get_val(source.p_cnode).unwrap().p_this_cnode;
                             }
                             if i.is_none() {
                                 *cedge_forwarded.sink_mut() =

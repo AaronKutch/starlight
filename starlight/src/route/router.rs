@@ -318,7 +318,7 @@ impl Router {
                             let source = self
                                 .target_channeler()
                                 .cnodes
-                                .get_val(cedge.sources()[source_i])
+                                .get_val(cedge.sources()[source_i].p_cnode)
                                 .unwrap()
                                 .p_this_cnode;
                             if q != source {

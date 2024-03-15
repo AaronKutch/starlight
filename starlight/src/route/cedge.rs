@@ -83,8 +83,6 @@ impl ChannelWidths {
 
 #[derive(Debug, Clone)]
 pub enum Programmability {
-    TNode,
-
     StaticLut(Awi),
 
     // `DynamicLut`s can go in one of two ways: the table bits all directly connect with unique
@@ -105,7 +103,6 @@ impl Programmability {
     pub fn debug_strings(&self) -> Vec<String> {
         let mut v = vec![];
         match self {
-            Programmability::TNode => v.push("tnode".to_owned()),
             Programmability::StaticLut(lut) => v.push(format!("{}", lut)),
             Programmability::ArbitraryLut(arbitrary_lut) => {
                 v.push(format!("ArbLut {}", arbitrary_lut.lut_config.len()))
@@ -129,11 +126,19 @@ impl Programmability {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Source<PCNode: Ptr> {
+    pub p_cnode: PCNode,
+    /// The weight needs to be at least 1 to prevent the algorithm from doing
+    /// very bad routes
+    pub delay_weight: NonZeroU32,
+}
+
 /// An edge between channels
 #[derive(Debug, Clone)]
 pub struct CEdge<PCNode: Ptr> {
     // sources incident to nodes
-    sources: Vec<PCNode>,
+    sources: Vec<Source<PCNode>>,
     // the sink incident to nodes
     sink: PCNode,
 
@@ -141,9 +146,6 @@ pub struct CEdge<PCNode: Ptr> {
 
     pub embedding: Option<PEdgeEmbed>,
 
-    /// The weight needs to be at least 1 to prevent the algorithm from doing
-    /// very bad routes
-    pub delay_weight: NonZeroU32,
     /// The lagrangian multiplier, fixed point such that (1 << 16) is 1.0
     pub lagrangian: u32,
 
@@ -156,7 +158,7 @@ impl<PCNode: Ptr> CEdge<PCNode> {
         &self.programmability
     }
 
-    pub fn sources(&self) -> &[PCNode] {
+    pub fn sources(&self) -> &[Source<PCNode>] {
         &self.sources
     }
 
@@ -164,7 +166,7 @@ impl<PCNode: Ptr> CEdge<PCNode> {
         self.sink
     }
 
-    pub fn sources_mut(&mut self) -> &mut [PCNode] {
+    pub fn sources_mut(&mut self) -> &mut [Source<PCNode>] {
         &mut self.sources
     }
 
@@ -174,7 +176,7 @@ impl<PCNode: Ptr> CEdge<PCNode> {
 
     pub fn incidents<F: FnMut(PCNode)>(&self, mut f: F) {
         for source in self.sources() {
-            f(*source)
+            f(source.p_cnode)
         }
         f(self.sink)
     }
@@ -189,19 +191,20 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
     /// `ThisCNode`s), this will manage the backrefs
     pub fn make_cedge(
         &mut self,
-        sources: &[PCNode],
+        sources: &[Source<PCNode>],
         sink: PCNode,
         programmability: Programmability,
-        delay_weight: NonZeroU32,
     ) -> PCEdge {
         self.cedges.insert_with(|p_self| {
             let mut fixed_sources = vec![];
             for (i, source) in sources.iter().enumerate() {
-                fixed_sources.push(
-                    self.cnodes
-                        .insert_key(*source, Referent::CEdgeIncidence(p_self, Some(i)))
+                fixed_sources.push(Source {
+                    p_cnode: self
+                        .cnodes
+                        .insert_key(source.p_cnode, Referent::CEdgeIncidence(p_self, Some(i)))
                         .unwrap(),
-                );
+                    delay_weight: source.delay_weight,
+                });
             }
             let fixed_sink = self
                 .cnodes
@@ -212,7 +215,6 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 sink: fixed_sink,
                 programmability,
                 embedding: None,
-                delay_weight,
                 lagrangian: 0,
                 alg_visit: NonZeroU64::new(1).unwrap(),
             }
@@ -223,11 +225,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         target_epoch: &SuspendedEpoch,
         configurator: &Configurator,
     ) -> Result<Self, Error> {
-        target_epoch.ensemble(|ensemble| Self::new(ensemble, configurator))
+        target_epoch.ensemble_mut(|ensemble| Self::new(ensemble, configurator))
     }
 
     pub fn from_program(target_epoch: &SuspendedEpoch) -> Result<Self, Error> {
-        target_epoch.ensemble(|ensemble| Self::new(ensemble, &Configurator::new()))
+        target_epoch.ensemble_mut(|ensemble| Self::new(ensemble, &Configurator::new()))
     }
 
     // translate from any ensemble backref to the equivalence backref to the
@@ -255,7 +257,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
     // TODO recast the `Channeler`s, `Configurator`s, etc
 
     /// Assumes that the ensemble has been optimized
-    pub fn new(ensemble: &Ensemble, configurator: &Configurator) -> Result<Self, Error> {
+    pub fn new(ensemble: &mut Ensemble, configurator: &Configurator) -> Result<Self, Error> {
         let mut channeler = Self::empty();
 
         // check that all the configurations point to things that exist, note this is
@@ -281,10 +283,13 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             }
         }
 
+        let mut max_delay = 1;
+
         // for each equivalence make a `CNode` with associated `EnsembleBackref`, unless
         // it is one of the configurable bits
         for equiv in ensemble.backrefs.vals() {
-            if let Some(p_config) = configurator.configurations.find_key(&equiv.p_self_equiv) {
+            let p_equiv = equiv.p_self_equiv;
+            if let Some(p_config) = configurator.configurations.find_key(&p_equiv) {
                 let config = configurator.configurations.get_val(p_config).unwrap();
                 let p_external = config.p_external;
                 let mut input_count = 0;
@@ -296,14 +301,19 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     match ensemble.backrefs.get_key(p_ref).unwrap() {
                         ThisEquiv | ThisStateBit(..) | ThisRNode(_) => (),
                         Input(_) => input_count += 1,
-                        Driver(_) => {
+                        ThisTNode(_) | Driver(_) => {
+                            // We need this so that the `TNode` elimination step cannot run into
+                            // issues of overwriting what is intended for configuration. TODO we may
+                            // want an optimization a user can easily access where some bits can be
+                            // treated as having been set in the infinite past, and the
+                            // configuration bits can be passed as such
                             return Err(Error::OtherString(format!(
-                                "configuration bit {p_external:#?} is directly driving a temporal \
-                                 node, configurations should not have a delay immediately after \
-                                 them"
+                                "configuration bit {p_external:#?} is directly driving or being \
+                                 driven by a temporal node, there should be no delay immediately \
+                                 associated with configuration bits"
                             )))
                         }
-                        ThisLNode(_) | ThisTNode(_) => {
+                        ThisLNode(_) => {
                             return Err(Error::OtherString(format!(
                                 "configuration bit {p_external:#?} is driven, which shouldn't \
                                  normally be possible"
@@ -322,6 +332,34 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                     )));
                 }
             } else {
+                // We also check for overdriving here. TODO, we should probably only be
+                // temporarily overdriving in the router when programming non-arbitrary-LUTs and
+                // finding alternative paths, or how do we handle it?
+
+                let mut driver_count = 0;
+                let mut adv = ensemble.backrefs.advancer_surject(p_equiv);
+                while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
+                    use crate::ensemble::Referent::*;
+                    match *ensemble.backrefs.get_key(p_ref).unwrap() {
+                        ThisEquiv | ThisStateBit(..) | ThisRNode(_) | Input(_) | Driver(_) => (),
+                        ThisLNode(_) => {
+                            driver_count += 1;
+                        }
+                        ThisTNode(p_tnode) => {
+                            driver_count += 1;
+                            let tnode = ensemble.tnodes.get(p_tnode).unwrap();
+                            max_delay = max(max_delay, tnode.delay().amount());
+                        }
+                    }
+                }
+                if driver_count > 1 {
+                    return Err(Error::OtherString(format!(
+                        "ensemble equivalence {p_equiv} has more than one driver (this can be \
+                         from a valid equivalence case from certain LUT optimizations, or from a \
+                         bug), this is currently unsupported by the `Router`",
+                    )));
+                }
+
                 // the later `generate_hierarchy` call fixes the top level nodes
                 let p_cnode = channeler.make_cnode(vec![], 0, InternalBehavior::empty());
                 let replaced = channeler
@@ -332,32 +370,114 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
             }
         }
 
+        channeler
+            .ensemble_backref_to_channeler_backref
+            .compress_and_shrink();
+
+        // TODO handle or warn about crazy magnitude difference cases
+        let delay_divisor = (max_delay >> 16).saturating_add(1);
+
+        // originally `TNode`s would get their own edges, but it is more important for
+        // there to be fewer `CNode` for the router to deal with (as it will be going
+        // over each node many times), and better for each edge input to get its own
+        // delay (if there is only one delay there is no way to give the router correct
+        // hueristicts when something drives both another thing with small delay and
+        // another with huge delay).
+
+        // We should be able to handle `TNode` plain copy cycles or diamonds, I suspect
+        // there are valid boilerplate programs that would get simplified into such
+        // things. They shouldn't be common, we will just use an unstructured search
+        // (besides using visit numbers to prevent nontermination) to first unify all
+        // the `CNode`s in `ensemble_backref_to_channeler_backref`, then when
+        // calculating per-input delays there is another unstructured search from the
+        // sink to the source (or just using whatever the value is if we encounter a
+        // loop).
+
+        // make sets of equivalences connected by `TNode`s all share the same `CNode`
+        let visit = ensemble.next_alg_visit();
+        for tnode in ensemble.tnodes.vals() {
+            // note that single node `TNode` cycles are handled by the prelude and inner
+            // loop arrangement
+            let mut nodes = vec![];
+            let (p_equiv, p_forward) = channeler.translate(ensemble, tnode.p_driver);
+            let p_forward = p_forward.unwrap();
+            let node_visit = &mut ensemble.backrefs.get_val_mut(p_equiv).unwrap().alg_visit;
+            if *node_visit == visit {
+                // already done, avoid quadratics
+                continue
+            }
+            *node_visit = visit;
+            // will explore from here and handle `p_self`, could have started from either
+            // one
+            nodes.push(tnode.p_driver);
+            while let Some(p_back) = nodes.pop() {
+                let p_equiv = ensemble.backrefs.get_val(p_back).unwrap().p_self_equiv;
+                let p0 = channeler
+                    .ensemble_backref_to_channeler_backref
+                    .find_key(&p_equiv)
+                    .unwrap();
+                *channeler
+                    .ensemble_backref_to_channeler_backref
+                    .get_val_mut(p0)
+                    .unwrap() = p_forward;
+                let mut adv = ensemble.backrefs.advancer_surject(p_back);
+                while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
+                    use crate::ensemble::Referent::*;
+                    match *ensemble.backrefs.get_key(p_ref).unwrap() {
+                        ThisEquiv | ThisLNode(_) | ThisStateBit(..) | Input(_) | ThisRNode(_) => (),
+                        ThisTNode(p_tnode) | Driver(p_tnode) => {
+                            let tnode = ensemble.tnodes.get(p_tnode).unwrap();
+                            let alg_visit = &mut ensemble
+                                .backrefs
+                                .get_val_mut(tnode.p_driver)
+                                .unwrap()
+                                .alg_visit;
+                            if *alg_visit != visit {
+                                *alg_visit = visit;
+                                nodes.push(tnode.p_driver);
+                            }
+                            let alg_visit = &mut ensemble
+                                .backrefs
+                                .get_val_mut(tnode.p_self)
+                                .unwrap()
+                                .alg_visit;
+                            if *alg_visit != visit {
+                                *alg_visit = visit;
+                                nodes.push(tnode.p_self);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // add `CEdge`s according to `LNode`s
-        for lnode in ensemble.lnodes.vals() {
+        let mut adv = ensemble.lnodes.advancer();
+        while let Some(p_lnode) = adv.advance(&ensemble.lnodes) {
+            let mut sources = SmallVec::<[Source<PCNode>; 8]>::new();
+            let mut inputs = SmallVec::<[PBack; 8]>::new();
+            let lnode = ensemble.lnodes.get(p_lnode).unwrap();
             let p_self = channeler.translate(ensemble, lnode.p_self).1.unwrap();
-            match &lnode.kind {
+            let p_cedge = match &lnode.kind {
                 LNodeKind::Copy(_) => return Err(Error::OtherStr("the epoch was not optimized")),
                 LNodeKind::Lut(inp, awi) => {
-                    let mut v = SmallVec::<[PCNode; 8]>::with_capacity(inp.len());
-                    for input in inp {
-                        let (p_equiv, p_cnode) = channeler.translate(ensemble, *input);
+                    for input in inp.iter().cloned() {
+                        let (p_equiv, p_cnode) = channeler.translate(ensemble, input);
                         if let Some(_p_config) = configurator.find(p_equiv) {
                             // probably also want to transform into one of the two canonical dynamic
                             // cases
                             todo!()
                         }
-                        v.push(p_cnode.unwrap());
+                        sources.push(Source {
+                            p_cnode: p_cnode.unwrap(),
+                            delay_weight: NonZeroU32::new(1).unwrap(),
+                        });
+                        inputs.push(input);
                     }
-                    channeler.make_cedge(
-                        &v,
-                        p_self,
-                        Programmability::StaticLut(awi.clone()),
-                        NonZeroU32::new(1).unwrap(),
-                    );
+                    channeler.make_cedge(&sources, p_self, Programmability::StaticLut(awi.clone()))
                 }
                 LNodeKind::DynamicLut(inp, lut) => {
                     // figure out if we have a full selector or a full arbitrary
-                    let mut sources = SmallVec::<[PCNode; 8]>::new();
                     let mut config = vec![];
                     for input in inp.iter().copied() {
                         let (p_equiv, p_cnode) = channeler.translate(ensemble, input);
@@ -372,7 +492,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                             // to the target `Ensemble`
                             unreachable!()
                         } else {
-                            sources.push(p_cnode.unwrap());
+                            sources.push(Source {
+                                p_cnode: p_cnode.unwrap(),
+                                delay_weight: NonZeroU32::new(1).unwrap(),
+                            });
+                            inputs.push(input);
                         }
                     }
                     if config.is_empty() {
@@ -399,20 +523,23 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                             &sources,
                             p_self,
                             Programmability::ArbitraryLut(ArbitraryLut { lut_config: config }),
-                            NonZeroU32::new(1).unwrap(),
-                        );
+                        )
                     } else {
                         // should be a full selector
                         for lut_bit in lut.iter().copied() {
                             match lut_bit {
-                                DynamicValue::Dynam(p) => {
-                                    let (p_equiv, p_cnode) = channeler.translate(ensemble, p);
+                                DynamicValue::Dynam(input) => {
+                                    let (p_equiv, p_cnode) = channeler.translate(ensemble, input);
                                     if configurator.find(p_equiv).is_some() {
                                         // has selection configuration but also arbitrary
                                         // configuration, should be handled in a earlier pass
                                         unreachable!()
                                     }
-                                    sources.push(p_cnode.unwrap());
+                                    sources.push(Source {
+                                        p_cnode: p_cnode.unwrap(),
+                                        delay_weight: NonZeroU32::new(1).unwrap(),
+                                    });
+                                    inputs.push(input);
                                 }
                                 // target ensemble is not correct
                                 DynamicValue::ConstUnknown | DynamicValue::Const(_) => {
@@ -424,40 +551,57 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                             &sources,
                             p_self,
                             Programmability::SelectorLut(SelectorLut { inx_config: config }),
-                            NonZeroU32::new(1).unwrap(),
-                        );
+                        )
                     }
                 }
+            };
+
+            // find delays if there is a `TNode` inbetween the input sink and its source
+            for (input_i, input) in inputs.iter().cloned().enumerate() {
+                let mut total_delay = NonZeroU32::new(1).unwrap();
+                let visit = ensemble.next_alg_visit();
+                ensemble.backrefs.get_val_mut(input).unwrap().alg_visit = visit;
+                let mut next_node = Some(input);
+                'outer: while let Some(p_back) = next_node.take() {
+                    let mut adv = ensemble.backrefs.advancer_surject(p_back);
+                    while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
+                        use crate::ensemble::Referent::*;
+                        match *ensemble.backrefs.get_key(p_ref).unwrap() {
+                            ThisEquiv | ThisLNode(_) | ThisStateBit(..) | Input(_)
+                            | ThisRNode(_) => (),
+                            Driver(_) => (),
+                            // go in the driver direction
+                            ThisTNode(p_tnode) => {
+                                let tnode = ensemble.tnodes.get(p_tnode).unwrap();
+                                let delay_weight = u32::try_from(
+                                    tnode
+                                        .delay()
+                                        .amount()
+                                        .wrapping_div(delay_divisor)
+                                        .clamp(1, 1 << 16),
+                                )
+                                .unwrap();
+                                total_delay = total_delay.saturating_add(delay_weight);
+                                // unstructured, diamonds should be rare
+                                let alg_visit = &mut ensemble
+                                    .backrefs
+                                    .get_val_mut(tnode.p_driver)
+                                    .unwrap()
+                                    .alg_visit;
+                                // this is to prevent nontermination in loops
+                                if *alg_visit != visit {
+                                    *alg_visit = visit;
+                                    next_node = Some(tnode.p_driver);
+                                    continue 'outer;
+                                }
+                            }
+                        }
+                    }
+                }
+                // use the weight for the edge
+                channeler.cedges.get_mut(p_cedge).unwrap().sources_mut()[input_i].delay_weight =
+                    total_delay;
             }
-        }
-
-        // TODO handle or warn about crazy magnitude difference cases
-        let mut max_delay = 1;
-        for tnode in ensemble.tnodes.vals() {
-            max_delay = max(max_delay, tnode.delay().amount());
-        }
-        let divisor = (max_delay >> 16).saturating_add(1);
-
-        // add `CEdge`s according to `TNode`s
-        for tnode in ensemble.tnodes.vals() {
-            let v = [channeler.translate(ensemble, tnode.p_driver).1.unwrap()];
-
-            channeler.make_cedge(
-                &v,
-                channeler.translate(ensemble, tnode.p_self).1.unwrap(),
-                Programmability::TNode,
-                NonZeroU32::new(
-                    u32::try_from(
-                        tnode
-                            .delay()
-                            .amount()
-                            .wrapping_div(divisor)
-                            .clamp(1, 1 << 16),
-                    )
-                    .unwrap(),
-                )
-                .unwrap(),
-            );
         }
 
         generate_hierarchy(&mut channeler)?;

@@ -5,6 +5,7 @@ use std::{
 
 use awint::awint_dag::triple_arena::{Advancer, Ptr};
 
+use super::cedge::Source;
 use crate::{
     route::{ChannelWidths, Channeler, PNodeEmbed, Programmability, Referent},
     Error,
@@ -352,7 +353,6 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
                         let cedge = channeler.cedges.get_mut(p_cedge).unwrap();
 
                         let w = match cedge.programmability() {
-                            Programmability::TNode => 1,
                             Programmability::StaticLut(lut) => {
                                 lut_bits = lut_bits.checked_add(lut.bw()).unwrap();
                                 1
@@ -369,8 +369,8 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
                         channel_widths.channel_exit_width =
                             channel_widths.channel_exit_width.checked_add(w).unwrap();
 
-                        for (i, p_incident) in cedge.sources().iter().copied().enumerate() {
-                            let cnode = channeler.cnodes.get_val_mut(p_incident).unwrap();
+                        for (i, source) in cedge.sources().iter().copied().enumerate() {
+                            let cnode = channeler.cnodes.get_val_mut(source.p_cnode).unwrap();
                             // make sure the `CNode` is outside the direct subnode set
                             if cnode.alg_visit != direct_subnode_visit {
                                 // avoid an `OrdArena` by accumulating the entry width on the
@@ -380,11 +380,14 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
                                 if supernode.alg_visit != related_visit {
                                     supernode.alg_visit = related_visit;
                                     supernode.alg_entry_width = 0;
-                                    source_set.push(supernode.p_this_cnode);
+                                    // TODO fix the delay here
+                                    source_set.push(Source {
+                                        p_cnode: supernode.p_this_cnode,
+                                        delay_weight: NonZeroU32::new(1).unwrap(),
+                                    });
                                 }
                                 let w = match cedge.programmability() {
-                                    Programmability::TNode
-                                    | Programmability::StaticLut(_)
+                                    Programmability::StaticLut(_)
                                     | Programmability::ArbitraryLut(_)
                                     | Programmability::SelectorLut(_) => 1,
                                     Programmability::Bulk(bulk) => bulk.channel_entry_widths[i],
@@ -416,7 +419,7 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
         // create the edge
         if !source_set.is_empty() {
             for source in source_set.iter().cloned() {
-                let cnode = channeler.cnodes.get_val(source).unwrap();
+                let cnode = channeler.cnodes.get_val(source.p_cnode).unwrap();
                 channel_widths
                     .channel_entry_widths
                     .push(cnode.alg_entry_width);
@@ -428,11 +431,6 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
                 &source_set,
                 p_consider,
                 Programmability::Bulk(channel_widths),
-                // gross approximation for now
-                NonZeroU32::new(
-                    u32::try_from(channel_exit_width.clamp(1, u32::MAX as usize)).unwrap(),
-                )
-                .unwrap(),
             );
         }
     }
