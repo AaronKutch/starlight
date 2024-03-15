@@ -259,6 +259,22 @@ impl Router {
 
         // TODO support custom `CEdge` mappings
 
+        // After much thought, I have come to the conclusion that we should embed all
+        // the remaining base nodes at once. The original idea was that after necessary
+        // embeddings were made, new embeddings would progress by embedding program
+        // nodes higher than the base level, and eventually diluting the program side
+        // embeddings at the same time as the target side. This should improve
+        // performance as long as we dilute the program side at the right times.
+        // However, upon closer inspection there are _many_ things that would be
+        // required to make this happen; interlevel embedding management on both sides
+        // would have to happen, and we simply don't have known heuristics at this time
+        // to do the program side dilution. There would have to be lazy embeddings, etc.
+        // I realize that program side dilution can only be delayed by a small constant
+        // number of levels and have comparatively little advantage overall. Instead, we
+        // are embedding all the base level program nodes at once and giving fine level
+        // details more levels to shift around. This means that we don't need a
+        // channeling graph for the program side.
+
         Ok(())
     }
 

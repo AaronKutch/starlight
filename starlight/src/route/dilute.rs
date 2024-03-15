@@ -6,10 +6,7 @@ use std::{cmp::Reverse, collections::BinaryHeap, num::NonZeroU64};
 use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
-    route::{
-        Edge, EdgeKind, NodeOrEdge, PEdgeEmbed, PNodeEmbed, Programmability, QCNode, Referent,
-        Router,
-    },
+    route::{Edge, EdgeKind, PNodeEmbed, QCNode, Referent, Router},
     Error,
 };
 
@@ -385,7 +382,6 @@ fn dilute_node_embedding(
             assert!(!loose_end);
         }
         if loose_start {
-            // after triggering embedding we find where the last edge needs to go
             todo!()
         }
         if loose_end {
@@ -412,7 +408,7 @@ fn dilute_node_embedding(
     Ok(())
 }
 
-fn dilute_edge_embedding(
+/*fn dilute_edge_embedding(
     router: &mut Router,
     max_lvl: u16,
     embeddings_to_process: &mut Vec<PEdgeEmbed>,
@@ -434,7 +430,7 @@ fn dilute_edge_embedding(
         Programmability::ArbitraryLut(_) | Programmability::SelectorLut(_) => unreachable!(),
     }
     Ok(())
-}
+}*/
 
 /// Reduces the maximum level of hyperpaths. Currently requires that there is at
 /// most one extra level above the current one
@@ -446,6 +442,7 @@ pub(crate) fn dilute_level(router: &mut Router, max_lvl: u16) -> Result<(), Erro
         // ignoring other hyperpaths
         let absolute_violations = false;
 
+        /*
         // edge dilution must occur first
         let mut embeddings_to_process = vec![];
         let mut adv = router.edge_embeddings().advancer();
@@ -454,7 +451,7 @@ pub(crate) fn dilute_level(router: &mut Router, max_lvl: u16) -> Result<(), Erro
             while !embeddings_to_process.is_empty() {
                 dilute_edge_embedding(router, max_lvl, &mut embeddings_to_process)?;
             }
-        }
+        }*/
 
         let mut embeddings_to_process = vec![];
         let mut adv = router.node_embeddings().advancer();
