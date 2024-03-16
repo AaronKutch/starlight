@@ -4,112 +4,49 @@
 use std::path::PathBuf;
 
 use awint::awint_dag::{
-    triple_arena::{Advancer, Arena, ChainArena, Ptr},
+    triple_arena::{Advancer, Arena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
 };
 
 use crate::{
-    route::{channel::Referent, CEdge, CNode, Channeler},
+    route::{CEdge, CNode, Channeler, PCEdge, PCNode},
     Error,
 };
 
-/// For viewing everything at once
-#[derive(Debug, Clone)]
-pub enum NodeKind<PCNode: Ptr, PCEdge: Ptr> {
-    CNode(CNode<PCNode, PCEdge>),
-    SubNode(PCNode, PCNode),
-    CEdgeIncidence(PCNode, PCEdge, Option<usize>, CEdge<PCNode>, CEdge<PCNode>),
-    Remove,
-}
-
-impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for NodeKind<PCNode, PCEdge> {
-    fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
-        match this {
-            NodeKind::CNode(cnode) => DebugNode {
-                sources: {
-                    let mut v = vec![];
-                    if let Some(p_supernode) = cnode.p_supernode {
-                        v.push((p_supernode, "super".to_owned()));
-                    }
-                    v
-                },
-                center: { vec!["cnode".to_owned(), format!("{:?}", cnode.p_this_cnode)] },
-                sinks: vec![],
-            },
-            NodeKind::SubNode(p_back, p_back_forwarded) => DebugNode {
-                sources: vec![],
-                center: { vec!["sub".to_owned()] },
-                sinks: vec![(*p_back_forwarded, format!("{p_back:?}"))],
-            },
-            NodeKind::CEdgeIncidence(p_back, p_cedge, i, cedge, cedge_forwarded) => DebugNode {
-                sources: {
-                    let mut v = vec![(*p_back, String::new())];
-                    for (source, source_forwarded) in
-                        cedge.sources().iter().zip(cedge_forwarded.sources().iter())
-                    {
-                        v.push((
-                            source_forwarded.p_cnode,
-                            format!("{:?} {}", source.p_cnode, source.delay_weight),
-                        ));
-                    }
-                    v
-                },
-                center: {
-                    vec![
-                        format!("{p_cedge:?}"),
-                        if let Some(source_i) = i {
-                            format!("{source_i}")
-                        } else {
-                            "".to_owned()
-                        },
-                    ]
-                },
-                sinks: {
-                    let mut v = vec![];
-                    if i.is_none() {
-                        v.push((cedge_forwarded.sink(), "".to_owned()));
-                    }
-                    v
-                },
-            },
-            NodeKind::Remove => panic!("should have been removed"),
-        }
-    }
-}
-
 /// For viewing the cgraph at only one level
 #[derive(Debug, Clone)]
-pub enum LevelNodeKind<PCNode: Ptr, PCEdge: Ptr> {
-    CNode(CNode<PCNode, PCEdge>, CNode<PCNode, PCEdge>),
-    CEdge(PCEdge, CEdge<PCNode>, CEdge<PCNode>),
+pub enum LevelNodeKind {
+    CNode(CNode),
+    CEdge(PCEdge, CEdge),
     Remove,
 }
 
-impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode, PCEdge> {
-    fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
+impl DebugNodeTrait<PCNode> for LevelNodeKind {
+    fn debug_node(p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
         match this {
-            LevelNodeKind::CNode(cnode, forwarded_cnode) => DebugNode {
+            LevelNodeKind::CNode(cnode) => DebugNode {
                 sources: vec![],
                 center: {
                     let mut v = vec![
                         format!("{} cnode {}", cnode.lvl, cnode.internal_behavior.lut_bits),
-                        format!("{:?}", cnode.p_this_cnode),
+                        format!("{:?}", p_this),
                     ];
-                    if let Some(p_supernode) = forwarded_cnode.p_supernode {
+                    if let Some(base_p_equiv) = cnode.base_p_equiv {
+                        v.push(format!("{}", base_p_equiv));
+                    }
+                    if let Some(p_supernode) = cnode.p_supernode {
                         v.push(format!("sup: {:?}", p_supernode));
                     }
                     v
                 },
                 sinks: vec![],
             },
-            LevelNodeKind::CEdge(p_cedge, cedge, cedge_forwarded) => DebugNode {
+            LevelNodeKind::CEdge(p_cedge, cedge) => DebugNode {
                 sources: {
                     let mut v = vec![];
-                    for (source, source_forwarded) in
-                        cedge.sources().iter().zip(cedge_forwarded.sources().iter())
-                    {
+                    for source in cedge.sources().iter().copied() {
                         v.push((
-                            source_forwarded.p_cnode,
+                            source.p_cnode,
                             format!("{:?} {}", source.p_cnode, source.delay_weight),
                         ));
                     }
@@ -120,7 +57,7 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode, 
                     v.push(format!("{p_cedge:?}"));
                     v
                 },
-                sinks: { vec![(cedge_forwarded.sink(), "".to_owned())] },
+                sinks: { vec![(cedge.sink(), "".to_owned())] },
             },
             LevelNodeKind::Remove => panic!("should have been removed"),
         }
@@ -129,38 +66,35 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for LevelNodeKind<PCNode, 
 
 /// For viewing the hierarchy structure
 #[derive(Debug, Clone)]
-pub enum HierarchyNodeKind<PCNode: Ptr, PCEdge: Ptr> {
-    // supernode edge and forwarded version is stored on the end
-    CNode(CNode<PCNode, PCEdge>, Option<(PCNode, PCNode)>),
-    CEdge(PCEdge, CEdge<PCNode>, CEdge<PCNode>),
+pub enum HierarchyNodeKind {
+    CNode(CNode),
+    CEdge(PCEdge, CEdge),
     Remove,
 }
 
-impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for HierarchyNodeKind<PCNode, PCEdge> {
-    fn debug_node(_p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
+impl DebugNodeTrait<PCNode> for HierarchyNodeKind {
+    fn debug_node(p_this: PCNode, this: &Self) -> DebugNode<PCNode> {
         match this {
-            HierarchyNodeKind::CNode(cnode, p_super) => DebugNode {
-                sources: if let Some((p_super, p_super_forwarded)) = p_super {
-                    vec![(*p_super_forwarded, format!("{p_super:?}"))]
+            HierarchyNodeKind::CNode(cnode) => DebugNode {
+                sources: if let Some(p_supernode) = cnode.p_supernode {
+                    vec![(p_supernode, format!("{p_supernode:?}"))]
                 } else {
                     vec![]
                 },
                 center: {
                     vec![
                         format!("{} cnode {}", cnode.lvl, cnode.internal_behavior.lut_bits),
-                        format!("{:?}", cnode.p_this_cnode),
+                        format!("{:?}", p_this),
                     ]
                 },
                 sinks: vec![],
             },
-            HierarchyNodeKind::CEdge(p_cedge, cedge, cedge_forwarded) => DebugNode {
+            HierarchyNodeKind::CEdge(p_cedge, cedge) => DebugNode {
                 sources: {
                     let mut v = vec![];
-                    for (source, source_forwarded) in
-                        cedge.sources().iter().zip(cedge_forwarded.sources().iter())
-                    {
+                    for source in cedge.sources().iter().copied() {
                         v.push((
-                            source_forwarded.p_cnode,
+                            source.p_cnode,
                             format!("{:?} {}", source.p_cnode, source.delay_weight),
                         ));
                     }
@@ -171,93 +105,28 @@ impl<PCNode: Ptr, PCEdge: Ptr> DebugNodeTrait<PCNode> for HierarchyNodeKind<PCNo
                     v.push(format!("{p_cedge:?}"));
                     v
                 },
-                sinks: { vec![(cedge_forwarded.sink(), "".to_owned())] },
+                sinks: { vec![(cedge.sink(), "".to_owned())] },
             },
             HierarchyNodeKind::Remove => panic!("should have been removed"),
         }
     }
 }
 
-impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
-    pub fn to_cnode_backrefs_debug(&self) -> Arena<PCNode, NodeKind<PCNode, PCEdge>> {
-        let mut arena = Arena::<PCNode, NodeKind<PCNode, PCEdge>>::new();
-        self.cnodes
-            .clone_keys_to_arena(&mut arena, |p_self, referent| {
-                let p_cnode = self.cnodes.get_val(p_self).unwrap().clone().p_this_cnode;
-                match *referent {
-                    Referent::ThisCNode => {
-                        NodeKind::CNode(self.cnodes.get_val(p_self).unwrap().clone())
-                    }
-                    Referent::SubNode(p_back) => NodeKind::SubNode(p_back, p_cnode),
-                    Referent::CEdgeIncidence(p_cedge, i) => {
-                        let cedge = self.cedges.get(p_cedge).unwrap().clone();
-                        let mut cedge_forwarded = cedge.clone();
-                        for source in cedge_forwarded.sources_mut() {
-                            source.p_cnode =
-                                self.cnodes.get_val(source.p_cnode).unwrap().p_this_cnode;
-                        }
-                        if i.is_none() {
-                            *cedge_forwarded.sink_mut() =
-                                self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
-                        }
-                        NodeKind::CEdgeIncidence(p_cnode, p_cedge, i, cedge, cedge_forwarded)
-                    }
-                }
-            });
-        let mut adv = arena.advancer();
-        while let Some(p) = adv.advance(&arena) {
-            if let NodeKind::Remove = arena.get(p).unwrap() {
-                arena.remove(p).unwrap();
+impl Channeler {
+    pub fn to_cnode_level_debug(&self, lvl: usize) -> Arena<PCNode, LevelNodeKind> {
+        let mut arena = Arena::<PCNode, LevelNodeKind>::new();
+        arena.clone_from_with(&self.cnodes, |_, cnode| {
+            if cnode.lvl == u16::try_from(lvl).unwrap() {
+                LevelNodeKind::CNode(cnode.clone())
+            } else {
+                LevelNodeKind::Remove
+            }
+        });
+        for (p_cedge, cedge) in &self.cedges {
+            if self.cnodes.get(cedge.sink()).unwrap().lvl == u16::try_from(lvl).unwrap() {
+                arena.insert(LevelNodeKind::CEdge(p_cedge, cedge.clone()));
             }
         }
-        arena
-    }
-
-    pub fn to_cnode_level_debug(&self, lvl: usize) -> Arena<PCNode, LevelNodeKind<PCNode, PCEdge>> {
-        let mut arena = Arena::<PCNode, LevelNodeKind<PCNode, PCEdge>>::new();
-        self.cnodes
-            .clone_keys_to_arena(&mut arena, |p_self, referent| {
-                match *referent {
-                    Referent::ThisCNode => {
-                        let cnode = self.cnodes.get_val(p_self).unwrap();
-                        if cnode.lvl == u16::try_from(lvl).unwrap() {
-                            let mut forwarded_cnode = cnode.clone();
-                            if let Some(ref mut p_supernode) = forwarded_cnode.p_supernode {
-                                *p_supernode =
-                                    self.cnodes.get_val(*p_supernode).unwrap().p_this_cnode;
-                            }
-                            LevelNodeKind::CNode(cnode.clone(), forwarded_cnode)
-                        } else {
-                            LevelNodeKind::Remove
-                        }
-                    }
-                    Referent::SubNode(_) => LevelNodeKind::Remove,
-                    Referent::CEdgeIncidence(p_cedge, i) => {
-                        // insures that there is only one `CEdge` per set of incidents
-                        if i.is_none() {
-                            let cedge = self.cedges.get(p_cedge).unwrap().clone();
-                            if self.cnodes.get_val(cedge.sink()).unwrap().lvl
-                                == u16::try_from(lvl).unwrap()
-                            {
-                                let mut cedge_forwarded = cedge.clone();
-                                for source in cedge_forwarded.sources_mut() {
-                                    source.p_cnode =
-                                        self.cnodes.get_val(source.p_cnode).unwrap().p_this_cnode;
-                                }
-                                if i.is_none() {
-                                    *cedge_forwarded.sink_mut() =
-                                        self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
-                                }
-                                LevelNodeKind::CEdge(p_cedge, cedge, cedge_forwarded)
-                            } else {
-                                LevelNodeKind::Remove
-                            }
-                        } else {
-                            LevelNodeKind::Remove
-                        }
-                    }
-                }
-            });
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
             if let LevelNodeKind::Remove = arena.get(p).unwrap() {
@@ -267,41 +136,14 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         arena
     }
 
-    pub fn to_cnode_hierarchy_debug(&self) -> Arena<PCNode, HierarchyNodeKind<PCNode, PCEdge>> {
-        let mut arena = Arena::<PCNode, HierarchyNodeKind<PCNode, PCEdge>>::new();
-        self.cnodes
-            .clone_keys_to_arena(&mut arena, |p_self, referent| {
-                match *referent {
-                    Referent::ThisCNode => {
-                        let cnode = self.cnodes.get_val(p_self).unwrap();
-                        if let Some(p) = self.get_supernode(cnode.p_this_cnode) {
-                            let p_forwarded = self.cnodes.get_val(p).unwrap().p_this_cnode;
-                            HierarchyNodeKind::CNode(cnode.clone(), Some((p, p_forwarded)))
-                        } else {
-                            HierarchyNodeKind::CNode(cnode.clone(), None)
-                        }
-                    }
-                    Referent::SubNode(_) => HierarchyNodeKind::Remove,
-                    Referent::CEdgeIncidence(p_cedge, i) => {
-                        // insures that there is only one `CEdge` per set of incidents
-                        if i.is_none() {
-                            let cedge = self.cedges.get(p_cedge).unwrap().clone();
-                            let mut cedge_forwarded = cedge.clone();
-                            for source in cedge_forwarded.sources_mut() {
-                                source.p_cnode =
-                                    self.cnodes.get_val(source.p_cnode).unwrap().p_this_cnode;
-                            }
-                            if i.is_none() {
-                                *cedge_forwarded.sink_mut() =
-                                    self.cnodes.get_val(cedge.sink()).unwrap().p_this_cnode;
-                            }
-                            HierarchyNodeKind::CEdge(p_cedge, cedge, cedge_forwarded)
-                        } else {
-                            HierarchyNodeKind::Remove
-                        }
-                    }
-                }
-            });
+    pub fn to_cnode_hierarchy_debug(&self) -> Arena<PCNode, HierarchyNodeKind> {
+        let mut arena = Arena::<PCNode, HierarchyNodeKind>::new();
+        arena.clone_from_with(&self.cnodes, |_, cnode| {
+            HierarchyNodeKind::CNode(cnode.clone())
+        });
+        for (p_cedge, cedge) in &self.cedges {
+            arena.insert(HierarchyNodeKind::CEdge(p_cedge, cedge.clone()));
+        }
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
             if let HierarchyNodeKind::Remove = arena.get(p).unwrap() {
@@ -323,14 +165,11 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
                 return Err(Error::OtherString(format!("{e:?}")));
             }
         };
-        let mut cnode_backrefs_file = dir.clone();
-        cnode_backrefs_file.push("cnode_backrefs.svg");
         let mut cnode_level_file = dir.clone();
         cnode_level_file.push("cnode_level.svg");
         let mut cnode_hierarchy_file = dir;
         cnode_hierarchy_file.push("cnode_hierarchy.svg");
         let res = self.verify_integrity();
-        render_to_svg_file(&self.to_cnode_backrefs_debug(), false, cnode_backrefs_file).unwrap();
         render_to_svg_file(&self.to_cnode_level_debug(lvl), false, cnode_level_file).unwrap();
         render_to_svg_file(
             &self.to_cnode_hierarchy_debug(),
@@ -339,17 +178,5 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
         )
         .unwrap();
         res
-    }
-
-    pub fn backrefs_to_chain_arena(&self) -> ChainArena<PCNode, Referent<PCNode, PCEdge>> {
-        let mut chain_arena = ChainArena::new();
-        self.cnodes
-            .clone_keys_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode);
-        chain_arena
-    }
-
-    pub fn eprint_debug_summary(&self) {
-        let chain_arena = self.backrefs_to_chain_arena();
-        eprintln!("chain_arena: {:#?}", chain_arena);
     }
 }

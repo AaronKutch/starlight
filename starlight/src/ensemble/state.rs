@@ -618,7 +618,7 @@ fn lower_elementary_to_lnodes_intermediate(
                     unreachable!()
                 };
                 let bits = &this.stator.states[c].p_self_bits;
-                inx_bits.extend(bits.iter().cloned());
+                inx_bits.extend(bits.iter().copied());
             }
 
             let inx_len = inx_bits.len();

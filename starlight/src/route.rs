@@ -15,7 +15,7 @@ use std::num::NonZeroU32;
 
 use awint::awint_dag::triple_arena::ptr_struct;
 pub use cedge::{CEdge, ChannelWidths, Programmability, SelectorLut, Source};
-pub use channel::{Channeler, Referent};
+pub use channel::Channeler;
 pub use cnode::CNode;
 pub use config::{Config, Configurator};
 pub(crate) use dilute::dilute_level;
@@ -31,8 +31,6 @@ pub(crate) use routing::route;
 ptr_struct!(
     PCNode;
     PCEdge;
-    QCNode;
-    QCEdge;
     PNodeEmbed;
     PEdgeEmbed;
     PConfig;
@@ -47,8 +45,6 @@ ptr_struct!(
 ptr_struct!(
     PCNode();
     PCEdge();
-    QCNode();
-    QCEdge();
     PNodeEmbed();
     PEdgeEmbed();
     PConfig();
@@ -59,8 +55,6 @@ ptr_struct!(
 ptr_struct!(
     PCNode[NonZeroU32](NonZeroU32);
     PCEdge[NonZeroU32](NonZeroU32);
-    QCNode[NonZeroU32](NonZeroU32);
-    QCEdge[NonZeroU32](NonZeroU32);
     PNodeEmbed[NonZeroU32](NonZeroU32);
     PEdgeEmbed[NonZeroU32](NonZeroU32);
     PConfig[NonZeroU32](NonZeroU32);
@@ -75,8 +69,6 @@ ptr_struct!(
 ptr_struct!(
     PCNode[NonZeroU32]();
     PCEdge[NonZeroU32]();
-    QCNode[NonZeroU32]();
-    QCEdge[NonZeroU32]();
     PNodeEmbed[NonZeroU32]();
     PEdgeEmbed[NonZeroU32]();
     PConfig[NonZeroU32]();
@@ -86,7 +78,7 @@ ptr_struct!(
 // these are completely internal and so can always go without gen counters
 
 #[cfg(any(debug_assertions, not(feature = "u32_ptrs")))]
-ptr_struct!(PUniqueCNode(); PBackrefToBackref(); PTopLevel());
+ptr_struct!(PBackToCnode());
 
 #[cfg(all(not(debug_assertions), feature = "u32_ptrs"))]
-ptr_struct!(PUniqueCNode[NonZeroU32](); PBackrefToBackref[NonZeroU32](); PTopLevel[NonZeroU32]());
+ptr_struct!(PBackToCnode[NonZeroU32]());

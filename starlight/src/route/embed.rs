@@ -1,21 +1,19 @@
-use awint::awint_dag::triple_arena::{Advancer, Ptr};
+use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
-    route::{
-        Edge, EdgeKind, HyperPath, NodeOrEdge, PCEdge, PCNode, PMapping, Path, QCEdge, QCNode,
-        Referent, Router,
-    },
+    ensemble::{PEquiv, PLNode, Referent},
+    route::{Edge, EdgeKind, HyperPath, NodeOrEdge, PMapping, Path, Router},
     Error,
 };
 
 #[derive(Debug, Clone)]
-pub struct NodeEmbed<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
-    pub program_node: PCNode,
-    pub hyperpath: HyperPath<PCEdge, QCNode, QCEdge>,
+pub struct NodeEmbed {
+    pub program_node: PEquiv,
+    pub hyperpath: HyperPath,
 }
 
-impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> NodeEmbed<PCNode, PCEdge, QCNode, QCEdge> {
-    pub fn new(program_node: PCNode, hyperpath: HyperPath<PCEdge, QCNode, QCEdge>) -> Self {
+impl NodeEmbed {
+    pub fn new(program_node: PEquiv, hyperpath: HyperPath) -> Self {
         Self {
             program_node,
             hyperpath,
@@ -24,13 +22,13 @@ impl<PCNode: Ptr, PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> NodeEmbed<PCNode, PCEdg
 }
 
 #[derive(Debug, Clone)]
-pub struct EdgeEmbed<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> {
-    pub program_edge: PCEdge,
-    pub target: NodeOrEdge<QCNode, QCEdge>,
+pub struct EdgeEmbed {
+    pub program_edge: PLNode,
+    pub target: NodeOrEdge,
 }
 
-impl<PCEdge: Ptr, QCNode: Ptr, QCEdge: Ptr> EdgeEmbed<PCEdge, QCNode, QCEdge> {
-    pub fn new(program_edge: PCEdge, target: NodeOrEdge<QCNode, QCEdge>) -> Self {
+impl EdgeEmbed {
+    pub fn new(program_edge: PLNode, target: NodeOrEdge) -> Self {
         Self {
             program_edge,
             target,
@@ -47,10 +45,11 @@ impl Router {
     /// that root nodes agree, otherwise it returns an error.
     fn make_hyperpath_embedding(
         &mut self,
-        embed_from: PCNode,
-        hyperpath: HyperPath<PCEdge, QCNode, QCEdge>,
+        embed_from: PEquiv,
+        hyperpath: HyperPath,
     ) -> Result<(), Error> {
-        let embedding_ref = &mut self
+        //FIXME or should this be a thing checked in validation?
+        /*let embedding_ref = &mut self
             .program_channeler
             .cnodes
             .get_val_mut(embed_from)
@@ -61,11 +60,9 @@ impl Router {
                 "program node {embed_from:?} is already associated with an embedding, there is \
                  probably a bug in the router",
             )));
-        }
-        let p_embedding = self
-            .node_embeddings
+        }*/
+        self.node_embeddings
             .insert(NodeEmbed::new(embed_from, hyperpath));
-        *embedding_ref = Some(p_embedding);
         Ok(())
     }
 
@@ -73,10 +70,6 @@ impl Router {
     fn make_embedding_for_mapping(&mut self, p_mapping: PMapping) -> Result<(), Error> {
         let (program_p_equiv, mapping) = self.mappings.get(p_mapping).unwrap();
         let program_p_equiv = *program_p_equiv;
-        let program_cnode = self
-            .program_channeler()
-            .find_channeler_cnode(program_p_equiv)
-            .unwrap();
 
         // remember that `*_root` does not necessarily mean a global root, just a common
         // root
@@ -84,13 +77,13 @@ impl Router {
         if let Some(ref source_mapping_target) = mapping.target_source {
             // find the corresponding `QCNode` for the source
             let target_source_p_equiv = source_mapping_target.target_p_equiv;
-            let target_source_q_cnode = self
-                .target_channeler()
-                .find_channeler_cnode(target_source_p_equiv)
+            let target_source_p_cnode = self
+                .target_channeler
+                .translate_equiv(target_source_p_equiv)
                 .unwrap();
 
             // create path from source to root
-            let mut q = target_source_q_cnode;
+            let mut q = target_source_p_cnode;
             let mut path_to_root = vec![];
             while let Some(tmp) = self.target_channeler().get_supernode(q) {
                 q = tmp;
@@ -111,12 +104,12 @@ impl Router {
                 // `path_to_root`
                 for (i, mapping_target) in mapping.target_sinks.iter().enumerate() {
                     let target_sink_p_equiv = mapping_target.target_p_equiv;
-                    let target_sink_q_cnode = self
-                        .target_channeler()
-                        .find_channeler_cnode(target_sink_p_equiv)
+                    let target_sink_p_cnode = self
+                        .target_channeler
+                        .translate_equiv(target_sink_p_equiv)
                         .unwrap();
 
-                    let mut q = target_sink_q_cnode;
+                    let mut q = target_sink_p_cnode;
                     let mut path_to_sink = vec![Edge::new(EdgeKind::Dilute, q)];
                     while let Some(tmp) = self.target_channeler().get_supernode(q) {
                         q = tmp;
@@ -152,8 +145,8 @@ impl Router {
                 // this case is just a single program node not bound to any
                 // other part of the program graph, so we do not need to embed any root
                 self.make_hyperpath_embedding(
-                    program_cnode,
-                    HyperPath::new(None, target_source_q_cnode, paths),
+                    program_p_equiv,
+                    HyperPath::new(None, target_source_p_cnode, paths),
                 )
                 .unwrap();
             } else {
@@ -161,20 +154,21 @@ impl Router {
                 // be a hyperpath concentrating to the root node on the target side.
 
                 let mut paths = vec![];
+
                 let mut adv = self
-                    .program_channeler()
-                    .cnodes
-                    .advancer_surject(program_cnode);
-                while let Some(p_referent) = adv.advance(&self.program_channeler().cnodes) {
-                    if let Referent::CEdgeIncidence(p_cedge, Some(_)) =
-                        *self.program_channeler().cnodes.get_key(p_referent).unwrap()
+                    .program_ensemble
+                    .backrefs
+                    .advancer_surject(program_p_equiv.into());
+                while let Some(p_ref) = adv.advance(&self.program_ensemble.backrefs) {
+                    if let Referent::Input(_) =
+                        *self.program_ensemble.backrefs.get_key(p_ref).unwrap()
                     {
-                        paths.push(Path::new(Some(p_cedge), path_to_root.clone()));
+                        paths.push(Path::new(Some(p_ref), path_to_root.clone()));
                     }
                 }
                 self.make_hyperpath_embedding(
-                    program_cnode,
-                    HyperPath::new(None, target_source_q_cnode, paths),
+                    program_p_equiv,
+                    HyperPath::new(None, target_source_p_cnode, paths),
                 )
                 .unwrap();
             }
@@ -187,8 +181,8 @@ impl Router {
                 let mapping_target = mapping.target_sinks.first().unwrap();
                 let target_sink_p_equiv = mapping_target.target_p_equiv;
                 let target_sink_q_cnode = self
-                    .target_channeler()
-                    .find_channeler_cnode(target_sink_p_equiv)
+                    .target_channeler
+                    .translate_equiv(target_sink_p_equiv)
                     .unwrap();
 
                 let mut q = target_sink_q_cnode;
@@ -203,7 +197,7 @@ impl Router {
                 let target_sink_p_equiv = mapping_target.target_p_equiv;
                 let target_sink_q_cnode = self
                     .target_channeler()
-                    .find_channeler_cnode(target_sink_p_equiv)
+                    .translate_equiv(target_sink_p_equiv)
                     .unwrap();
 
                 let mut q = target_sink_q_cnode;
@@ -236,22 +230,22 @@ impl Router {
 
             let mut program_source = None;
             let mut adv = self
-                .program_channeler()
-                .cnodes
-                .advancer_surject(program_cnode);
-            while let Some(p_referent) = adv.advance(&self.program_channeler().cnodes) {
-                if let Referent::CEdgeIncidence(p_cedge, None) =
-                    *self.program_channeler().cnodes.get_key(p_referent).unwrap()
+                .program_ensemble
+                .backrefs
+                .advancer_surject(program_p_equiv.into());
+            while let Some(p_ref) = adv.advance(&self.program_ensemble.backrefs) {
+                if let Referent::Input(p_lnode) =
+                    *self.program_ensemble.backrefs.get_key(p_ref).unwrap()
                 {
                     assert!(program_source.is_none());
-                    program_source = Some(p_cedge);
+                    program_source = Some(p_lnode);
                 }
             }
 
             assert!(program_source.is_some());
 
             self.make_hyperpath_embedding(
-                program_cnode,
+                program_p_equiv,
                 HyperPath::new(program_source, target_root, paths),
             )
             .unwrap();
@@ -274,6 +268,9 @@ impl Router {
         // are embedding all the base level program nodes at once and giving fine level
         // details more levels to shift around. This means that we don't need a
         // channeling graph for the program side.
+        // If we want the same speedup, then there is probably some heuristic algorithm
+        // that would allow placement of groups of program nodes at a level lower than
+        // the root
 
         Ok(())
     }
@@ -284,12 +281,6 @@ impl Router {
         // in case of rerouting we need to clear old embeddings
         self.node_embeddings.clear();
         self.edge_embeddings.clear();
-        for cnode in self.program_channeler.cnodes.vals_mut() {
-            let _ = cnode.embedding.take();
-        }
-        for cedge in self.program_channeler.cedges.vals_mut() {
-            let _ = cedge.embedding.take();
-        }
 
         // Mappings will stay static because they are used for figuring out translating
         // program IO to target IO. Embeddings will represent bulk programmings of the
@@ -298,7 +289,7 @@ impl Router {
         // by making those embeddings.
         let mut adv = self.mappings.advancer();
         while let Some(p_mapping) = adv.advance(&self.mappings) {
-            self.make_embedding_for_mapping(p_mapping).unwrap()
+            self.make_embedding_for_mapping(p_mapping)?;
         }
         Ok(())
     }

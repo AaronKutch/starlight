@@ -43,8 +43,7 @@ pub(crate) fn route(router: &mut Router) -> Result<(), Error> {
     // dilution.
 
     let mut max_lvl = 0;
-    for q_cnode in router.target_channeler().top_level_cnodes.keys() {
-        let cnode = router.target_channeler().cnodes.get_val(*q_cnode).unwrap();
+    for cnode in router.target_channeler().cnodes.vals() {
         max_lvl = max(max_lvl, cnode.lvl);
     }
 

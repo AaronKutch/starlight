@@ -3,10 +3,10 @@ use std::fmt::Write;
 use awint::awint_dag::triple_arena::{Advancer, OrdArena};
 
 use crate::{
-    ensemble::{Ensemble, PEquiv, PExternal},
+    ensemble::{Ensemble, PEquiv, PExternal, Referent},
     route::{
-        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PCEdge, PCNode,
-        PEdgeEmbed, PMapping, PNodeEmbed, QCEdge, QCNode,
+        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PEdgeEmbed,
+        PMapping, PNodeEmbed,
     },
     triple_arena::Arena,
     Corresponder, Error, SuspendedEpoch,
@@ -35,16 +35,15 @@ pub struct Mapping {
 
 #[derive(Debug, Clone)]
 pub struct Router {
-    target_ensemble: Ensemble,
-    pub(crate) target_channeler: Channeler<QCNode, QCEdge>,
+    pub(crate) target_ensemble: Ensemble,
+    pub(crate) target_channeler: Channeler,
     pub(crate) configurator: Configurator,
-    program_ensemble: Ensemble,
-    pub(crate) program_channeler: Channeler<PCNode, PCEdge>,
+    pub(crate) program_ensemble: Ensemble,
     // `PEquiv` mapping from program to target
     pub(crate) mappings: OrdArena<PMapping, PEquiv, Mapping>,
     // routing embedding of part of the program in the target
-    pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed<PCNode, PCEdge, QCNode, QCEdge>>,
-    pub(crate) edge_embeddings: Arena<PEdgeEmbed, EdgeEmbed<PCEdge, QCNode, QCEdge>>,
+    pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed>,
+    pub(crate) edge_embeddings: Arena<PEdgeEmbed, EdgeEmbed>,
     // this should only be set after a successful routing, and be unset the moment any mappings,
     // embeddings, or configurations are changed.
     pub(crate) is_valid_routing: bool,
@@ -100,13 +99,11 @@ impl Router {
         program_epoch: &SuspendedEpoch,
     ) -> Result<Self, Error> {
         let target_channeler = Channeler::from_target(target_epoch, configurator)?;
-        let program_channeler = Channeler::from_program(program_epoch)?;
         Ok(Self::new_from_channelers(
             target_epoch,
             target_channeler,
             configurator,
             program_epoch,
-            program_channeler,
         ))
     }
 
@@ -114,17 +111,15 @@ impl Router {
     /// mappings
     pub fn new_from_channelers(
         target_epoch: &SuspendedEpoch,
-        target_channeler: Channeler<QCNode, QCEdge>,
+        target_channeler: Channeler,
         configurator: &Configurator,
         program_epoch: &SuspendedEpoch,
-        program_channeler: Channeler<PCNode, PCEdge>,
     ) -> Self {
         Self {
             target_ensemble: target_epoch.ensemble(|ensemble| ensemble.clone()),
             target_channeler,
             configurator: configurator.clone(),
             program_ensemble: program_epoch.ensemble(|ensemble| ensemble.clone()),
-            program_channeler,
             mappings: OrdArena::new(),
             node_embeddings: Arena::new(),
             edge_embeddings: Arena::new(),
@@ -140,23 +135,19 @@ impl Router {
         &self.program_ensemble
     }
 
-    pub fn target_channeler(&self) -> &Channeler<QCNode, QCEdge> {
+    pub fn target_channeler(&self) -> &Channeler {
         &self.target_channeler
-    }
-
-    pub fn program_channeler(&self) -> &Channeler<PCNode, PCEdge> {
-        &self.program_channeler
     }
 
     pub fn mappings(&self) -> &OrdArena<PMapping, PEquiv, Mapping> {
         &self.mappings
     }
 
-    pub fn node_embeddings(&self) -> &Arena<PNodeEmbed, NodeEmbed<PCNode, PCEdge, QCNode, QCEdge>> {
+    pub fn node_embeddings(&self) -> &Arena<PNodeEmbed, NodeEmbed> {
         &self.node_embeddings
     }
 
-    pub fn edge_embeddings(&self) -> &Arena<PEdgeEmbed, EdgeEmbed<PCEdge, QCNode, QCEdge>> {
+    pub fn edge_embeddings(&self) -> &Arena<PEdgeEmbed, EdgeEmbed> {
         &self.edge_embeddings
     }
 
@@ -201,7 +192,6 @@ impl Router {
         self.target_ensemble.verify_integrity()?;
         self.target_channeler.verify_integrity()?;
         self.program_ensemble.verify_integrity()?;
-        self.program_channeler.verify_integrity()?;
         // mapping validities
         for (p_mapping, program_p_equiv, mapping) in self.mappings() {
             if let Ok((_, rnode)) = self
@@ -244,9 +234,9 @@ impl Router {
         // node embedding validities
         for (p_embedding, embedding) in self.node_embeddings() {
             if !self
-                .program_channeler()
-                .cnodes
-                .contains(embedding.program_node)
+                .program_ensemble()
+                .backrefs
+                .contains(embedding.program_node.into())
             {
                 return Err(Error::OtherString(format!(
                     "{p_embedding} {embedding:#?}.program_node is invalid"
@@ -254,7 +244,7 @@ impl Router {
             }
             let hyperpath = &embedding.hyperpath;
             if let Some(program_source) = hyperpath.program_source {
-                if !self.program_channeler().cedges.contains(program_source) {
+                if !self.program_ensemble().lnodes.contains(program_source) {
                     return Err(Error::OtherString(format!(
                         "{p_embedding} {embedding:#?}.hyperpath.program_source is invalid"
                     )))
@@ -271,7 +261,14 @@ impl Router {
             }
             for path in hyperpath.paths() {
                 if let Some(program_sink) = path.program_sink {
-                    if !self.program_channeler().cedges.contains(program_sink) {
+                    if let Some(referent) = self.program_ensemble().backrefs.get_key(program_sink) {
+                        if !matches!(referent, Referent::ThisLNode(_)) {
+                            return Err(Error::OtherString(format!(
+                                "{p_embedding} {embedding:#?} path program sink does not point to \
+                                 `ThisLNode`"
+                            )))
+                        }
+                    } else {
                         return Err(Error::OtherString(format!(
                             "{p_embedding} {embedding:#?} path program sink is invalid"
                         )))
@@ -315,12 +312,7 @@ impl Router {
                     match edge.kind {
                         EdgeKind::Transverse(q_cedge, source_i) => {
                             let cedge = self.target_channeler().cedges.get(q_cedge).unwrap();
-                            let source = self
-                                .target_channeler()
-                                .cnodes
-                                .get_val(cedge.sources()[source_i].p_cnode)
-                                .unwrap()
-                                .p_this_cnode;
+                            let source = cedge.sources()[source_i].p_cnode;
                             if q != source {
                                 return Err(Error::OtherString(format!(
                                     "{p_embedding} {embedding:#?} path {i} source is broken at \
@@ -360,8 +352,8 @@ impl Router {
         // edge embedding validities
         for (p_embedding, embedding) in self.edge_embeddings() {
             if !self
-                .program_channeler()
-                .cedges
+                .program_ensemble()
+                .lnodes
                 .contains(embedding.program_edge)
             {
                 return Err(Error::OtherString(format!(
@@ -383,66 +375,6 @@ impl Router {
                         )))
                     }
                 }
-            }
-        }
-        // check validity and roundtrip embeddings
-        for cnode in self.program_channeler().cnodes.vals() {
-            if let Some(p_embedding) = cnode.embedding {
-                if let Some(embedding) = self.node_embeddings().get(p_embedding) {
-                    if embedding.program_node != cnode.p_this_cnode {
-                        return Err(Error::OtherString(format!(
-                            "{cnode:#?} embedding roundtrip fail"
-                        )))
-                    }
-                } else {
-                    return Err(Error::OtherString(format!(
-                        "{cnode:#?} embedding is invalid"
-                    )))
-                }
-            }
-        }
-        for (p_cedge, edge) in &self.program_channeler().cedges {
-            if let Some(p_embedding) = edge.embedding {
-                if let Some(embedding) = self.edge_embeddings().get(p_embedding) {
-                    if embedding.program_edge != p_cedge {
-                        return Err(Error::OtherString(format!(
-                            "{p_cedge} {edge:#?} embedding roundtrip fail"
-                        )))
-                    }
-                } else {
-                    return Err(Error::OtherString(format!(
-                        "{p_cedge} {edge:#?} embedding is invalid"
-                    )))
-                }
-            }
-        }
-        // in other direction
-        for (p_embedding, embedding) in self.node_embeddings() {
-            if self
-                .program_channeler()
-                .cnodes
-                .get_val(embedding.program_node)
-                .unwrap()
-                .embedding
-                != Some(p_embedding)
-            {
-                return Err(Error::OtherString(format!(
-                    "{p_embedding} {embedding:#?} roundtrip fail"
-                )))
-            }
-        }
-        for (p_embedding, embedding) in self.edge_embeddings() {
-            if self
-                .program_channeler()
-                .cedges
-                .get(embedding.program_edge)
-                .unwrap()
-                .embedding
-                != Some(p_embedding)
-            {
-                return Err(Error::OtherString(format!(
-                    "{p_embedding} {embedding:#?} roundtrip fail"
-                )))
             }
         }
         Ok(())
@@ -474,7 +406,7 @@ impl Router {
                             .get_val(bit)
                             .unwrap()
                             .p_self_equiv;
-                        if let Some(q_cnode) = self.target_channeler().find_channeler_cnode(bit) {
+                        if let Some(q_cnode) = self.target_channeler().translate_equiv(bit) {
                             if skip_invalid && !init {
                                 writeln!(
                                     s,
@@ -503,9 +435,9 @@ impl Router {
     }
 
     pub fn debug_mapping(&self, p_mapping: PMapping) -> String {
-        let (p_back, mapping) = self.mappings().get(p_mapping).unwrap();
+        let (p_equiv, mapping) = self.mappings().get(p_mapping).unwrap();
         let mut s = format!(
-            "{p_mapping:?} {p_back:#?} Mapping {{\nprogram: {} bit {}\n",
+            "{p_mapping:?} {p_equiv:#?} Mapping {{\nprogram: {} bit {}\n",
             mapping.program_p_external, mapping.program_bit_i
         );
         let rnode = self
@@ -520,7 +452,7 @@ impl Router {
         if let Some(location) = rnode.location {
             writeln!(s, "{location:#?}").unwrap();
         }
-        if let Some(q_cnode) = self.target_channeler().find_channeler_cnode(*p_back) {
+        if let Some(q_cnode) = self.target_channeler().translate_equiv(*p_equiv) {
             writeln!(s, "{q_cnode:?}").unwrap();
         }
         if let Some(ref source) = mapping.target_source {
@@ -544,7 +476,7 @@ impl Router {
             }
             if let Some(q_cnode) = self
                 .target_channeler()
-                .find_channeler_cnode(source.target_p_equiv)
+                .translate_equiv(source.target_p_equiv)
             {
                 writeln!(s, "{q_cnode:?}").unwrap();
             }
@@ -568,10 +500,7 @@ impl Router {
             if let Some(location) = rnode.location {
                 writeln!(s, "{location:#?}").unwrap();
             }
-            if let Some(q_cnode) = self
-                .target_channeler()
-                .find_channeler_cnode(sink.target_p_equiv)
-            {
+            if let Some(q_cnode) = self.target_channeler().translate_equiv(sink.target_p_equiv) {
                 writeln!(s, "{q_cnode:?}").unwrap();
             }
         }

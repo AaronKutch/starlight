@@ -5,8 +5,9 @@ use std::{cmp::Reverse, collections::BinaryHeap, num::NonZeroU64};
 
 use awint::awint_dag::triple_arena::Advancer;
 
+use super::PCNode;
 use crate::{
-    route::{Edge, EdgeKind, PNodeEmbed, QCNode, Referent, Router},
+    route::{Edge, EdgeKind, PNodeEmbed, Router},
     Error,
 };
 
@@ -93,13 +94,13 @@ fn route_path_on_level(
     router: &mut Router,
     backbone_visit: NonZeroU64,
     max_backbone_lvl: Option<u16>,
-    start: QCNode,
-    end: QCNode,
+    start: PCNode,
+    end: PCNode,
 ) -> Result<bool, Error> {
     let front_visit = router.target_channeler.next_alg_visit();
     let mut priority = BinaryHeap::new();
     // initialize entry node for algorithm
-    let cnode = router.target_channeler.cnodes.get_val_mut(start).unwrap();
+    let cnode = router.target_channeler.cnodes.get_mut(start).unwrap();
     let route_lvl = cnode.lvl;
     cnode.alg_visit = front_visit;
     cnode.alg_edge.0 = None;
@@ -108,28 +109,23 @@ fn route_path_on_level(
         return Ok(true)
     }
     // push initial edges from the entry
-    let mut adv = router.target_channeler.cnodes.advancer_surject(start);
-    while let Some(q_referent) = adv.advance(&router.target_channeler.cnodes) {
-        if let Referent::CEdgeIncidence(q_cedge, Some(source_j)) =
-            *router.target_channeler.cnodes.get_key(q_referent).unwrap()
-        {
-            let cedge = router.target_channeler.cedges.get(q_cedge).unwrap();
-            priority.push(Reverse((
-                cedge.sources()[source_j]
-                    .delay_weight
-                    .get()
-                    .saturating_add(cedge.lagrangian),
-                q_cedge,
-                source_j,
-            )));
-        }
+    let cnode = router.target_channeler.cnodes.get(start).unwrap();
+    for (source, source_i) in cnode.source_incidents.iter().copied() {
+        let cedge = router.target_channeler.cedges.get(source).unwrap();
+        priority.push(Reverse((
+            cedge.sources()[source_i]
+                .delay_weight
+                .get()
+                .saturating_add(cedge.lagrangian),
+            source,
+            source_i,
+        )));
     }
     let mut found = false;
     while let Some(Reverse((cost, q_cedge, source_j))) = priority.pop() {
         let cedge = router.target_channeler.cedges.get(q_cedge).unwrap();
         let q_cnode = cedge.sink();
-        let cnode = router.target_channeler.cnodes.get_val_mut(q_cnode).unwrap();
-        let q_cnode = cnode.p_this_cnode;
+        let cnode = router.target_channeler.cnodes.get_mut(q_cnode).unwrap();
         // processing visits first and always setting them means that if
         // other searches go out of the backbone shadow, they do not need to
         // look up the supernode
@@ -150,7 +146,7 @@ fn route_path_on_level(
                     let cnode_consider = router
                         .target_channeler
                         .cnodes
-                        .get_val(q_cnode_consider)
+                        .get(q_cnode_consider)
                         .unwrap();
                     if cnode_consider.alg_visit == backbone_visit {
                         use_it = true;
@@ -170,19 +166,15 @@ fn route_path_on_level(
             }
             if use_it {
                 // find new edges for the Dijkstra search
-                let mut adv = router.target_channeler.cnodes.advancer_surject(q_cnode);
-                while let Some(q_referent1) = adv.advance(&router.target_channeler.cnodes) {
-                    if let Referent::CEdgeIncidence(q_cedge1, Some(source_j1)) =
-                        *router.target_channeler.cnodes.get_key(q_referent1).unwrap()
-                    {
-                        let cedge = router.target_channeler.cedges.get(q_cedge1).unwrap();
-                        priority.push(Reverse((
-                            cost.saturating_add(cedge.sources()[source_j1].delay_weight.get())
-                                .saturating_add(cedge.lagrangian),
-                            q_cedge1,
-                            source_j1,
-                        )));
-                    }
+                let cnode = router.target_channeler.cnodes.get(q_cnode).unwrap();
+                for (source, source_i) in cnode.source_incidents.iter().copied() {
+                    let cedge = router.target_channeler.cedges.get(source).unwrap();
+                    priority.push(Reverse((
+                        cost.saturating_add(cedge.sources()[source_i].delay_weight.get())
+                            .saturating_add(cedge.lagrangian),
+                        source,
+                        source_i,
+                    )));
                 }
             }
         }
@@ -213,7 +205,7 @@ fn dilute_plateau(
 
     // if the node is root do not have a max level, otherwise set it to the level
     // that we will color the initial backbone with
-    let cnode = router.target_channeler.cnodes.get_val(start).unwrap();
+    let cnode = router.target_channeler.cnodes.get(start).unwrap();
     let mut max_backbone_lvl = if cnode.p_supernode.is_some() {
         Some(cnode.lvl + 1)
     } else {
@@ -226,7 +218,7 @@ fn dilute_plateau(
         router
             .target_channeler
             .cnodes
-            .get_val_mut(edge.to)
+            .get_mut(edge.to)
             .unwrap()
             .alg_visit = backbone_visit;
     }
@@ -251,12 +243,12 @@ fn dilute_plateau(
             let mut q_supernode = router
                 .target_channeler
                 .cnodes
-                .get_val(edge.to)
+                .get(edge.to)
                 .unwrap()
                 .p_supernode;
             loop {
                 if let Some(q) = q_supernode {
-                    let cnode = router.target_channeler.cnodes.get_val_mut(q).unwrap();
+                    let cnode = router.target_channeler.cnodes.get_mut(q).unwrap();
                     if cnode.lvl == max_backbone_lvl.unwrap() {
                         cnode.alg_visit = backbone_visit;
                         break
@@ -273,12 +265,12 @@ fn dilute_plateau(
     let mut new_path = vec![];
     let mut q_cnode = end;
     loop {
-        let cnode = router.target_channeler.cnodes.get_val_mut(q_cnode).unwrap();
+        let cnode = router.target_channeler.cnodes.get_mut(q_cnode).unwrap();
         if let (Some(q_cedge), j) = cnode.alg_edge {
             let cedge = router.target_channeler.cedges.get(q_cedge).unwrap();
             new_path.push(Edge {
                 kind: EdgeKind::Transverse(q_cedge, j),
-                to: cnode.p_this_cnode,
+                to: q_cnode,
             });
             q_cnode = cedge.sources()[j].p_cnode;
         } else {
@@ -322,7 +314,7 @@ fn dilute_node_embedding(
     let target_source = router
         .target_channeler()
         .cnodes
-        .get_val(q_target_source)
+        .get(q_target_source)
         .unwrap();
     let target_source_lvl = target_source.lvl;
     if target_source_lvl > (max_lvl + 1) {

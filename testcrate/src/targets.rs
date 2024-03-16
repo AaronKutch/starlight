@@ -8,8 +8,8 @@ use starlight::{
         render::{RenderArena, RenderNodeKind},
         PExternal,
     },
-    route::{Channeler, Configurator},
-    triple_arena::{ptr_struct, OrdArena, Ptr},
+    route::{Channeler, Configurator, PCNode},
+    triple_arena::{ptr_struct, OrdArena},
     utils::{Grid, Ortho::*, OrthoArray, Render},
     Drive, Epoch, In, LazyAwi, Net, Out, SuspendedEpoch,
 };
@@ -189,26 +189,22 @@ impl FabricTargetInterface {
 }
 
 #[allow(unused)]
-pub fn render_cnode_hierarchy<PBack: Ptr, PCEdge: Ptr>(
-    r: &mut Render,
-    web: &RenderArena,
-    channeler: &Channeler<PBack, PCEdge>,
-) {
+pub fn render_cnode_hierarchy(r: &mut Render, web: &RenderArena, channeler: &Channeler) {
     ptr_struct!(P0);
-    struct HierarchyNode<PBack: Ptr> {
+    struct HierarchyNode {
         position: (i32, i32),
         subnodes: usize,
-        incidents: Vec<PBack>,
+        incidents: Vec<PCNode>,
     }
     let mut levels = vec![];
     // get the first level of nodes
-    let mut level = OrdArena::<P0, PBack, HierarchyNode<PBack>>::new();
+    let mut level = OrdArena::<P0, PCNode, HierarchyNode>::new();
     let cnodes = &channeler.cnodes;
     for (_, kind, node) in web {
-        if let RenderNodeKind::Equiv(p_back) = kind {
+        if let RenderNodeKind::Equiv(p_equiv) = kind {
             // remember that configurable bits are not included
-            if let Some(p_cnode) = channeler.find_channeler_cnode(*p_back) {
-                let cnode = cnodes.get_val(p_cnode).unwrap();
+            if let Some(p_cnode) = channeler.translate_equiv(*p_equiv) {
+                let cnode = cnodes.get(p_cnode).unwrap();
                 assert_eq!(cnode.lvl, 0);
                 let replaced = level
                     .insert(p_cnode, HierarchyNode {
@@ -224,7 +220,7 @@ pub fn render_cnode_hierarchy<PBack: Ptr, PCEdge: Ptr>(
     levels.push(level);
     // get the remaining levels
     loop {
-        let mut level = OrdArena::<P0, PBack, HierarchyNode<PBack>>::new();
+        let mut level = OrdArena::<P0, PCNode, HierarchyNode>::new();
         let last_level = levels.last().unwrap();
         for (_, p_cnode, subnode) in last_level {
             if let Some(p_super) = channeler.get_supernode(*p_cnode) {
@@ -258,8 +254,8 @@ pub fn render_cnode_hierarchy<PBack: Ptr, PCEdge: Ptr>(
     // add on all edges
     for edge in channeler.cedges.vals() {
         let mut v = vec![];
-        edge.incidents(|p| v.push(cnodes.get_val(p).unwrap().p_this_cnode));
-        let lvl = cnodes.get_val(v[0]).unwrap().lvl;
+        edge.incidents(|p| v.push(p));
+        let lvl = cnodes.get(v[0]).unwrap().lvl;
         if let Some(level) = levels.get_mut(lvl as usize) {
             for i in 0..v.len() {
                 // note we are using unidirectional edges and the incidences are not complete

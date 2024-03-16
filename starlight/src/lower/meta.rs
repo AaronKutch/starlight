@@ -67,7 +67,7 @@ pub fn create_static_lut(
         Err(inxs[0])
     } else {
         Ok(Op::StaticLut(
-            ConcatType::from_iter(inxs.iter().cloned()),
+            ConcatType::from_iter(inxs.iter().copied()),
             lut,
         ))
     }
@@ -208,7 +208,7 @@ pub fn general_mux(inputs: &[Awi], inx: &Bits) -> Awi {
         }
         let lut = Awi::new(
             lut_w,
-            Op::ConcatFields(ConcatFieldsType::from_iter(lut.iter().cloned())),
+            Op::ConcatFields(ConcatFieldsType::from_iter(lut.iter().copied())),
         );
         out_signals.push(Awi::new(bw(1), Op::Lut([lut.state(), inx.state()])).state());
     }
