@@ -3,6 +3,8 @@ use std::{
     num::{NonZeroU32, NonZeroU64},
 };
 
+use awint::awint_dag::triple_arena::{Recast, Recaster};
+
 use crate::{
     ensemble::PEquiv,
     route::{ChannelWidths, Channeler, PCEdge, PCNode, Programmability, Source},
@@ -42,6 +44,29 @@ pub struct CNode {
     pub alg_entry_width: usize,
     // this is used in Dijkstras' and points backwards
     pub alg_edge: (Option<PCEdge>, usize),
+}
+
+impl Recast<PCNode> for CNode {
+    fn recast<R: Recaster<Item = PCNode>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.p_supernode.recast(recaster)?;
+        self.p_subnodes.recast(recaster)
+    }
+}
+
+impl Recast<PCEdge> for CNode {
+    fn recast<R: Recaster<Item = PCEdge>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.sink_incident.recast(recaster)?;
+        for (p_cedge, _) in &mut self.source_incidents {
+            p_cedge.recast(recaster)?;
+        }
+        self.alg_edge.0.recast(recaster)
+    }
 }
 
 impl CNode {

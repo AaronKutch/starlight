@@ -4,15 +4,17 @@ use std::{
     num::{NonZeroU32, NonZeroU64},
 };
 
-use awint::{awint_dag::triple_arena::Advancer, Awi};
+use awint::{
+    awint_dag::triple_arena::{Advancer, Recast, Recaster},
+    Awi,
+};
 
-use super::PCEdge;
 use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble::{DynamicValue, Ensemble, LNodeKind, PBack},
     route::{
         cnode::{generate_hierarchy, InternalBehavior},
-        Channeler, Configurator, PCNode, PConfig,
+        Channeler, Configurator, PCEdge, PCNode, PConfig,
     },
     Error, SuspendedEpoch,
 };
@@ -136,6 +138,15 @@ pub struct Source {
     pub delay_weight: NonZeroU32,
 }
 
+impl Recast<PCNode> for Source {
+    fn recast<R: Recaster<Item = PCNode>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.p_cnode.recast(recaster)
+    }
+}
+
 /// A channel edge
 #[derive(Debug, Clone)]
 pub struct CEdge {
@@ -151,6 +162,16 @@ pub struct CEdge {
 
     /// Used by algorithms
     pub alg_visit: NonZeroU64,
+}
+
+impl Recast<PCNode> for CEdge {
+    fn recast<R: Recaster<Item = PCNode>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.sources.recast(recaster)?;
+        self.sources.recast(recaster)
+    }
 }
 
 impl CEdge {
@@ -338,8 +359,6 @@ impl Channeler {
             }
         }
 
-        channeler.p_back_to_cnode.compress_and_shrink();
-
         // TODO handle or warn about crazy magnitude difference cases
         let delay_divisor = (max_delay >> 16).saturating_add(1);
 
@@ -422,6 +441,14 @@ impl Channeler {
                 }
             }
         }
+
+        // `p_back_to_cnode` should be frozen now since it is only on the base layer
+        channeler.p_back_to_cnode.compress_and_shrink();
+
+        // perform a compression step because of the `CNode` removals, want the base
+        // layer to be compact
+        let cnode_recaster = channeler.cnodes.compress_and_shrink_recaster();
+        channeler.recast(&cnode_recaster).unwrap();
 
         // add `CEdge`s according to `LNode`s
         let mut adv = ensemble.lnodes.advancer();

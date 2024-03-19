@@ -1,11 +1,10 @@
 use std::num::NonZeroU64;
 
-use awint::awint_dag::triple_arena::{Arena, OrdArena};
+use awint::awint_dag::triple_arena::{Arena, OrdArena, Recast, Recaster};
 
-use super::Programmability;
 use crate::{
     ensemble::{Ensemble, PBack, PEquiv},
-    route::{CEdge, CNode, PBackToCnode, PCEdge, PCNode},
+    route::{CEdge, CNode, PBackToCnode, PCEdge, PCNode, Programmability},
     utils::binary_search_similar_by,
     Error,
 };
@@ -18,6 +17,16 @@ pub struct Channeler {
     pub(crate) p_back_to_cnode: OrdArena<PBackToCnode, PBack, PCNode>,
     // used by algorithms to avoid `OrdArena`s
     pub alg_visit: NonZeroU64,
+}
+
+impl Recast<PCNode> for Channeler {
+    fn recast<R: Recaster<Item = PCNode>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.cedges.recast(recaster)?;
+        self.p_back_to_cnode.recast(recaster)
+    }
 }
 
 impl Channeler {

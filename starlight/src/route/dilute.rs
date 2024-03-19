@@ -5,9 +5,8 @@ use std::{cmp::Reverse, collections::BinaryHeap, num::NonZeroU64};
 
 use awint::awint_dag::triple_arena::Advancer;
 
-use super::PCNode;
 use crate::{
-    route::{Edge, EdgeKind, PNodeEmbed, Router},
+    route::{Edge, EdgeKind, PCNode, PNodeEmbed, Router},
     Error,
 };
 
