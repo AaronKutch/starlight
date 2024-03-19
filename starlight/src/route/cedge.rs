@@ -383,7 +383,15 @@ impl Channeler {
             nodes.push(tnode.p_driver);
             while let Some(p_back) = nodes.pop() {
                 let p_equiv = ensemble.backrefs.get_val(p_back).unwrap().p_self_equiv;
-                channeler.set_translation(p_equiv, p_forward).unwrap();
+                let p_cnode_old = channeler.translate_equiv(p_equiv).unwrap();
+                if p_cnode_old != p_forward {
+                    // remove cnode, because of cycles we can't have the cnode generation phase
+                    // decide to only insert one in the first place, we must remove all but
+                    // `p_forward` here.
+                    channeler.cnodes.remove(p_cnode_old).unwrap();
+                    // set new translation
+                    channeler.set_translation(p_equiv, p_forward).unwrap();
+                }
                 let mut adv = ensemble.backrefs.advancer_surject(p_back);
                 while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                     use crate::ensemble::Referent::*;

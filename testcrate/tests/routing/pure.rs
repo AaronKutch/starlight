@@ -96,3 +96,13 @@ fn route_pure_single_small() {
     drop(target_epoch);
     drop(program_epoch);
 }
+
+// TODO when the more advanced general routing is done redo this
+#[test]
+fn route_pure_stats() {
+    let (_, target_configurator, target_epoch) = FabricTargetInterface::target((2, 2));
+    let (_, program_epoch) = SimpleCopyProgramInterface::program();
+    let router = Router::new(&target_epoch, &target_configurator, &program_epoch).unwrap();
+    assert_eq!(router.target_channeler().cnodes.len(), 30);
+    assert_eq!(router.target_channeler().cedges.len(), 9);
+}
