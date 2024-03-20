@@ -158,9 +158,14 @@ fn route_errors_simple() {
         router.config_target(),
         Err(Error::NotInTargetEpoch)
     ));
+    // can do this outside of a target epoch, only `config_target` requires the
+    // target epoch
+    let _ = router
+        .get_config(&target.switch_grid[(0, 0)].configs[0])
+        .unwrap();
     assert!(matches!(
-        router.get_config(&target.switch_grid[(0, 0)].configs[0]),
-        Err(Error::NotInTargetEpoch)
+        router.get_config(&program.input),
+        Err(Error::InvalidPExternalConfig(_))
     ));
 
     drop(third_epoch);
@@ -168,9 +173,6 @@ fn route_errors_simple() {
     let target_epoch = target_epoch.resume();
 
     router.config_target().unwrap();
-    let _ = router
-        .get_config(&target.switch_grid[(0, 0)].configs[0])
-        .unwrap();
 
     // actually check to make sure embeddings are not double applied or something
     corresponder

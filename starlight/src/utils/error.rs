@@ -34,12 +34,19 @@ pub enum Error {
          operations require that `self` is the current `Epoch`"
     )]
     WrongCurrentlyActiveEpoch,
-    /// If an `RNode` was requested that cannot be found
+    /// If an `RNode` was requested that cannot be found, in what is probably
+    /// the context of a thread local access
     #[error(
         "could not find thread local `RNode` corresponding to {0:#?}, probably an `EvalAwi` or \
          `LazyAwi` was used outside of the `Epoch` it was created in"
     )]
     InvalidPExternal(PExternal),
+    /// If an `RNode` was requested that cannot be found
+    #[error(
+        "could not find target configuration `RNode`s corresponding to {0:#?}, probably an \
+         `EvalAwi` or `LazyAwi` from the wrong `Epoch` context was used as an argument"
+    )]
+    InvalidPExternalConfig(PExternal),
     /// If the associated state of an `RNode` was requested but could not be
     /// found
     #[error(

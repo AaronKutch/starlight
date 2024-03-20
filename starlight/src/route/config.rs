@@ -98,8 +98,6 @@ impl Router {
     ///
     /// - If the routing is invalid because it has never been successfully
     ///   routed or has been invalidated because of changes.
-    /// - If the target epoch is not the current `Epoch` or `config` is from the
-    ///   wrong `Epoch`
     /// - If `config` was not registered in the `Configurator` used for the
     ///   routing
     #[allow(unused)]
@@ -108,18 +106,13 @@ impl Router {
             return Err(Error::RoutingIsInvalid)
         }
         let config = config.borrow();
-        let epoch_shared = get_current_epoch()?;
-        let lock = epoch_shared.epoch_data.borrow();
-        let ensemble = &lock.ensemble;
-
         let p_external = config.p_external();
 
-        // check that we are in the right epoch, the `p_equiv` lookup could collide
-        if ensemble.notary.get_rnode(p_external).is_err() {
-            return Err(Error::NotInTargetEpoch);
+        if self.target_ensemble().notary.get_rnode(p_external).is_err() {
+            return Err(Error::InvalidPExternalConfig(p_external));
         }
 
-        let (_, rnode) = ensemble.notary.get_rnode(p_external)?;
+        let (_, rnode) = self.target_ensemble().notary.get_rnode(p_external)?;
         let mut res = Awi::zero(rnode.nzbw());
         if let Some(bits) = rnode.bits() {
             for (bit_i, bit) in bits.iter().copied().enumerate() {
