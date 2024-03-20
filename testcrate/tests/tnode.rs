@@ -1,4 +1,4 @@
-use starlight::{awi, dag, delay, Delay, Epoch, EvalAwi, LazyAwi};
+use starlight::{awi, dag, delay, Delay, Epoch, EvalAwi, LazyAwi, OptimizerOptions};
 
 // Note: these tests have duplications between versions with quiescence testing,
 // because `EvalAwi`s and quiescence testing both do lowering stuff, and we need
@@ -18,7 +18,7 @@ fn tnode_simple() {
         assert_eq!(x3.eval().unwrap(), awi!(0));
         x0.retro_umax_().unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(1));
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         x0.retro_zero_().unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(0));
         x0.retro_umax_().unwrap();
@@ -45,7 +45,7 @@ fn tnode_simple_quiescence() {
         x0.retro_umax_().unwrap();
         assert!(epoch.quiesced().unwrap());
         assert_eq!(x3.eval().unwrap(), awi!(1));
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         x0.retro_zero_().unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(0));
         x0.retro_umax_().unwrap();
@@ -71,7 +71,7 @@ fn tnode_loop() {
         assert_eq!(x3.eval().unwrap(), awi!(1));
         epoch.run(Delay::from(1)).unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(0));
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         epoch.run(Delay::from(1)).unwrap();
         assert_eq!(x3.eval().unwrap(), awi!(1));
         epoch.run(Delay::from(1)).unwrap();
@@ -101,7 +101,7 @@ fn tnode_loop_quiescence() {
         assert!(!epoch.quiesced().unwrap());
         assert_eq!(x3.eval().unwrap(), awi!(0));
         assert!(!epoch.quiesced().unwrap());
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         assert!(!epoch.quiesced().unwrap());
         epoch.run(Delay::from(1)).unwrap();
         assert!(!epoch.quiesced().unwrap());

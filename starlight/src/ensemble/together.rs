@@ -62,7 +62,7 @@ impl Ensemble {
             tnodes: Arena::new(),
             evaluator: Evaluator::new(),
             delayer: Delayer::new(),
-            optimizer: Optimizer::new(),
+            optimizer: Optimizer::default(),
             alg_visit: NonZeroU64::new(2).unwrap(),
             debug_counter: 0,
         }

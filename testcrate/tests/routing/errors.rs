@@ -1,4 +1,6 @@
-use starlight::{route::Router, Corresponder, Epoch, Error, In, Out, SuspendedEpoch};
+use starlight::{
+    route::Router, Corresponder, Epoch, Error, In, OptimizerOptions, Out, SuspendedEpoch,
+};
 use testcrate::targets::FabricTargetInterface;
 
 struct SimpleCopyProgramInterface {
@@ -21,7 +23,7 @@ impl SimpleCopyProgramInterface {
     pub fn program() -> (Self, SuspendedEpoch) {
         let epoch = Epoch::new();
         let res = Self::definition();
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         (res, epoch.suspend())
     }
 }

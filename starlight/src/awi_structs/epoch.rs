@@ -22,7 +22,7 @@ use awint::{
 };
 
 use crate::{
-    ensemble::{Delay, Ensemble, Value},
+    ensemble::{Delay, Ensemble, OptimizerOptions, Value},
     Error, EvalAwi,
 };
 
@@ -843,12 +843,12 @@ impl Epoch {
 
     /// Runs optimization including lowering then pruning all states. Requires
     /// that `self` be the current `Epoch`.
-    pub fn optimize(&self) -> Result<(), Error> {
+    pub fn optimize(&self, options: OptimizerOptions) -> Result<(), Error> {
         let epoch_shared = self.check_current()?;
         Ensemble::handle_states_to_lower(&epoch_shared)?;
         Ensemble::lower_for_rnodes(&epoch_shared).unwrap();
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.optimize_all().unwrap();
+        lock.ensemble.optimize(options).unwrap();
         drop(lock);
         let _ = epoch_shared.assert_assertions(false);
         Ok(())

@@ -9,7 +9,7 @@ use crate::{
         PMapping, PNodeEmbed,
     },
     triple_arena::Arena,
-    Corresponder, Error, SuspendedEpoch,
+    Corresponder, Error, OptimizerOptions, SuspendedEpoch,
 };
 
 #[derive(Debug, Clone)]
@@ -93,6 +93,11 @@ impl Router {
     ///
     /// 7. Now `transpose*` functions can be used with the configurator to
     ///    transpose any desired program operations onto the target.
+    ///
+    /// Note that the program is optimized internally with
+    /// `union_remove_all_tnodes` (so that external post-simulation will not run
+    /// into instant infinite loop problems), however it should be optimized
+    /// before use with a higher optimization level.
     pub fn new(
         target_epoch: &SuspendedEpoch,
         configurator: &Configurator,
@@ -108,7 +113,8 @@ impl Router {
     }
 
     /// Create the router from externally created `Channeler`s and no automatic
-    /// mappings
+    /// mappings, automatically runs basic optimization with
+    /// `union_remove_all_tnodes`
     pub fn new_from_channelers(
         target_epoch: &SuspendedEpoch,
         target_channeler: Channeler,
@@ -117,8 +123,10 @@ impl Router {
     ) -> Self {
         let mut program_ensemble = program_epoch.ensemble(|ensemble| ensemble.clone());
         if !program_ensemble.tnodes.is_empty() {
-            // optimize internally
-            todo!()
+            // remove all `TNode`s
+            program_ensemble
+                .optimize(OptimizerOptions::new().union_remove_all_tnodes(true))
+                .unwrap();
         }
         Self {
             target_ensemble: target_epoch.ensemble(|ensemble| ensemble.clone()),

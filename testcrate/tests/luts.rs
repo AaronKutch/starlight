@@ -3,8 +3,7 @@
 use std::num::NonZeroUsize;
 
 use starlight::{
-    awi,
-    awi::*,
+    awi::{self, *},
     awint_dag::{
         smallvec::{smallvec, SmallVec},
         Lineage, Op,
@@ -13,7 +12,7 @@ use starlight::{
     ensemble::LNodeKind,
     lower::meta::create_static_lut,
     utils::StarRng,
-    Epoch, EvalAwi, LazyAwi,
+    Epoch, EvalAwi, LazyAwi, OptimizerOptions,
 };
 
 // Test static LUT simplifications, this also handles input duplication cases
@@ -62,7 +61,7 @@ fn lut_optimization_with_dup() {
 
                 let opt_res = EvalAwi::from(&x);
 
-                epoch.optimize().unwrap();
+                epoch.optimize(OptimizerOptions::new()).unwrap();
 
                 input.retro_(&original_input).unwrap();
 
@@ -255,7 +254,7 @@ fn lut_optimization() {
                 let mut output = Awi::zero(bw(1));
                 output.lut_(&Awi::from(&lut), &total).unwrap();
                 let output = EvalAwi::from(&output);
-                epoch.optimize().unwrap();
+                epoch.optimize(OptimizerOptions::new()).unwrap();
 
                 {
                     use awi::*;
@@ -325,7 +324,7 @@ fn lut_optimization() {
                 let mut output = Awi::zero(bw(1));
                 output.lut_(&Awi::from(&lut), &total).unwrap();
                 let output = EvalAwi::from(&output);
-                epoch.optimize().unwrap();
+                epoch.optimize(OptimizerOptions::new()).unwrap();
 
                 for i in 0..w.get() {
                     if known_inputs.get(i).unwrap() {
@@ -445,7 +444,7 @@ fn lut_dynamic_optimization() {
                 let mut output = Awi::zero(bw(1));
                 output.lut_(&total_lut_bits, &total).unwrap();
                 let output = EvalAwi::from(&output);
-                epoch.optimize().unwrap();
+                epoch.optimize(OptimizerOptions::new()).unwrap();
 
                 {
                     epoch.ensemble(|ensemble| {
@@ -528,7 +527,7 @@ fn lut_dynamic_optimization() {
                 let mut output = Awi::zero(bw(1));
                 output.lut_(&total_lut_bits, &total).unwrap();
                 let output = EvalAwi::from(&output);
-                epoch.optimize().unwrap();
+                epoch.optimize(OptimizerOptions::new()).unwrap();
 
                 for i in 0..w.get() {
                     if known_inputs.get(i).unwrap() {

@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.5.0] - TODO
+### Changes
+- The optimization functions now take a new `OptimizerOptions`
+
 ## [0.4.0] - 2024-02-21
 ### Crate
 - `awint` 0.17 and `triple_arena` 0.13

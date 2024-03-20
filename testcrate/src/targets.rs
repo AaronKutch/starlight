@@ -11,7 +11,7 @@ use starlight::{
     route::{Channeler, Configurator, PCNode},
     triple_arena::{ptr_struct, OrdArena},
     utils::{Grid, Ortho::*, OrthoArray, Render},
-    Drive, Epoch, In, LazyAwi, Net, Out, SuspendedEpoch,
+    Drive, Epoch, In, LazyAwi, Net, OptimizerOptions, Out, SuspendedEpoch,
 };
 
 // TODO in another file test routing an example state machine over an island
@@ -116,7 +116,7 @@ impl FabricTargetInterface {
     pub fn target(len: (usize, usize)) -> (Self, Configurator, SuspendedEpoch) {
         let epoch = Epoch::new();
         let res = Self::definition(len);
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         let mut target_configurator = Configurator::new();
         res.switch_grid.for_each(|switch, _| {
             for config in &switch.configs {

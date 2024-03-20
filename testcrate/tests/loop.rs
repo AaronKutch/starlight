@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use starlight::{awi, dag, ensemble::Delay, Epoch, EvalAwi, LazyAwi, Loop, Net};
+use starlight::{awi, dag, ensemble::Delay, Epoch, EvalAwi, LazyAwi, Loop, Net, OptimizerOptions};
 
 // be careful not to change existing tests too much, these test a lot of
 // ordering and nonoptimization cases
@@ -30,7 +30,7 @@ fn loop_zero_delay() {
         assert_eq!(eval0.eval().unwrap(), awi!(01));
         assert_eq!(eval1.eval().unwrap(), awi!(01));
 
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
 
         or_ctrl.retro_(&awi!(11)).unwrap();
 
@@ -186,7 +186,7 @@ fn exhaustive_net_test(epoch: &Epoch, num_ports: awi::usize, diff: awi::isize) {
     let eval_res = EvalAwi::from_bool(res.is_none());
     {
         use awi::*;
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         for i in 0..(1 << w.get()) {
             let mut inx = Awi::zero(w);
             inx.usize_(i);

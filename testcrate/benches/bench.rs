@@ -1,7 +1,7 @@
 #![feature(test)]
 
 extern crate test;
-use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi, Net};
+use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi, Net, OptimizerOptions};
 use test::Bencher;
 
 #[bench]
@@ -29,7 +29,7 @@ fn optimize_funnel(bencher: &mut Bencher) {
         let mut out = inlawi!(0u32);
         out.funnel_(&rhs, &s).unwrap();
         let _eval = EvalAwi::from(&out);
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         epoch.assert_assertions(true).unwrap();
     })
 }
@@ -52,7 +52,7 @@ fn loop_net(bencher: &mut Bencher) {
     let eval_res = EvalAwi::from_bool(res.is_none());
     {
         use awi::*;
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         bencher.iter(|| {
             for i in 0..(1 << w.get()) {
                 let mut inx = Awi::zero(w);

@@ -1,6 +1,8 @@
 //! pure routing with no combinatorics
 
-use starlight::{dag, delay, route::Router, Corresponder, Epoch, In, Out, SuspendedEpoch};
+use starlight::{
+    dag, delay, route::Router, Corresponder, Epoch, In, OptimizerOptions, Out, SuspendedEpoch,
+};
 use testcrate::targets::FabricTargetInterface;
 struct SimpleCopyProgramInterface {
     input: In<1>,
@@ -20,7 +22,7 @@ impl SimpleCopyProgramInterface {
     pub fn program() -> (Self, SuspendedEpoch) {
         let epoch = Epoch::new();
         let res = Self::definition();
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         (res, epoch.suspend())
     }
 }

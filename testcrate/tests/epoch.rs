@@ -1,5 +1,5 @@
 use dag::*;
-use starlight::{awi, dag, Epoch, Error, EvalAwi, LazyAwi, Loop};
+use starlight::{awi, dag, Epoch, Error, EvalAwi, LazyAwi, Loop, OptimizerOptions};
 
 #[test]
 #[should_panic]
@@ -137,7 +137,7 @@ fn epoch_shared2() {
     let epoch1 = Epoch::shared_with(&epoch0);
     let (lazy1, eval1) = ex();
     drop(epoch0);
-    epoch1.optimize().unwrap();
+    epoch1.optimize(OptimizerOptions::new()).unwrap();
     drop(lazy1);
     drop(eval1);
     drop(epoch1);
@@ -276,7 +276,10 @@ fn epoch_fallible_inactive_errors() {
             epoch.lower_and_prune(),
             Err(Error::WrongCurrentlyActiveEpoch)
         );
-        assert_eq!(epoch.optimize(), Err(Error::WrongCurrentlyActiveEpoch));
+        assert_eq!(
+            epoch.optimize(OptimizerOptions::new()),
+            Err(Error::WrongCurrentlyActiveEpoch)
+        );
         assert_eq!(epoch.run(0), Err(Error::WrongCurrentlyActiveEpoch));
         assert_eq!(epoch.quiesced(), Err(Error::WrongCurrentlyActiveEpoch));
     }

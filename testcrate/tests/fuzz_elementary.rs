@@ -5,7 +5,7 @@ use starlight::{
     delay,
     triple_arena::{ptr_struct, Arena},
     utils::StarRng,
-    Epoch, EvalAwi, LazyAwi,
+    Epoch, EvalAwi, LazyAwi, OptimizerOptions,
 };
 
 #[cfg(debug_assertions)]
@@ -250,7 +250,7 @@ fn fuzz_elementary() {
         m.finish(&epoch);
         epoch.verify_integrity().unwrap();
         m.verify_equivalence(&epoch);
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         m.verify_equivalence(&epoch);
         // TODO verify stable optimization
         drop(epoch);
@@ -273,7 +273,7 @@ fn fuzz_elementary_with_delay() {
         m.finish(&epoch);
         epoch.verify_integrity().unwrap();
         m.verify_equivalence(&epoch);
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         m.verify_equivalence(&epoch);
         // TODO verify stable optimization
         drop(epoch);
@@ -281,4 +281,29 @@ fn fuzz_elementary_with_delay() {
     }
 }
 
-// TODO need a version that precisely times `TNode`s
+// TODO need a versions of these that precisely times `TNode`s and test cyclical
+// cases
+
+#[test]
+fn fuzz_elementary_union_remove_all_tnodes() {
+    let mut rng = StarRng::new(0);
+    let mut m = Mem::new();
+
+    for _ in 0..N.1 {
+        //let mut rng = StarRng::new(i as u64);
+        //m.rng = StarRng::new((i + 1) as u64);
+        let epoch = Epoch::new();
+        for _ in 0..N.0 {
+            operation(&mut rng, &mut m, true)
+        }
+        m.finish(&epoch);
+        epoch.verify_integrity().unwrap();
+        m.verify_equivalence(&epoch);
+        epoch
+            .optimize(OptimizerOptions::new().union_remove_all_tnodes(true))
+            .unwrap();
+        m.verify_equivalence(&epoch);
+        drop(epoch);
+        m.clear();
+    }
+}

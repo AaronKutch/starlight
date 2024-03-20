@@ -19,7 +19,7 @@ use awint::awint_dag::triple_arena::ptr_struct;
 pub use correspond::Corresponder;
 pub use equiv::{Equiv, PEquiv};
 pub use lnode::{LNode, LNodeKind, SurjectPLNodeAdvancer};
-pub use optimize::Optimizer;
+pub use optimize::{Optimizer, OptimizerOptions};
 pub use rnode::{Notary, PExternal, RNode};
 pub use state::{State, Stator};
 pub use tnode::{Delay, Delayer, TNode};

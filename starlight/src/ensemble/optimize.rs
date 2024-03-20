@@ -74,20 +74,34 @@ pub enum Optimization {
 
 #[derive(Debug, Clone, Default)]
 pub struct OptimizerOptions {
-    union_remove_all_tnodes: bool,
+    // TODO this is needed by the program side in the router, this breaks an older idea where
+    // `LNode` regions would always be DAGs
+    /// For all temporal nodes (from any delays or `drive_*` functions), the
+    /// driver equivalence and driven equivalence are unioned together and the
+    /// `TNode` removed.
+    pub union_remove_all_tnodes: bool,
+}
+
+impl OptimizerOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn union_remove_all_tnodes(mut self, set: bool) -> Self {
+        self.union_remove_all_tnodes = set;
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Optimizer {
     optimizations: OrdArena<POpt, Optimization, ()>,
-    options: OptimizerOptions,
 }
 
 impl Optimizer {
     pub fn new() -> Self {
         Self {
             optimizations: OrdArena::new(),
-            options: OptimizerOptions::default(),
         }
     }
 
@@ -115,7 +129,7 @@ impl Ensemble {
         Ok(match &mut lnode.kind {
             LNodeKind::Copy(inp) => {
                 // wire propogation
-                let input_equiv = self.backrefs.get_val_mut(*inp).unwrap();
+                let input_equiv = self.backrefs.get_val(*inp).unwrap();
                 let val = input_equiv.val;
                 if val.is_const() {
                     let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
@@ -591,10 +605,22 @@ impl Ensemble {
     }
 
     /// Removes all states, optimizes, and shrinks allocations
-    pub fn optimize_all(&mut self) -> Result<(), Error> {
+    pub fn optimize(&mut self, options: OptimizerOptions) -> Result<(), Error> {
         // empty current events because they will be invalidated and shrunk
         self.restart_request_phase()?;
         self.force_remove_all_states().unwrap();
+
+        if options.union_remove_all_tnodes {
+            let mut adv = self.tnodes.advancer();
+            while let Some(p_tnode) = adv.advance(&self.tnodes) {
+                let tnode = self.tnodes.remove(p_tnode).unwrap();
+                // one `union_equiv` could lead another `TNode` to already be unioned
+                let _ = self.union_equiv(tnode.p_self, tnode.p_driver);
+                self.backrefs.remove_key(tnode.p_self).unwrap();
+                self.backrefs.remove_key(tnode.p_driver).unwrap();
+            }
+        }
+
         // need to preinvestigate everything before starting a priority loop
         let mut v = vec![];
         for equiv in self.backrefs.vals() {
@@ -604,12 +630,12 @@ impl Ensemble {
             self.preinvestigate_equiv(p_equiv)?;
         }
         while let Some(p_optimization) = self.optimizer.optimizations.first() {
-            self.optimize(p_optimization)?;
+            self.optimize_single(p_optimization)?;
         }
         self.recast_all_internal_ptrs()
     }
 
-    pub fn optimize(&mut self, p_optimization: POpt) -> Result<(), Error> {
+    pub fn optimize_single(&mut self, p_optimization: POpt) -> Result<(), Error> {
         let optimization = self
             .optimizer
             .optimizations
