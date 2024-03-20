@@ -2,7 +2,10 @@ use std::{fmt, num::NonZeroU64};
 
 use awint::awint_dag::triple_arena::{Recast, Recaster};
 
-use crate::ensemble::{PBack, Value};
+use crate::{
+    ensemble::{PBack, Value},
+    route::PNodeEmbed,
+};
 
 /// A guard around a `PBack` indicating that this uniquely corresponds to a
 /// `Referent::ThisEquiv` key
@@ -44,6 +47,7 @@ pub struct Equiv {
     pub evaluator_partial_order: NonZeroU64,
     /// Algorithm visit number
     pub alg_visit: NonZeroU64,
+    pub p_node_embed: Option<PNodeEmbed>,
 }
 
 impl Recast<PBack> for Equiv {
@@ -62,6 +66,7 @@ impl Equiv {
             val,
             evaluator_partial_order: NonZeroU64::new(1).unwrap(),
             alg_visit: NonZeroU64::new(1).unwrap(),
+            p_node_embed: None,
         }
     }
 }

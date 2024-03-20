@@ -72,15 +72,22 @@ pub enum Optimization {
     //Fusion(u8, PBack)
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct OptimizerOptions {
+    union_remove_all_tnodes: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct Optimizer {
     optimizations: OrdArena<POpt, Optimization, ()>,
+    options: OptimizerOptions,
 }
 
 impl Optimizer {
     pub fn new() -> Self {
         Self {
             optimizations: OrdArena::new(),
+            options: OptimizerOptions::default(),
         }
     }
 

@@ -8,7 +8,9 @@ use awint::{
     awi,
     awint_dag::{
         smallvec,
-        triple_arena::{Recast, Recaster, SurjectArena},
+        triple_arena::{
+            surject_iterators::SurjectPtrAdvancer, Advancer, Recast, Recaster, SurjectArena,
+        },
         PState,
     },
     Awi, Bits,
@@ -17,6 +19,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::{
     ensemble::{DynamicValue, Ensemble, Equiv, PBack, PLNode, Referent, Value},
+    route::PEdgeEmbed,
     Error,
 };
 
@@ -37,6 +40,7 @@ pub struct LNode {
     pub p_self: PBack,
     pub kind: LNodeKind,
     pub lowered_from: Option<PState>,
+    pub p_edge_embed: Option<PEdgeEmbed>,
 }
 
 impl Recast<PBack> for LNode {
@@ -240,6 +244,7 @@ impl LNode {
             p_self,
             kind,
             lowered_from,
+            p_edge_embed: None,
         }
     }
 
@@ -281,6 +286,29 @@ impl LNode {
                 for inp in lut.iter_mut() {
                     if let DynamicValue::Dynam(inp) = inp {
                         f(inp);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Returns all incidents to the `LNode` including inputs and the output
+    pub fn incidents<F: FnMut(PBack)>(&self, mut f: F) {
+        f(self.p_self);
+        match &self.kind {
+            LNodeKind::Copy(inp) => f(*inp),
+            LNodeKind::Lut(inp, _) => {
+                for inp in inp.iter() {
+                    f(*inp);
+                }
+            }
+            LNodeKind::DynamicLut(inp, lut) => {
+                for inp in inp.iter() {
+                    f(*inp);
+                }
+                for inp in lut.iter() {
+                    if let DynamicValue::Dynam(inp) = inp {
+                        f(*inp);
                     }
                 }
             }
@@ -644,5 +672,33 @@ impl Ensemble {
         equiv.val = init_val;
         equiv.evaluator_partial_order = source_partial_ordering.checked_add(1).unwrap();
         p_equiv
+    }
+
+    /// Returns all `LNode`s with inputs or outputs connected to the surject of
+    /// `p_init`
+    pub fn advancer_lnode_surject(&self, p_init: PBack) -> SurjectPLNodeAdvancer {
+        SurjectPLNodeAdvancer {
+            adv: self.backrefs.advancer_surject(p_init),
+        }
+    }
+}
+
+pub struct SurjectPLNodeAdvancer {
+    adv: SurjectPtrAdvancer<PBack, Referent, Equiv>,
+}
+
+impl Advancer for SurjectPLNodeAdvancer {
+    type Collection = SurjectArena<PBack, Referent, Equiv>;
+    type Item = PLNode;
+
+    fn advance(&mut self, collection: &Self::Collection) -> Option<Self::Item> {
+        while let Some(p_ref) = self.adv.advance(collection) {
+            match collection.get_key(p_ref) {
+                Some(Referent::ThisLNode(p_lnode)) => return Some(*p_lnode),
+                Some(Referent::Input(p_lnode)) => return Some(*p_lnode),
+                _ => (),
+            }
+        }
+        None
     }
 }

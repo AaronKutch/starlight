@@ -2,7 +2,7 @@ use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
     ensemble::{PEquiv, PLNode, Referent},
-    route::{Edge, EdgeKind, HyperPath, NodeOrEdge, PMapping, Path, Router},
+    route::{Edge, EdgeKind, HyperPath, NodeOrEdge, PCNode, PMapping, Path, Router},
     Error,
 };
 
@@ -10,13 +10,15 @@ use crate::{
 pub struct NodeEmbed {
     pub program_node: PEquiv,
     pub hyperpath: HyperPath,
+    pub first_embedded_by: PMapping,
 }
 
 impl NodeEmbed {
-    pub fn new(program_node: PEquiv, hyperpath: HyperPath) -> Self {
+    pub fn new(program_node: PEquiv, hyperpath: HyperPath, first_embedded_by: PMapping) -> Self {
         Self {
             program_node,
             hyperpath,
+            first_embedded_by,
         }
     }
 }
@@ -37,39 +39,107 @@ impl EdgeEmbed {
 }
 
 impl Router {
-    /// This will create a base hyperpath embedding, returning an error if a
-    /// program node has already been associated with an embedding. If
-    /// `embed_program_root_into_target_root.is_some()`, then the root supernode
-    /// of `program_cnode` on the _program_ side is embedded in the target root
-    /// supplied, if not already embedded. If already embedded, it will check
-    /// that root nodes agree, otherwise it returns an error.
+    /// This assumes we are in the single initial embedding pass that embeds
+    /// every thing in target root nodes. This will create a base hyperpath
+    /// embedding, returning an error if `program_node` has been already
+    /// embedded with an incompatible embedding. `common_root` should be `None`
+    /// only in the special program copy case.
     fn make_hyperpath_embedding(
         &mut self,
-        embed_from: PEquiv,
+        program_node: PEquiv,
         hyperpath: HyperPath,
+        common_root: Option<PCNode>,
+        embedding_from: PMapping,
     ) -> Result<(), Error> {
-        //FIXME or should this be a thing checked in validation?
-        /*let embedding_ref = &mut self
-            .program_channeler
-            .cnodes
-            .get_val_mut(embed_from)
-            .unwrap()
-            .embedding;
-        if embedding_ref.is_some() {
-            return Err(Error::OtherString(format!(
-                "program node {embed_from:?} is already associated with an embedding, there is \
-                 probably a bug in the router",
-            )));
-        }*/
-        self.node_embeddings
-            .insert(NodeEmbed::new(embed_from, hyperpath));
-        Ok(())
+        let node = self
+            .program_ensemble
+            .backrefs
+            .get_val(program_node.into())
+            .unwrap();
+        if let Some(p_node_embed) = node.p_node_embed {
+            if let Some(common_root) = common_root {
+                // because of the all-connected-nodes exploration that always runs after any
+                // initial embedding call, if the new embedding would have inconsistent roots we
+                // can detect immediately it here
+                let embedding = self.node_embeddings.get(p_node_embed).unwrap();
+
+                // If this was from an exploration, then all should share a common root.
+                let mut all_match = true;
+                if embedding.hyperpath.target_source != common_root {
+                    all_match = false;
+                } else {
+                    for path in embedding.hyperpath.paths() {
+                        if path.target_sink() != common_root {
+                            all_match = false;
+                        }
+                    }
+                }
+                if all_match {
+                    // replace with the compatible embedding
+                    let embedding = self.node_embeddings.get_mut(p_node_embed).unwrap();
+                    embedding.hyperpath = hyperpath;
+                    // the connected region of the program connected to this embedding was already
+                    // explored
+                    Ok(())
+                } else {
+                    // If there is a bad mapping, it is more likely to be a singular mistake that
+                    // may end up being the first setter of a region of embeddings. This is why the
+                    // node embeddings have `first_embedded_by` so that we can display it and the
+                    // embedding we were trying to make
+
+                    let s0 = self.debug_mapping(embedding.first_embedded_by);
+                    let s1 = self.debug_mapping(embedding_from);
+                    Err(Error::OtherString(format!(
+                        "When trying to find initial embeddings for program bits, found two bits \
+                         that are connected in the program that cannot be connected between their \
+                         mapped locations on the target, meaning that routing between then is \
+                         impossible regardless of other constraints and that a complete routing \
+                         is therefore impossible. One mapping involved is:\n{s0}\nand the other \
+                         mapping involved is:\n{s1}"
+                    )))
+                }
+            } else {
+                Err(Error::OtherStr(
+                    "the same plain copy program node is being embedded a second time, which \
+                     shouldn't be possible if hereditary mapping is enforced, this may be a bug \
+                     with the router",
+                ))
+            }
+        } else {
+            // initial embedding of this connected part of the program
+            self.node_embeddings
+                .insert(NodeEmbed::new(program_node, hyperpath, embedding_from));
+
+            // explore all connected nodes
+            // FIXME
+            /*let ensemble = &mut self.program_ensemble;
+            let mut front = vec![program_node.into()];
+            while let Some(p_start) = front.pop() {
+                let node = ensemble.backrefs.get_val(p_start).unwrap();
+                if node.alg_visit {
+                    continue
+                }
+                let mut adv = ensemble.advancer_lnode_surject(p_start);
+                while let Some(p_lnode) = adv.advance(&ensemble.backrefs) {
+                    let lnode = ensemble.lnodes.get_mut(p_lnode).unwrap();
+                    if lnode.p_edge_embed.is_none() {
+                        lnode.incidents(|p_back| {
+                            let node = ensemble.backrefs.get_val(p_back).unwrap();
+                            if node.p_node_embed.is_none() {}
+                        });
+                    }
+                }
+            }*/
+            Ok(())
+        }
     }
 
     /// Makes a necessary embedding to express the given mapping.
     fn make_embedding_for_mapping(&mut self, p_mapping: PMapping) -> Result<(), Error> {
         let (program_p_equiv, mapping) = self.mappings.get(p_mapping).unwrap();
         let program_p_equiv = *program_p_equiv;
+
+        // TODO support custom `CEdge` mappings
 
         // remember that `*_root` does not necessarily mean a global root, just a common
         // root
@@ -143,10 +213,12 @@ impl Router {
                 }
 
                 // this case is just a single program node not bound to any
-                // other part of the program graph, so we do not need to embed any root
+                // other part of the program graph and doesn't trigger other embeddings
                 self.make_hyperpath_embedding(
                     program_p_equiv,
                     HyperPath::new(None, target_source_p_cnode, paths),
+                    None,
+                    p_mapping,
                 )
                 .unwrap();
             } else {
@@ -169,6 +241,8 @@ impl Router {
                 self.make_hyperpath_embedding(
                     program_p_equiv,
                     HyperPath::new(None, target_source_p_cnode, paths),
+                    Some(target_root),
+                    p_mapping,
                 )
                 .unwrap();
             }
@@ -247,30 +321,11 @@ impl Router {
             self.make_hyperpath_embedding(
                 program_p_equiv,
                 HyperPath::new(program_source, target_root, paths),
+                Some(target_root),
+                p_mapping,
             )
             .unwrap();
         }
-
-        // TODO support custom `CEdge` mappings
-
-        // After much thought, I have come to the conclusion that we should embed all
-        // the remaining base nodes at once. The original idea was that after necessary
-        // embeddings were made, new embeddings would progress by embedding program
-        // nodes higher than the base level, and eventually diluting the program side
-        // embeddings at the same time as the target side. This should improve
-        // performance as long as we dilute the program side at the right times.
-        // However, upon closer inspection there are _many_ things that would be
-        // required to make this happen; interlevel embedding management on both sides
-        // would have to happen, and we simply don't have known heuristics at this time
-        // to do the program side dilution. There would have to be lazy embeddings, etc.
-        // I realize that program side dilution can only be delayed by a small constant
-        // number of levels and have comparatively little advantage overall. Instead, we
-        // are embedding all the base level program nodes at once and giving fine level
-        // details more levels to shift around. This means that we don't need a
-        // channeling graph for the program side.
-        // If we want the same speedup, then there is probably some heuristic algorithm
-        // that would allow placement of groups of program nodes at a level lower than
-        // the root
 
         Ok(())
     }
@@ -282,6 +337,27 @@ impl Router {
         self.node_embeddings.clear();
         self.edge_embeddings.clear();
 
+        // After much thought, I have come to the conclusion that we should embed all
+        // the base nodes (excluding unused program connected regions) and not just the
+        // necessary nodes from the mappings. The original idea was that after
+        // necessary embeddings were made, new embeddings would progress by
+        // embedding program nodes higher than the base level, and eventually
+        // diluting the program side embeddings at the same time as the target
+        // side. This should improve performance as long as we dilute the
+        // program side at the right times. However, upon closer inspection
+        // there are _many_ things that would be required to make this happen;
+        // interlevel embedding management on both sides would have to happen,
+        // and we simply don't have known heuristics at this time to do the
+        // program side dilution. There would have to be lazy embeddings, etc. I
+        // realize that program side dilution can only be delayed by a small
+        // constant number of levels and have comparatively little advantage
+        // overall. Instead, we are embedding all the base level program nodes
+        // at once and giving fine level details more levels to shift around.
+        // This means that we don't need a channeling graph for the program
+        // side. If we want the same speedup, then there is probably some
+        // heuristic algorithm that would allow placement of groups of program
+        // nodes at a level lower than the root
+
         // Mappings will stay static because they are used for figuring out translating
         // program IO to target IO. Embeddings will represent bulk programmings of the
         // hierarchy. However, we know that the mappings correspond to some embeddings
@@ -291,6 +367,7 @@ impl Router {
         while let Some(p_mapping) = adv.advance(&self.mappings) {
             self.make_embedding_for_mapping(p_mapping)?;
         }
+
         Ok(())
     }
 }

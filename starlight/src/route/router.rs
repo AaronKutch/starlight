@@ -115,11 +115,16 @@ impl Router {
         configurator: &Configurator,
         program_epoch: &SuspendedEpoch,
     ) -> Self {
+        let mut program_ensemble = program_epoch.ensemble(|ensemble| ensemble.clone());
+        if !program_ensemble.tnodes.is_empty() {
+            // optimize internally
+            todo!()
+        }
         Self {
             target_ensemble: target_epoch.ensemble(|ensemble| ensemble.clone()),
             target_channeler,
             configurator: configurator.clone(),
-            program_ensemble: program_epoch.ensemble(|ensemble| ensemble.clone()),
+            program_ensemble,
             mappings: OrdArena::new(),
             node_embeddings: Arena::new(),
             edge_embeddings: Arena::new(),
@@ -192,6 +197,11 @@ impl Router {
         self.target_ensemble.verify_integrity()?;
         self.target_channeler.verify_integrity()?;
         self.program_ensemble.verify_integrity()?;
+        if !self.program_ensemble().tnodes.is_empty() {
+            return Err(Error::OtherStr(
+                "there are tnodes in the program ensemble after `Router` creation",
+            ))
+        }
         // mapping validities
         for (p_mapping, program_p_equiv, mapping) in self.mappings() {
             if let Ok((_, rnode)) = self
