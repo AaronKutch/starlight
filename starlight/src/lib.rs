@@ -23,7 +23,7 @@
 //!
 //! ```rust
 //! use std::num::NonZeroUsize;
-//! use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi};
+//! use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi, OptimizerOptions};
 //!
 //! // in the scope where this is glob imported, all arbitrary width types, some primitives, and
 //! // the mechanisms in the macros will use mimicking types and be lazily evaluated in general.
@@ -100,7 +100,7 @@
 //!         .unwrap();
 //!
 //!     // lower into purely static bit movements and lookup tables and optimize
-//!     epoch.optimize().unwrap();
+//!     epoch.optimize(OptimizerOptions::new()).unwrap();
 //!
 //!     // Now the combinational logic is described in a DAG of lookup tables that we
 //!     // could use for various purposes

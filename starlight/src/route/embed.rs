@@ -1,8 +1,13 @@
+use std::fmt::Write;
+
 use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
     ensemble::{PBack, PEquiv, PLNode, Referent},
-    route::{Edge, EdgeKind, HyperPath, NodeOrEdge, PCNode, PMapping, Path, Router},
+    route::{
+        Edge, EdgeKind, HyperPath, NodeOrEdge, PCNode, PEdgeEmbed, PMapping, PNodeEmbed, Path,
+        Router,
+    },
     Error,
 };
 
@@ -68,13 +73,27 @@ impl Router {
                     Some(Referent::ThisLNode(p_lnode)) => {
                         assert!(program_source.is_none());
                         program_source = Some(*p_lnode);
-                        let lnode = self.program_ensemble.lnodes.get(*p_lnode).unwrap();
+                        let lnode = self.program_ensemble.lnodes.get_mut(*p_lnode).unwrap();
+                        if lnode.p_edge_embed.is_none() {
+                            lnode.p_edge_embed =
+                                Some(self.edge_embeddings.insert(EdgeEmbed::new(
+                                    *p_lnode,
+                                    NodeOrEdge::Node(common_root),
+                                )));
+                        }
                         lnode.inputs(|p| {
                             front.push(p);
                         });
                     }
                     Some(Referent::Input(p_lnode)) => {
-                        let lnode = self.program_ensemble.lnodes.get(*p_lnode).unwrap();
+                        let lnode = self.program_ensemble.lnodes.get_mut(*p_lnode).unwrap();
+                        if lnode.p_edge_embed.is_none() {
+                            lnode.p_edge_embed =
+                                Some(self.edge_embeddings.insert(EdgeEmbed::new(
+                                    *p_lnode,
+                                    NodeOrEdge::Node(common_root),
+                                )));
+                        }
                         lnode.incidents(|p| {
                             front.push(p);
                         });
@@ -360,29 +379,11 @@ impl Router {
                 paths.push(Path::new(None, path_to_sink));
             }
 
-            // for the program_source, there should be exactly one source from an edge
-
-            // TODO can there be zero? What kind of constant related cases are there?
-
-            let mut program_source = None;
-            let mut adv = self
-                .program_ensemble
-                .backrefs
-                .advancer_surject(program_p_equiv.into());
-            while let Some(p_ref) = adv.advance(&self.program_ensemble.backrefs) {
-                if let Referent::Input(p_lnode) =
-                    *self.program_ensemble.backrefs.get_key(p_ref).unwrap()
-                {
-                    assert!(program_source.is_none());
-                    program_source = Some(p_lnode);
-                }
-            }
-
-            assert!(program_source.is_some());
+            // `make_hyperpath_embedding` will handle the `LNode`s
 
             self.make_hyperpath_embedding(
                 program_p_equiv,
-                HyperPath::new(program_source, target_root, paths),
+                HyperPath::new(None, target_root, paths),
                 Some(target_root),
                 p_mapping,
             )
@@ -392,9 +393,10 @@ impl Router {
         Ok(())
     }
 
-    /// Clears embeddings and uses mappings to make embeddings that are known to
-    /// be neccessary for the routing to be possible.
-    pub(crate) fn initialize_embeddings(&mut self) -> Result<(), Error> {
+    /// This is public for debugging. Clears embeddings and uses mappings to
+    /// make embeddings that are known to be neccessary for the routing to
+    /// be possible.
+    pub fn initialize_embeddings(&mut self) -> Result<(), Error> {
         // in case of rerouting we need to clear old embeddings
         self.node_embeddings.clear();
         self.edge_embeddings.clear();
@@ -437,5 +439,26 @@ impl Router {
         }
 
         Ok(())
+    }
+
+    pub fn debug_node_embedding(&self, p_node_embed: PNodeEmbed) -> String {
+        let node_embed = self.node_embeddings().get(p_node_embed).unwrap();
+        format!("{node_embed:#?}")
+    }
+
+    pub fn debug_edge_embedding(&self, p_edge_embed: PEdgeEmbed) -> String {
+        let edge_embed = self.edge_embeddings().get(p_edge_embed).unwrap();
+        format!("{edge_embed:#?}")
+    }
+
+    pub fn debug_all_embeddings(&self) -> String {
+        let mut s = String::new();
+        for p_node_embed in self.node_embeddings().ptrs() {
+            writeln!(s, "{}\n", self.debug_node_embedding(p_node_embed)).unwrap();
+        }
+        for p_edge_embed in self.edge_embeddings().ptrs() {
+            writeln!(s, "{}\n", self.debug_edge_embedding(p_edge_embed)).unwrap();
+        }
+        s
     }
 }

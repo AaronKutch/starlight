@@ -7,8 +7,8 @@ use awint::{
 
 use crate::{
     ensemble::{
-        DynamicValue, Ensemble, Equiv, LNode, LNodeKind, PBack, PEquiv, PRNode, PTNode, Referent,
-        State,
+        DynamicValue, Ensemble, Equiv, LNode, LNodeKind, PBack, PEquiv, PLNode, PRNode, PTNode,
+        Referent, State,
     },
     triple_arena::{Advancer, ChainArena},
     triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
@@ -80,6 +80,13 @@ pub struct StateBit {
 }
 
 #[derive(Debug, Clone)]
+pub struct LNodeTmp {
+    p_lnode: PLNode,
+    lnode: LNode,
+    p_inputs: Vec<PBack>,
+}
+
+#[derive(Debug, Clone)]
 pub struct TNodeTmp {
     p_self: PBack,
     p_driver: PBack,
@@ -99,7 +106,7 @@ pub enum NodeKind {
     Equiv(Equiv, Vec<PBack>),
     StateBit(StateBit),
     RNode(RNodeTmp),
-    LNode(LNode),
+    LNode(LNodeTmp),
     TNode(TNodeTmp),
     Remove,
 }
@@ -122,24 +129,29 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     }
                 },
             },
-            NodeKind::LNode(lnode) => DebugNode {
+            NodeKind::LNode(lnode_tmp) => DebugNode {
                 sources: {
-                    match &lnode.kind {
-                        LNodeKind::Copy(inp) => vec![(*inp, "copy".to_owned())],
+                    match &lnode_tmp.lnode.kind {
+                        LNodeKind::Copy(inp) => {
+                            vec![(*inp, format!("{:?}", lnode_tmp.p_inputs[0]))]
+                        }
                         LNodeKind::Lut(inp, _) => inp
                             .iter()
                             .copied()
                             .enumerate()
-                            .map(|(i, p)| (p, format!("{i}")))
+                            .map(|(i, p)| (p, format!("{:?}", lnode_tmp.p_inputs[i])))
                             .collect(),
                         LNodeKind::DynamicLut(inp, lut) => {
                             let mut v = vec![];
                             for (i, p) in inp.iter().copied().enumerate() {
-                                v.push((p, format!("i{i}")));
+                                v.push((p, format!("i{i} {:?}", lnode_tmp.p_inputs[i])));
                             }
                             for (i, p) in lut.iter().copied().enumerate() {
                                 if let DynamicValue::Dynam(p_back) = p {
-                                    v.push((p_back, format!("l{i}")));
+                                    v.push((
+                                        p_back,
+                                        format!("l{i} {:?}", lnode_tmp.p_inputs[i + inp.len()]),
+                                    ));
                                 }
                             }
                             v
@@ -147,13 +159,16 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     }
                 },
                 center: {
-                    let mut v = vec![format!("{:?}", p_this)];
-                    match &lnode.kind {
-                        LNodeKind::Copy(_) => (),
+                    let mut v = vec![
+                        format!("{:?}", lnode_tmp.lnode.p_self),
+                        format!("{:?}", lnode_tmp.p_lnode),
+                    ];
+                    match &lnode_tmp.lnode.kind {
+                        LNodeKind::Copy(_) => v.push("copy".to_owned()),
                         LNodeKind::Lut(_, lut) => v.push(format!("{:?} ", lut)),
                         LNodeKind::DynamicLut(..) => v.push("dyn".to_owned()),
                     }
-                    if let Some(lowered_from) = lnode.lowered_from {
+                    if let Some(lowered_from) = lnode_tmp.lnode.lowered_from {
                         v.push(format!("{:?}", lowered_from));
                     }
                     v
@@ -244,14 +259,18 @@ impl Ensemble {
                     }
                     Referent::ThisLNode(p_lnode) => {
                         let mut lnode = self.lnodes.get(p_lnode).unwrap().clone();
+                        let mut p_inputs = vec![];
                         // forward to the `PBack`s of LNodes
                         lnode.inputs_mut(|inp| {
-                            if let Referent::Input(_) = self.backrefs.get_key(*inp).unwrap() {
-                                let p_input = self.backrefs.get_val(*inp).unwrap().p_self_equiv;
-                                *inp = p_input.into();
-                            }
+                            p_inputs.push(*inp);
+                            let p_input = self.backrefs.get_val(*inp).unwrap().p_self_equiv;
+                            *inp = p_input.into();
                         });
-                        NodeKind::LNode(lnode)
+                        NodeKind::LNode(LNodeTmp {
+                            p_lnode,
+                            lnode,
+                            p_inputs,
+                        })
                     }
                     Referent::ThisTNode(p_tnode) => {
                         let tnode = self.tnodes.get(p_tnode).unwrap();
