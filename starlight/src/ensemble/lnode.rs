@@ -32,6 +32,17 @@ pub enum LNodeKind {
     Lut(SmallVec<[PBack; 4]>, Awi),
     /// A Dynamic Lookup Table with the inputs and then the `Vec` is the table
     DynamicLut(SmallVec<[PBack; 4]>, Vec<DynamicValue>),
+    // TODO I hypothesize but need to verify that an optimizer on a lookup table based system can
+    // do everything that a classical CNF form can do but more efficiently and more
+    // straightforwardly, we just need one more kind. This would be a `SparseLut` that is
+    // virtually a table of all ones or zeros, and only a few entries are specified with static or
+    // dynamic (?) inputs. Making the other types work with this case will allow for optimizations
+    // around cases where a large number of inputs together have a well structured LUT such as a
+    // comparison to zero gate (all zeros except for one one entry) that can have a practically
+    // arbitrarily large number of inputs in contrast to the other LUTs that have the exponential
+    // blowup drawback. `SparseLut` is only used by certain meta constructions and by higher
+    // degree optimizers to do the most complicated optimizations, and gets lowered into the other
+    // types before being used by the router.
 }
 
 /// A lookup table node

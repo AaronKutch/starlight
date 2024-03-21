@@ -92,7 +92,8 @@ impl Configurator {
 
 impl Router {
     /// Finds the configuration associated with `config`. Note that if a bit is
-    /// not necessarily set to anything, it will be set to zero.
+    /// not necessarily set to anything, it will be set to zero. Does _not_
+    /// require that the target epoch be the current epoch.
     ///
     /// # Errors
     ///
@@ -202,10 +203,11 @@ impl Router {
 
     /// Sets all the configurations derived from final embeddings
     pub(crate) fn set_configurations(&mut self) -> Result<(), Error> {
-        // assumes that all config `value`s are set to `None` and we only route once,
-        // otherwise we have to set them all to `None` at the start because it is used
-        // to detect if there are contradictions
-
+        // need to clear all in case of reroute, the `is_some` state is used for
+        // detecting contradictions
+        for configuration in self.configurator.configurations.vals_mut() {
+            configuration.value = None;
+        }
         for embedding in self.node_embeddings.vals() {
             // follow the `SelectorLut`s of the hyperpath
             for path in embedding.hyperpath.paths() {

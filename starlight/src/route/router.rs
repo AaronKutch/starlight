@@ -753,9 +753,6 @@ impl Router {
     /// mappings.
     pub fn route_without_remapping(&mut self) -> Result<(), Error> {
         self.initialize_embeddings()?;
-        for configuration in self.configurator.configurations.vals_mut() {
-            configuration.value = None;
-        }
         route(self)?;
         self.set_configurations()?;
         self.is_valid_routing = true;

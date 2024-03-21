@@ -65,10 +65,6 @@ impl Path {
     pub fn push(&mut self, edge: Edge) {
         self.edges.push(edge)
     }
-
-    pub fn extend<I: IntoIterator<Item = Edge>>(&mut self, edges: I) {
-        self.edges.extend(edges)
-    }
 }
 
 /// Represents the "hyperpath" that a logical bit will take from a `source` node

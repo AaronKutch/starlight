@@ -1,7 +1,7 @@
 use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
-    ensemble::{PEquiv, PLNode, Referent},
+    ensemble::{PBack, PEquiv, PLNode, Referent},
     route::{Edge, EdgeKind, HyperPath, NodeOrEdge, PCNode, PMapping, Path, Router},
     Error,
 };
@@ -39,11 +39,72 @@ impl EdgeEmbed {
 }
 
 impl Router {
+    /// Explore all connected nodes and embed them in the root, on most targets
+    /// this will explore the entire target so this should have its own
+    /// optimized function
+    fn embed_all_connected(
+        &mut self,
+        common_root: PCNode,
+        p_init: PBack,
+        embedding_from: PMapping,
+    ) -> Result<(), Error> {
+        // advance based on the visit number and not on whether the node is already
+        // embedded, since `p_init` has already been embedded
+        let visit = self.program_ensemble.next_alg_visit();
+        let mut front = vec![p_init];
+        while let Some(p_start) = front.pop() {
+            let node = self.program_ensemble.backrefs.get_val_mut(p_start).unwrap();
+            if node.alg_visit == visit {
+                continue
+            }
+            node.alg_visit = visit;
+            let mut program_source = None;
+            let mut paths = vec![];
+
+            // there are no `TNode`s to worry about for the program ensemble
+            let mut adv = self.program_ensemble.backrefs.advancer_surject(p_start);
+            while let Some(p_ref) = adv.advance(&self.program_ensemble.backrefs) {
+                match self.program_ensemble.backrefs.get_key(p_ref) {
+                    Some(Referent::ThisLNode(p_lnode)) => {
+                        assert!(program_source.is_none());
+                        program_source = Some(*p_lnode);
+                        let lnode = self.program_ensemble.lnodes.get(*p_lnode).unwrap();
+                        lnode.inputs(|p| {
+                            front.push(p);
+                        });
+                    }
+                    Some(Referent::Input(p_lnode)) => {
+                        let lnode = self.program_ensemble.lnodes.get(*p_lnode).unwrap();
+                        lnode.incidents(|p| {
+                            front.push(p);
+                        });
+                        paths.push(Path::new(Some(p_ref), vec![]));
+                    }
+                    _ => (),
+                }
+            }
+
+            let node = self.program_ensemble.backrefs.get_val_mut(p_start).unwrap();
+            if node.p_node_embed.is_none() {
+                node.p_node_embed = Some(self.node_embeddings.insert(NodeEmbed::new(
+                    node.p_self_equiv,
+                    HyperPath::new(program_source, common_root, paths),
+                    embedding_from,
+                )));
+            } else {
+                // an embedding should fully explore its region, we shouldn't encounter this
+                unreachable!()
+            }
+        }
+        Ok(())
+    }
+
     /// This assumes we are in the single initial embedding pass that embeds
     /// every thing in target root nodes. This will create a base hyperpath
     /// embedding, returning an error if `program_node` has been already
     /// embedded with an incompatible embedding. `common_root` should be `None`
-    /// only in the special program copy case.
+    /// only in the special program copy case. `hyperpath` should not have a
+    /// `program_source`.
     fn make_hyperpath_embedding(
         &mut self,
         program_node: PEquiv,
@@ -75,9 +136,25 @@ impl Router {
                     }
                 }
                 if all_match {
-                    // replace with the compatible embedding
                     let embedding = self.node_embeddings.get_mut(p_node_embed).unwrap();
-                    embedding.hyperpath = hyperpath;
+                    // new `LNode` drivers not expected to be handled
+                    assert!(hyperpath.program_source.is_none());
+                    if embedding.hyperpath.program_source.is_some() {
+                        // the new `hyperpath` source shouldn't be coming up from the base level
+                        // since it is being driven
+                        assert_eq!(common_root, hyperpath.target_source);
+                    }
+                    if hyperpath.target_source != common_root {
+                        // preexisting paths being driven from the root need to have the
+                        // concentration path prepended on
+                        todo!()
+                    }
+                    // add the `path.program_sink() == None` necessary embeddings onto the
+                    // compatible embedding which may be also driving `LNode`s in addition to being
+                    // read by a mapping
+                    for path in hyperpath.paths() {
+                        embedding.hyperpath.push(path.clone());
+                    }
                     // the connected region of the program connected to this embedding was already
                     // explored
                     Ok(())
@@ -110,27 +187,12 @@ impl Router {
             self.node_embeddings
                 .insert(NodeEmbed::new(program_node, hyperpath, embedding_from));
 
-            // explore all connected nodes
-            // FIXME
-            /*let ensemble = &mut self.program_ensemble;
-            let mut front = vec![program_node.into()];
-            while let Some(p_start) = front.pop() {
-                let node = ensemble.backrefs.get_val(p_start).unwrap();
-                if node.alg_visit {
-                    continue
-                }
-                let mut adv = ensemble.advancer_lnode_surject(p_start);
-                while let Some(p_lnode) = adv.advance(&ensemble.backrefs) {
-                    let lnode = ensemble.lnodes.get_mut(p_lnode).unwrap();
-                    if lnode.p_edge_embed.is_none() {
-                        lnode.incidents(|p_back| {
-                            let node = ensemble.backrefs.get_val(p_back).unwrap();
-                            if node.p_node_embed.is_none() {}
-                        });
-                    }
-                }
-            }*/
-            Ok(())
+            if let Some(common_root) = common_root {
+                self.embed_all_connected(common_root, program_node.into(), embedding_from)
+            } else {
+                // else is simple copy case that can't trigger other embeddings
+                Ok(())
+            }
         }
     }
 
@@ -336,6 +398,12 @@ impl Router {
         // in case of rerouting we need to clear old embeddings
         self.node_embeddings.clear();
         self.edge_embeddings.clear();
+        for node in self.program_ensemble.backrefs.vals_mut() {
+            node.p_node_embed = None;
+        }
+        for node in self.program_ensemble.lnodes.vals_mut() {
+            node.p_edge_embed = None;
+        }
 
         // After much thought, I have come to the conclusion that we should embed all
         // the base nodes (excluding unused program connected regions) and not just the
