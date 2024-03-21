@@ -54,8 +54,9 @@ impl Path {
         }
     }
 
-    pub fn target_sink(&self) -> PCNode {
-        self.edges().last().unwrap().to
+    // Returns `None` only if the path is empty which shouldn't be the case
+    pub fn target_sink(&self) -> Option<PCNode> {
+        Some(self.edges().last()?.to)
     }
 
     pub fn edges(&self) -> &[Edge] {

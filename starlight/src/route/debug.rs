@@ -45,10 +45,7 @@ impl DebugNodeTrait<PCNode> for LevelNodeKind {
                 sources: {
                     let mut v = vec![];
                     for source in cedge.sources().iter().copied() {
-                        v.push((
-                            source.p_cnode,
-                            format!("{:?} {}", source.p_cnode, source.delay_weight),
-                        ));
+                        v.push((source.p_cnode, format!("{}", source.delay_weight)));
                     }
                     v
                 },
@@ -77,7 +74,7 @@ impl DebugNodeTrait<PCNode> for HierarchyNodeKind {
         match this {
             HierarchyNodeKind::CNode(cnode) => DebugNode {
                 sources: if let Some(p_supernode) = cnode.p_supernode {
-                    vec![(p_supernode, format!("{p_supernode:?}"))]
+                    vec![(p_supernode, String::new())]
                 } else {
                     vec![]
                 },
@@ -93,10 +90,7 @@ impl DebugNodeTrait<PCNode> for HierarchyNodeKind {
                 sources: {
                     let mut v = vec![];
                     for source in cedge.sources().iter().copied() {
-                        v.push((
-                            source.p_cnode,
-                            format!("{:?} {}", source.p_cnode, source.delay_weight),
-                        ));
+                        v.push((source.p_cnode, format!("{}", source.delay_weight)));
                     }
                     v
                 },

@@ -46,7 +46,8 @@ impl EdgeEmbed {
 impl Router {
     /// Explore all connected nodes and embed them in the root, on most targets
     /// this will explore the entire target so this should have its own
-    /// optimized function
+    /// optimized function. This should be run before any embeddings in the
+    /// region.
     fn embed_all_connected(
         &mut self,
         common_root: PCNode,
@@ -111,7 +112,7 @@ impl Router {
                     embedding_from,
                 )));
             } else {
-                // an embedding should fully explore its region, we shouldn't encounter this
+                // currently we require the region to be explored first by this function
                 unreachable!()
             }
         }
@@ -134,84 +135,91 @@ impl Router {
         let node = self
             .program_ensemble
             .backrefs
+            .get_val_mut(program_node.into())
+            .unwrap();
+        if node.p_node_embed.is_none() {
+            if let Some(common_root) = common_root {
+                // embed the region
+                self.embed_all_connected(common_root, program_node.into(), embedding_from)?;
+            } else {
+                // the simple program copy that doesn't trigger other embeddings
+                let p_node_embed = self.node_embeddings.insert(NodeEmbed::new(
+                    program_node,
+                    hyperpath,
+                    embedding_from,
+                ));
+                node.p_node_embed = Some(p_node_embed);
+                return Ok(());
+            }
+        }
+        let node = self
+            .program_ensemble
+            .backrefs
             .get_val(program_node.into())
             .unwrap();
-        if let Some(p_node_embed) = node.p_node_embed {
-            if let Some(common_root) = common_root {
-                // because of the all-connected-nodes exploration that always runs after any
-                // initial embedding call, if the new embedding would have inconsistent roots we
-                // can detect immediately it here
-                let embedding = self.node_embeddings.get(p_node_embed).unwrap();
+        // should be embedded now if it wasn't already at the beginning of the function,
+        // now we make it more specific
+        let p_node_embed = node.p_node_embed.unwrap();
+        if let Some(common_root) = common_root {
+            let embedding = self.node_embeddings.get(p_node_embed).unwrap();
 
-                // If this was from an exploration, then all should share a common root.
-                let mut all_match = true;
-                if embedding.hyperpath.target_source != common_root {
-                    all_match = false;
-                } else {
-                    for path in embedding.hyperpath.paths() {
-                        if path.target_sink() != common_root {
-                            all_match = false;
-                        }
-                    }
-                }
-                if all_match {
-                    let embedding = self.node_embeddings.get_mut(p_node_embed).unwrap();
-                    // new `LNode` drivers not expected to be handled
-                    assert!(hyperpath.program_source.is_none());
-                    if embedding.hyperpath.program_source.is_some() {
-                        // the new `hyperpath` source shouldn't be coming up from the base level
-                        // since it is being driven
-                        assert_eq!(common_root, hyperpath.target_source);
-                    }
-                    if hyperpath.target_source != common_root {
-                        // preexisting paths being driven from the root need to have the
-                        // concentration path prepended on
-                        todo!()
-                    }
-                    // add the `path.program_sink() == None` necessary embeddings onto the
-                    // compatible embedding which may be also driving `LNode`s in addition to being
-                    // read by a mapping
-                    for path in hyperpath.paths() {
-                        embedding.hyperpath.push(path.clone());
-                    }
-                    // the connected region of the program connected to this embedding was already
-                    // explored
-                    Ok(())
-                } else {
-                    // If there is a bad mapping, it is more likely to be a singular mistake that
-                    // may end up being the first setter of a region of embeddings. This is why the
-                    // node embeddings have `first_embedded_by` so that we can display it and the
-                    // embedding we were trying to make
-
-                    let s0 = self.debug_mapping(embedding.first_embedded_by);
-                    let s1 = self.debug_mapping(embedding_from);
-                    Err(Error::OtherString(format!(
-                        "When trying to find initial embeddings for program bits, found two bits \
-                         that are connected in the program that cannot be connected between their \
-                         mapped locations on the target, meaning that routing between then is \
-                         impossible regardless of other constraints and that a complete routing \
-                         is therefore impossible. One mapping involved is:\n{s0}\nand the other \
-                         mapping involved is:\n{s1}"
-                    )))
-                }
+            // If this was from an exploration, then all should share a common root.
+            let mut all_match = true;
+            if embedding.hyperpath.target_source != common_root {
+                all_match = false;
             } else {
-                Err(Error::OtherStr(
-                    "the same plain copy program node is being embedded a second time, which \
-                     shouldn't be possible if hereditary mapping is enforced, this may be a bug \
-                     with the router",
-                ))
+                for path in embedding.hyperpath.paths() {
+                    if path.target_sink().unwrap() != common_root {
+                        all_match = false;
+                    }
+                }
+            }
+            if all_match {
+                let embedding = self.node_embeddings.get_mut(p_node_embed).unwrap();
+                // new `LNode` drivers not expected to be handled
+                assert!(hyperpath.program_source.is_none());
+                if embedding.hyperpath.program_source.is_some() {
+                    // the new `hyperpath` source shouldn't be coming up from the base level
+                    // since it is being driven
+                    assert_eq!(common_root, hyperpath.target_source);
+                }
+                if hyperpath.target_source != common_root {
+                    // preexisting paths being driven from the root need to have the
+                    // concentration path prepended on
+                    todo!()
+                }
+                // add the `path.program_sink() == None` necessary embeddings onto the
+                // compatible embedding which may be also driving `LNode`s in addition to being
+                // read by a mapping
+                for path in hyperpath.paths() {
+                    embedding.hyperpath.push(path.clone());
+                }
+                // the connected region of the program connected to this embedding was already
+                // explored
+                Ok(())
+            } else {
+                // If there is a bad mapping, it is more likely to be a singular mistake that
+                // may end up being the first setter of a region of embeddings. This is why the
+                // node embeddings have `first_embedded_by` so that we can display it and the
+                // embedding we were trying to make
+
+                let s0 = self.debug_mapping(embedding.first_embedded_by);
+                let s1 = self.debug_mapping(embedding_from);
+                Err(Error::OtherString(format!(
+                    "When trying to find initial embeddings for program bits, found two bits that \
+                     are connected in the program that cannot be connected between their mapped \
+                     locations on the target, meaning that routing between then is impossible \
+                     regardless of other constraints and that a complete routing is therefore \
+                     impossible. One mapping involved is:\n{s0}\nand the other mapping involved \
+                     is:\n{s1}"
+                )))
             }
         } else {
-            // initial embedding of this connected part of the program
-            self.node_embeddings
-                .insert(NodeEmbed::new(program_node, hyperpath, embedding_from));
-
-            if let Some(common_root) = common_root {
-                self.embed_all_connected(common_root, program_node.into(), embedding_from)
-            } else {
-                // else is simple copy case that can't trigger other embeddings
-                Ok(())
-            }
+            Err(Error::OtherStr(
+                "the same plain copy program node is being embedded a second time, which \
+                 shouldn't be possible if hereditary mapping is enforced, this may be a bug with \
+                 the router",
+            ))
         }
     }
 

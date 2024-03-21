@@ -292,7 +292,11 @@ impl Router {
                         )))
                     }
                 }
-                if !self.target_channeler().cnodes.contains(path.target_sink()) {
+                if !self
+                    .target_channeler()
+                    .cnodes
+                    .contains(path.target_sink().unwrap())
+                {
                     return Err(Error::OtherString(format!(
                         "{p_embedding} {embedding:#?} path target sink is invalid"
                     )))
@@ -360,7 +364,7 @@ impl Router {
                         }
                     }
                 }
-                if q != path.target_sink() {
+                if q != path.target_sink().unwrap() {
                     return Err(Error::OtherString(format!(
                         "{p_embedding} {embedding:#?} path {i} ending does not match sink"
                     )))
