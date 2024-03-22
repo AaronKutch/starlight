@@ -169,7 +169,11 @@ impl Router {
                 all_match = false;
             } else {
                 for path in embedding.hyperpath.paths() {
-                    if path.target_sink().unwrap() != common_root {
+                    if path
+                        .target_sink()
+                        .unwrap_or(embedding.hyperpath.target_source)
+                        != common_root
+                    {
                         all_match = false;
                     }
                 }
@@ -186,13 +190,23 @@ impl Router {
                 if hyperpath.target_source != common_root {
                     // preexisting paths being driven from the root need to have the
                     // concentration path prepended on
-                    todo!()
+                    assert_eq!(hyperpath.paths().len(), 1);
+                    let base_path: Vec<Edge> = hyperpath.paths()[0].edges().to_vec();
+                    for path in embedding.hyperpath.paths_mut() {
+                        let mut new_path: Vec<Edge> = base_path.clone();
+                        new_path.extend(path.edges().iter().copied());
+                        path.edges = new_path;
+                    }
+                    embedding.hyperpath.target_source = hyperpath.target_source;
                 }
+
                 // add the `path.program_sink() == None` necessary embeddings onto the
                 // compatible embedding which may be also driving `LNode`s in addition to being
                 // read by a mapping
                 for path in hyperpath.paths() {
-                    embedding.hyperpath.push(path.clone());
+                    if path.program_sink.is_none() {
+                        embedding.hyperpath.push(path.clone());
+                    }
                 }
                 // the connected region of the program connected to this embedding was already
                 // explored
@@ -370,7 +384,9 @@ impl Router {
                     path_to_sink.push(Edge::new(EdgeKind::Dilute, q));
                 }
                 let root_node = q;
+                // remove extra dilution to root and reverse
                 path_to_sink.pop().unwrap();
+                path_to_sink.reverse();
                 if target_root != root_node {
                     let s = self.debug_mapping(p_mapping);
                     return Err(Error::OtherString(format!(
@@ -381,9 +397,6 @@ impl Router {
                          to route between). The mapping is:\n{s}"
                     )));
                 }
-                // remove extra dilution to root
-                path_to_sink.pop();
-                path_to_sink.reverse();
                 paths.push(Path::new(None, path_to_sink));
             }
 

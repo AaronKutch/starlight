@@ -261,13 +261,6 @@ impl Router {
                 )))
             }
             let hyperpath = &embedding.hyperpath;
-            if let Some(program_source) = hyperpath.program_source {
-                if !self.program_ensemble().lnodes.contains(program_source) {
-                    return Err(Error::OtherString(format!(
-                        "{p_embedding} {embedding:#?}.hyperpath.program_source is invalid"
-                    )))
-                }
-            }
             if !self
                 .target_channeler()
                 .cnodes
@@ -277,18 +270,41 @@ impl Router {
                     "{p_embedding} {embedding:#?}.hyperpath.target_source is invalid"
                 )))
             }
+            if let Some(program_source) = hyperpath.program_source {
+                if !self.program_ensemble().lnodes.contains(program_source) {
+                    return Err(Error::OtherString(format!(
+                        "{p_embedding} {embedding:#?}.hyperpath.program_source is invalid"
+                    )))
+                }
+            } else {
+                let p_source = hyperpath.target_source;
+                if self.target_channeler().cnodes.get(p_source).unwrap().lvl != 0 {
+                    return Err(Error::OtherString(format!(
+                        "{p_embedding} {embedding:#?} with `program_source == None` has a target \
+                         source that is not on the base level"
+                    )))
+                }
+            }
             for path in hyperpath.paths() {
                 if let Some(program_sink) = path.program_sink {
                     if let Some(referent) = self.program_ensemble().backrefs.get_key(program_sink) {
-                        if !matches!(referent, Referent::ThisLNode(_)) {
+                        if !matches!(referent, Referent::Input(_)) {
                             return Err(Error::OtherString(format!(
                                 "{p_embedding} {embedding:#?} path program sink does not point to \
-                                 `ThisLNode`"
+                                 `Referent::Input`"
                             )))
                         }
                     } else {
                         return Err(Error::OtherString(format!(
                             "{p_embedding} {embedding:#?} path program sink is invalid"
+                        )))
+                    }
+                } else {
+                    let p_sink = path.target_sink().unwrap_or(hyperpath.target_source);
+                    if self.target_channeler().cnodes.get(p_sink).unwrap().lvl != 0 {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?} path with `program_sink == None` has a \
+                             target sink that is not on the base level"
                         )))
                     }
                 }

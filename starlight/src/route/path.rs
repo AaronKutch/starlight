@@ -54,7 +54,8 @@ impl Path {
         }
     }
 
-    // Returns `None` only if the path is empty which shouldn't be the case
+    // Returns `None` if the path is empty, in which case the hyperpath
+    // target_source may also logically be the target sink
     pub fn target_sink(&self) -> Option<PCNode> {
         Some(self.edges().last()?.to)
     }
