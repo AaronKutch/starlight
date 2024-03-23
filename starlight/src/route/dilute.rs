@@ -6,7 +6,7 @@ use std::{cmp::Reverse, collections::BinaryHeap, num::NonZeroU64};
 use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
-    route::{Edge, EdgeKind, PCNode, PNodeEmbed, Router},
+    route::{Edge, EdgeKind, NodeOrEdge, PCNode, PEdgeEmbed, PNodeEmbed, Programmability, Router},
     Error,
 };
 
@@ -303,9 +303,8 @@ fn dilute_plateau(
 fn dilute_node_embedding(
     router: &mut Router,
     max_lvl: u16,
-    embeddings_to_process: &mut Vec<PNodeEmbed>,
+    p_embedding: PNodeEmbed,
 ) -> Result<(), Error> {
-    let p_embedding = embeddings_to_process.pop().unwrap();
     let embedding = router.node_embeddings.get(p_embedding).unwrap();
     let hyperpath = &embedding.hyperpath;
     let program_source = hyperpath.program_source;
@@ -399,29 +398,36 @@ fn dilute_node_embedding(
     Ok(())
 }
 
-/*fn dilute_edge_embedding(
+fn dilute_edge_embedding(
     router: &mut Router,
     max_lvl: u16,
-    embeddings_to_process: &mut Vec<PEdgeEmbed>,
+    p_embedding: PEdgeEmbed,
 ) -> Result<(), Error> {
-    let p_embedding = embeddings_to_process.pop().unwrap();
     let embedding = router.edge_embeddings.get(p_embedding).unwrap();
     match embedding.target {
-        NodeOrEdge::Node(_) => todo!(),
-        NodeOrEdge::Edge(_) => todo!(),
-    }
-    let program_edge = router
-        .program_channeler()
-        .cedges
-        .get(embedding.program_edge)
-        .unwrap();
-    match program_edge.programmability() {
-        Programmability::StaticLut(_) => todo!(),
-        Programmability::Bulk(_) => todo!(),
-        Programmability::ArbitraryLut(_) | Programmability::SelectorLut(_) => unreachable!(),
+        NodeOrEdge::Node(p_cnode) => {
+            let cnode = router.target_channeler().cnodes.get(p_cnode).unwrap();
+            assert!(cnode.lvl <= (max_lvl + 1));
+            // for the dilution step I'm thinking about just diluting into any compatible
+            // node or edge and letting the other phase handle moving around since it will
+            // need that anyway
+            dbg!(&cnode.p_subnodes);
+            todo!();
+        }
+        NodeOrEdge::Edge(p_cedge) => {
+            let cedge = router.target_channeler().cedges.get(p_cedge).unwrap();
+            let sink = router.target_channeler().cnodes.get(cedge.sink()).unwrap();
+            assert!(sink.lvl <= (max_lvl + 1));
+            match cedge.programmability() {
+                Programmability::StaticLut(_)
+                | Programmability::ArbitraryLut(_)
+                | Programmability::SelectorLut(_) => unreachable!(),
+                Programmability::Bulk(_) => todo!(),
+            }
+        }
     }
     Ok(())
-}*/
+}
 
 /// Reduces the maximum level of hyperpaths. Currently requires that there is at
 /// most one extra level above the current one
@@ -433,24 +439,15 @@ pub(crate) fn dilute_level(router: &mut Router, max_lvl: u16) -> Result<(), Erro
         // ignoring other hyperpaths
         let absolute_violations = false;
 
-        /*
-        // edge dilution must occur first
-        let mut embeddings_to_process = vec![];
+        // edge dilutions for the level must occur first
         let mut adv = router.edge_embeddings().advancer();
         while let Some(p_embedding) = adv.advance(router.edge_embeddings()) {
-            embeddings_to_process.push(p_embedding);
-            while !embeddings_to_process.is_empty() {
-                dilute_edge_embedding(router, max_lvl, &mut embeddings_to_process)?;
-            }
-        }*/
+            dilute_edge_embedding(router, max_lvl, p_embedding)?;
+        }
 
-        let mut embeddings_to_process = vec![];
         let mut adv = router.node_embeddings().advancer();
         while let Some(p_embedding) = adv.advance(router.node_embeddings()) {
-            embeddings_to_process.push(p_embedding);
-            while !embeddings_to_process.is_empty() {
-                dilute_node_embedding(router, max_lvl, &mut embeddings_to_process)?;
-            }
+            dilute_node_embedding(router, max_lvl, p_embedding)?;
         }
 
         if !absolute_violations {
