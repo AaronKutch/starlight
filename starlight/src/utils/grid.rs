@@ -277,6 +277,10 @@ impl<T> Grid<T> {
             }
         }
     }
+
+    pub fn map<U, F: FnMut(&T, (usize, usize)) -> U>(&self, mut f: F) -> Grid<U> {
+        Grid::new(self.len(), |ij| f(self.get(ij).unwrap(), ij)).unwrap()
+    }
 }
 
 impl<T, const N: usize, const M: usize> TryFrom<[[T; N]; M]> for Grid<T> {
