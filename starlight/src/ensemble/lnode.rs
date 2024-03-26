@@ -19,7 +19,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::{
     ensemble::{DynamicValue, Ensemble, Equiv, PBack, PLNode, Referent, Value},
-    route::PEdgeEmbed,
+    route::PEmbed,
     Error,
 };
 
@@ -51,7 +51,7 @@ pub struct LNode {
     pub p_self: PBack,
     pub kind: LNodeKind,
     pub lowered_from: Option<PState>,
-    pub p_edge_embed: Option<PEdgeEmbed>,
+    pub p_embed: Option<PEmbed>,
 }
 
 impl Recast<PBack> for LNode {
@@ -255,7 +255,7 @@ impl LNode {
             p_self,
             kind,
             lowered_from,
-            p_edge_embed: None,
+            p_embed: None,
         }
     }
 

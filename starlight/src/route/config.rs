@@ -1,23 +1,59 @@
-use std::num::NonZeroU64;
+use std::num::{NonZeroU64, NonZeroUsize};
 
-use awint::{awint_dag::triple_arena::OrdArena, Awi};
+use awint::{
+    awint_dag::triple_arena::{OrdArena, Ptr},
+    Awi, Bits,
+};
 
 use crate::{
-    ensemble::{Ensemble, PEquiv, PExternal, Value},
+    ensemble::{Ensemble, PExternal, Value},
     epoch::get_current_epoch,
-    route::{EdgeKind, PConfig, Programmability, Router},
+    route::{PConfig, Router},
     Error, LazyAwi,
 };
 
+/// The comparison traits are only implemented on the `p_external`
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// stable `Ptr` for the target
-    pub p_external: PExternal,
-    /// The index in the `RNode`
-    pub bit_i: usize,
-    /// The bit value the configuration wants. `None` is for not yet determined
-    /// or for if the value can be set to `Value::Unknown`.
-    pub value: Option<bool>,
+    /// The bit value the configuration wants
+    value: Awi,
+    /// Bits of this are only set if the corresponding value bit is known
+    value_known: Awi,
+}
+
+impl Config {
+    /// Create a new `Config` with `p_external`, bitwidth `w` that should
+    /// correspond to the width of the `RNode` pointed to by `p_external`, and
+    /// sets all bit values to unknown
+    pub fn new(w: NonZeroUsize) -> Self {
+        Self {
+            value: Awi::zero(w),
+            value_known: Awi::zero(w),
+        }
+    }
+
+    pub fn nzbw(&self) -> NonZeroUsize {
+        self.value.nzbw()
+    }
+
+    /// Returns the bits that the configurable should be set to
+    pub fn value(&self) -> &Bits {
+        &self.value
+    }
+
+    /// Returns corresponding bits to `value` that indicate if the value is
+    /// known/necessary
+    pub fn value_known(&self) -> &Bits {
+        &self.value_known
+    }
+
+    pub fn value_mut(&mut self) -> &mut Bits {
+        &mut self.value
+    }
+
+    pub fn value_known_mut(&mut self) -> &mut Bits {
+        &mut self.value_known
+    }
 }
 
 /// The channeler for the target needs to know which bits the router can use to
@@ -25,7 +61,7 @@ pub struct Config {
 #[derive(Debug, Clone)]
 pub struct Configurator {
     // `PEquiv` to `PExternal` mapping for bits we are allowed to configure
-    pub configurations: OrdArena<PConfig, PEquiv, Config>,
+    pub configurations: OrdArena<PConfig, PExternal, Config>,
 }
 
 impl Configurator {
@@ -33,10 +69,6 @@ impl Configurator {
         Self {
             configurations: OrdArena::new(),
         }
-    }
-
-    pub fn find(&self, p_equiv: PEquiv) -> Option<PConfig> {
-        self.configurations.find_key(&p_equiv)
     }
 
     /// Tell the router what bits it can use for programming the target. Uses
@@ -57,42 +89,34 @@ impl Configurator {
         ensemble: &Ensemble,
         config: &L,
     ) -> Result<(), Error> {
-        let config = config.borrow();
-        let p_external = config.p_external();
+        let p_external = config.borrow().p_external();
+        // check for existence in ensemble
         let (_, rnode) = ensemble.notary.get_rnode(p_external)?;
-        if let Some(bits) = rnode.bits() {
-            for (bit_i, bit) in bits.iter().copied().enumerate() {
-                if let Some(bit) = bit {
-                    let p_equiv = ensemble.backrefs.get_val(bit).unwrap().p_self_equiv;
-                    let (_, replaced) = self.configurations.insert(p_equiv, Config {
-                        p_external,
-                        bit_i,
-                        value: None,
-                    });
-                    // we may want to allow this, if we have a mechanism to make sure they are
-                    // set to the same thing
-                    if replaced.is_some() {
-                        return Err(Error::OtherString(format!(
-                            "`configurable({config:#?})`: found that the same bit as a previous \
-                             one is configurable, this may be because `configurable` was called \
-                             twice on the same or equivalent bit"
-                        )));
-                    }
-                }
+        let config_struct = Config::new(rnode.nzbw());
+        // TODO add something to `triple_arena` to emulate this
+        if let Some((p_config, dir)) = self.configurations.find_similar_key(&p_external) {
+            if dir.is_eq() {
+                return Err(Error::OtherString(format!(
+                    "`configurable({p_external:#?})`: found that `configurable` was called twice \
+                     on the same `LazyAwi`"
+                )));
+            } else {
+                self.configurations.insert_inx_manual_unwrap(
+                    p_config.inx(),
+                    dir,
+                    p_external,
+                    config_struct,
+                );
             }
         } else {
-            return Err(Error::OtherStr(
-                "`configurable({config:#?})`: found that the epoch has not been lowered and \
-                 preferably optimized",
-            ));
+            self.configurations.insert_empty(p_external, config_struct);
         }
         Ok(())
     }
 }
 
 impl Router {
-    /// Finds the configuration associated with `config`. Note that if a bit is
-    /// not necessarily set to anything, it will be set to zero. Does _not_
+    /// Finds the configuration associated with `config`. Does _not_
     /// require that the target epoch be the current epoch.
     ///
     /// # Errors
@@ -101,53 +125,32 @@ impl Router {
     ///   routed or has been invalidated because of changes.
     /// - If `config` was not registered in the `Configurator` used for the
     ///   routing
-    #[allow(unused)]
-    pub fn get_config<L: std::borrow::Borrow<LazyAwi>>(&self, config: &L) -> Result<Awi, Error> {
+    pub fn get_config<L: std::borrow::Borrow<LazyAwi>>(&self, config: &L) -> Result<Config, Error> {
         if !self.is_valid_routing {
             return Err(Error::RoutingIsInvalid)
         }
-        let config = config.borrow();
-        let p_external = config.p_external();
+        let p_external = config.borrow().p_external();
 
-        if self.target_ensemble().notary.get_rnode(p_external).is_err() {
-            return Err(Error::InvalidPExternalConfig(p_external));
-        }
-
-        let (_, rnode) = self.target_ensemble().notary.get_rnode(p_external)?;
-        let mut res = Awi::zero(rnode.nzbw());
-        if let Some(bits) = rnode.bits() {
-            for (bit_i, bit) in bits.iter().copied().enumerate() {
-                if let Some(bit) = bit {
-                    let bit = self
-                        .target_ensemble()
-                        .backrefs
-                        .get_val(bit)
-                        .unwrap()
-                        .p_self_equiv;
-                    if let Some(p_config) = self.configurator.find(bit) {
-                        let value = self
-                            .configurator
-                            .configurations
-                            .get_val(p_config)
-                            .unwrap()
-                            .value;
-                        let value = value.unwrap_or(false);
-                        res.set(bit_i, value).unwrap();
-                    } else {
-                        return Err(Error::OtherStr(
-                            "`get_config({config:#?})`: `config` is not registered as \
-                             configurable in the configurator",
-                        ));
-                    }
+        if let Some(p_config) = self.configurator.configurations.find_key(&p_external) {
+            if let Ok((_, rnode)) = self.target_ensemble().notary.get_rnode(p_external) {
+                let config = self.configurator.configurations.get_val(p_config).unwrap();
+                if config.nzbw() == rnode.nzbw() {
+                    Ok(config.clone())
+                } else {
+                    Err(Error::OtherStr(
+                        "`get_config({p_external:#?})`: bitwidth mismatch, the target must have \
+                         been improperly mutated",
+                    ))
                 }
+            } else {
+                Err(Error::InvalidPExternalConfig(p_external))
             }
         } else {
-            return Err(Error::OtherStr(
-                "`get_config({config:#?})`: the config is in the target epoch, but either routing \
-                 has not been done or the target was improperly mutated",
-            ));
+            Err(Error::OtherStr(
+                "`get_config({p_external:#?})`: `config` is not registered as configurable in the \
+                 configurator",
+            ))
         }
-        Ok(res)
     }
 
     /// Iterates through all of the configurable bits from the `Configurator`
@@ -180,22 +183,48 @@ impl Router {
         if !self.is_valid_routing {
             return Err(Error::RoutingIsInvalid)
         }
-        for (p_config, p_equiv, config) in &self.configurator.configurations {
+        for (_, p_external, config) in &self.configurator.configurations {
+            let p_external = *p_external;
             // check that we are in the right epoch, the `p_equiv` lookup could collide
-            if ensemble.notary.get_rnode(config.p_external).is_err() {
-                return Err(Error::NotInTargetEpoch);
-            }
-            let value = if let Some(b) = config.value {
-                Value::Dynam(b)
+            if let Ok((p_rnode, rnode)) = ensemble.notary.get_rnode(p_external) {
+                if config.nzbw() == rnode.nzbw() {
+                    if let Some(bits) = ensemble.notary.rnodes[p_rnode].bits() {
+                        for bit_i in 0..bits.len() {
+                            let p_back = ensemble.notary.rnodes[p_rnode].bits().unwrap()[bit_i];
+                            if let Some(p_back) = p_back {
+                                let bit = config.value().get(bit_i).unwrap();
+                                let known = config.value_known().get(bit_i).unwrap();
+                                let value = if known {
+                                    Value::Dynam(bit)
+                                } else {
+                                    Value::Unknown
+                                };
+                                let p_equiv = ensemble.get_p_equiv(p_back).unwrap();
+                                ensemble.change_value(
+                                    p_equiv,
+                                    value,
+                                    NonZeroU64::new(1).unwrap(),
+                                )?;
+                            }
+                            // else the bit was optimized away normally
+                        }
+                    } else {
+                        // this shouldn't be encountered after the whole routing process
+                        return Err(Error::OtherString(format!(
+                            "`config_target`: when trying to change the target bits corresponding \
+                             to {p_external:#?}, encountered problem that may be due to improper \
+                             target mutation: found uninitialized `RNode` bits"
+                        )))
+                    }
+                } else {
+                    return Err(Error::OtherString(format!(
+                        "`config_target`: when trying to change the target bit corresponding to \
+                         {p_external:#?}, encountered bitwidth mismatch that may be due to \
+                         improper target mutation"
+                    )))
+                }
             } else {
-                Value::Unknown
-            };
-            if let Err(e) = ensemble.change_value(*p_equiv, value, NonZeroU64::new(1).unwrap()) {
-                return Err(Error::OtherString(format!(
-                    "`config_target`: when trying to change the target bit corresponding to \
-                     {p_config:#?}, encountered error that may be because the wrong `Epoch` is \
-                     active or because the target was improperly mutated: {e:?}"
-                )))
+                return Err(Error::NotInTargetEpoch);
             }
         }
         Ok(())
@@ -203,12 +232,15 @@ impl Router {
 
     /// Sets all the configurations derived from final embeddings
     pub(crate) fn set_configurations(&mut self) -> Result<(), Error> {
-        // need to clear all in case of reroute, the `is_some` state is used for
+        // need to clear all in case of reroute, the `value_known` state is used for
         // detecting contradictions
-        for configuration in self.configurator.configurations.vals_mut() {
-            configuration.value = None;
+        for config in self.configurator.configurations.vals_mut() {
+            config.value_known_mut().zero_();
         }
-        for embedding in self.node_embeddings.vals() {
+
+        todo!();
+        /*
+        for embedding in self.embeddings.vals() {
             // follow the `SelectorLut`s of the hyperpath
             for path in embedding.hyperpath.paths() {
                 for edge in path.edges() {
@@ -255,9 +287,7 @@ impl Router {
                 }
             }
         }
-        for _embedding in self.edge_embeddings.vals() {
-            todo!()
-        }
+        */
 
         Ok(())
     }

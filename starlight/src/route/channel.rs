@@ -4,7 +4,7 @@ use awint::awint_dag::triple_arena::{Arena, OrdArena, Recast, Recaster};
 
 use crate::{
     ensemble::{Ensemble, PBack, PEquiv},
-    route::{CEdge, CNode, PBackToCnode, PCEdge, PCNode, Programmability},
+    route::{CNode, PBackToCnode, PCNode, Programmability},
     utils::binary_search_similar_by,
     Error,
 };
@@ -13,8 +13,6 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Channeler {
     pub cnodes: Arena<PCNode, CNode>,
-    pub cedges: Arena<PCEdge, CEdge>,
-    pub(crate) p_back_to_cnode: OrdArena<PBackToCnode, PBack, PCNode>,
     // used by algorithms to avoid `OrdArena`s
     pub alg_visit: NonZeroU64,
 }
@@ -24,8 +22,7 @@ impl Recast<PCNode> for Channeler {
         &mut self,
         recaster: &R,
     ) -> Result<(), <R as Recaster>::Item> {
-        self.cedges.recast(recaster)?;
-        self.p_back_to_cnode.recast(recaster)
+        self.cnodes.recast(recaster)
     }
 }
 
@@ -33,8 +30,6 @@ impl Channeler {
     pub fn empty() -> Self {
         Self {
             cnodes: Arena::new(),
-            cedges: Arena::new(),
-            p_back_to_cnode: OrdArena::new(),
             alg_visit: NonZeroU64::new(2).unwrap(),
         }
     }
@@ -44,35 +39,9 @@ impl Channeler {
         self.alg_visit
     }
 
-    /// Finds the base level `PCNode` corresponding to a `PEquiv` from the
-    /// target
-    pub fn translate_equiv(&self, p_equiv: PEquiv) -> Option<PCNode> {
-        let p0 = self.p_back_to_cnode.find_key(&p_equiv.into())?;
-        Some(*self.p_back_to_cnode.get_val(p0).unwrap())
-    }
-
-    /// Finds the base level `PCNode` corresponding to any `PBack` from the
-    /// target
-    pub fn translate_backref(
-        &self,
-        ensemble: &Ensemble,
-        p_back: PBack,
-    ) -> Option<(PEquiv, PCNode)> {
-        let p_equiv = ensemble.get_p_equiv(p_back)?;
-        let p0 = self.p_back_to_cnode.find_key(&p_equiv.into())?;
-        Some((p_equiv, *self.p_back_to_cnode.get_val(p0).unwrap()))
-    }
-
-    /// Sets the correspondence to a node
-    pub fn set_translation(&mut self, p_equiv: PEquiv, p_forward: PCNode) -> Option<()> {
-        let p0 = self.p_back_to_cnode.find_key(&p_equiv.into())?;
-        *self.p_back_to_cnode.get_val_mut(p0).unwrap() = p_forward;
-        Some(())
-    }
-
     pub fn verify_integrity(&self) -> Result<(), Error> {
         // return errors in order of most likely to be root cause
-
+        /*
         // make sure some things are sorted
         for (p_cnode, cnode) in &self.cnodes {
             for i in 1..cnode.p_subnodes.len() {
@@ -228,7 +197,8 @@ impl Channeler {
                 }
             });
             res?;
-        }
+        }*/
+        todo!();
         Ok(())
     }
 }

@@ -5,8 +5,8 @@ use awint::awint_dag::triple_arena::{Advancer, OrdArena};
 use crate::{
     ensemble::{Ensemble, PEquiv, PExternal, Referent},
     route::{
-        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PEdgeEmbed,
-        PMapping, PNodeEmbed,
+        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PEmbed,
+        PMapping,
     },
     triple_arena::Arena,
     Corresponder, Error, OptimizerOptions, SuspendedEpoch,
@@ -42,8 +42,7 @@ pub struct Router {
     // `PEquiv` mapping from program to target
     pub(crate) mappings: OrdArena<PMapping, PEquiv, Mapping>,
     // routing embedding of part of the program in the target
-    pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed>,
-    pub(crate) edge_embeddings: Arena<PEdgeEmbed, EdgeEmbed>,
+    pub(crate) embeddings: Arena<PEmbed, Embedding>,
     // this should only be set after a successful routing, and be unset the moment any mappings,
     // embeddings, or configurations are changed.
     pub(crate) is_valid_routing: bool,
@@ -134,8 +133,7 @@ impl Router {
             configurator: configurator.clone(),
             program_ensemble,
             mappings: OrdArena::new(),
-            node_embeddings: Arena::new(),
-            edge_embeddings: Arena::new(),
+            embeddings: Arena::new(),
             is_valid_routing: false,
         }
     }

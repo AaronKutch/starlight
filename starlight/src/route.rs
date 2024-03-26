@@ -6,6 +6,7 @@ mod config;
 mod debug;
 mod dilute;
 mod embed;
+mod hierarchy;
 mod path;
 mod router;
 mod routing;
@@ -14,12 +15,13 @@ mod routing;
 use std::num::NonZeroU32;
 
 use awint::awint_dag::triple_arena::ptr_struct;
-pub use cedge::{CEdge, ChannelWidths, Programmability, SelectorLut, Source};
+pub use cedge::{BulkProperties, Programmability, SelectorLut, Sink, Source};
 pub use channel::Channeler;
 pub use cnode::CNode;
 pub use config::{Config, Configurator};
 pub(crate) use dilute::dilute_level;
 pub use embed::{EdgeEmbed, NodeEmbed};
+pub(crate) use hierarchy::generate_hierarchy;
 pub use path::{Edge, EdgeKind, HyperPath, NodeOrEdge, Path};
 pub use router::Router;
 pub(crate) use routing::route;
@@ -30,9 +32,7 @@ pub(crate) use routing::route;
 ))]
 ptr_struct!(
     PCNode;
-    PCEdge;
-    PNodeEmbed;
-    PEdgeEmbed;
+    PEmbed;
     PConfig;
     PMapping
 );
@@ -44,9 +44,7 @@ ptr_struct!(
 ))]
 ptr_struct!(
     PCNode();
-    PCEdge();
-    PNodeEmbed();
-    PEdgeEmbed();
+    PEmbed();
     PConfig();
     PMapping()
 );
@@ -54,9 +52,7 @@ ptr_struct!(
 #[cfg(all(not(debug_assertions), feature = "gen_counters", feature = "u32_ptrs",))]
 ptr_struct!(
     PCNode[NonZeroU32](NonZeroU32);
-    PCEdge[NonZeroU32](NonZeroU32);
-    PNodeEmbed[NonZeroU32](NonZeroU32);
-    PEdgeEmbed[NonZeroU32](NonZeroU32);
+    PEmbed[NonZeroU32](NonZeroU32);
     PConfig[NonZeroU32](NonZeroU32);
     PMapping[NonZeroU32](NonZeroU32)
 );
@@ -68,9 +64,7 @@ ptr_struct!(
 ))]
 ptr_struct!(
     PCNode[NonZeroU32]();
-    PCEdge[NonZeroU32]();
-    PNodeEmbed[NonZeroU32]();
-    PEdgeEmbed[NonZeroU32]();
+    PEmbed[NonZeroU32]();
     PConfig[NonZeroU32]();
     PMapping[NonZeroU32]()
 );
