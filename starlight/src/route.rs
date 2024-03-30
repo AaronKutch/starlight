@@ -20,9 +20,9 @@ pub use channel::Channeler;
 pub use cnode::CNode;
 pub use config::{Config, Configurator};
 pub(crate) use dilute::dilute_level;
-pub use embed::{EdgeEmbed, NodeEmbed};
+pub use embed::Embedding;
 pub(crate) use hierarchy::generate_hierarchy;
-pub use path::{Edge, EdgeKind, HyperPath, NodeOrEdge, Path};
+pub use path::{Edge, HyperPath, Path};
 pub use router::Router;
 pub(crate) use routing::route;
 

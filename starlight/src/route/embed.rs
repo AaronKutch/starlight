@@ -3,42 +3,24 @@ use std::fmt::Write;
 use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
-    ensemble::{PBack, PEquiv, PLNode, Referent},
-    route::{
-        Edge, EdgeKind, HyperPath, NodeOrEdge, PCNode, PEdgeEmbed, PMapping, PNodeEmbed, Path,
-        Router,
-    },
+    ensemble::{PBack, PEquiv, Referent},
+    route::{Edge, HyperPath, PCNode, PMapping, Path, Router},
     Error,
 };
 
 #[derive(Debug, Clone)]
-pub struct NodeEmbed {
+pub struct Embedding {
     pub program_node: PEquiv,
     pub hyperpath: HyperPath,
     pub first_embedded_by: PMapping,
 }
 
-impl NodeEmbed {
+impl Embedding {
     pub fn new(program_node: PEquiv, hyperpath: HyperPath, first_embedded_by: PMapping) -> Self {
         Self {
             program_node,
             hyperpath,
             first_embedded_by,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct EdgeEmbed {
-    pub program_edge: PLNode,
-    pub target: NodeOrEdge,
-}
-
-impl EdgeEmbed {
-    pub fn new(program_edge: PLNode, target: NodeOrEdge) -> Self {
-        Self {
-            program_edge,
-            target,
         }
     }
 }
@@ -75,9 +57,9 @@ impl Router {
                         assert!(program_source.is_none());
                         program_source = Some(*p_lnode);
                         let lnode = self.program_ensemble.lnodes.get_mut(*p_lnode).unwrap();
-                        if lnode.p_edge_embed.is_none() {
-                            lnode.p_edge_embed =
-                                Some(self.edge_embeddings.insert(EdgeEmbed::new(
+                        if lnode.p_embed.is_none() {
+                            lnode.p_embed =
+                                Some(self.embeddings.insert(Embedding::new(
                                     *p_lnode,
                                     NodeOrEdge::Node(common_root),
                                 )));

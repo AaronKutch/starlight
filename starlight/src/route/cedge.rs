@@ -1,15 +1,17 @@
-use std::{cmp::max, fmt::Write, num::NonZeroU32};
+use std::{
+    cmp::max,
+    num::{NonZeroU32, NonZeroUsize},
+};
 
 use awint::{
     awint_dag::triple_arena::{Advancer, Arena, Recast, Recaster},
-    Awi,
+    bw, Awi,
 };
 
-use super::PEmbed;
 use crate::{
     awint_dag::smallvec::SmallVec,
     ensemble::{DynamicValue, Ensemble, LNodeKind, PBack, PEquiv},
-    route::{generate_hierarchy, Channeler, Configurator, PCNode, PConfig},
+    route::{generate_hierarchy, Channeler, Configurator, PCNode, PConfig, PEmbed},
     Error, SuspendedEpoch,
 };
 
@@ -65,23 +67,12 @@ impl ArbitraryLut {
 /// Used by higher order edges to tell what it is capable of overall
 #[derive(Debug, Clone)]
 pub struct BulkProperties {
-    /// The number of bits that can enter this channel's sources
-    pub channel_entry_widths: Vec<usize>,
-    /// The number of bits that can exit this channel
-    pub channel_exit_widths: Vec<usize>,
-    pub lut_bits: usize,
-    // this counts the total number of `lvl == 0` subnodes
-    pub base_subnodes: usize,
+    // we will definitely have more advanced things in the future
 }
 
 impl BulkProperties {
-    pub fn new(base_subnodes: usize, lut_bits: usize) -> Self {
-        Self {
-            channel_entry_widths: vec![],
-            channel_exit_widths: vec![],
-            lut_bits,
-            base_subnodes,
-        }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -119,16 +110,8 @@ impl Programmability {
             Programmability::SelectorLut(selector_lut) => {
                 v.push(format!("SelLut {}", selector_lut.inx_config.len()))
             }
-            Programmability::Bulk(bulk) => {
-                let mut s = String::new();
-                for (i, width) in bulk.channel_entry_widths.iter().copied().enumerate() {
-                    if i == 0 {
-                        write!(s, "{}", width).unwrap();
-                    } else {
-                        write!(s, " {}", width).unwrap();
-                    }
-                }
-                v.push(s);
+            Programmability::Bulk(_) => {
+                v.push("Bulk".to_owned());
             }
         }
         v
@@ -157,6 +140,8 @@ pub struct Sink {
     /// The weight needs to be at least 1 to prevent the algorithm from doing
     /// very bad routes
     pub delay_weight: NonZeroU32,
+    /// Channel width
+    pub width: NonZeroUsize,
 }
 
 impl Recast<PCNode> for Sink {
@@ -180,12 +165,14 @@ impl Channeler {
         target_epoch.ensemble_mut(|ensemble| Self::new(ensemble, &Configurator::new()))
     }
 
-    pub fn make_cedge(&mut self, source: PCNode, sink: PCNode) {
+    /// Note that the `delay_weight` should be set later
+    pub fn make_cedge(&mut self, source: PCNode, sink: PCNode, width: NonZeroUsize) {
         let sinks = &mut self.cnodes.get_mut(source).unwrap().sinks;
         let sink_i = sinks.len();
         sinks.push(Sink {
             p_cnode: source,
             delay_weight: NonZeroU32::new(1).unwrap(),
+            width,
         });
         self.cnodes.get_mut(sink).unwrap().sources.push(Source {
             p_cnode: sink,
@@ -248,7 +235,7 @@ impl Channeler {
 
             // this will later be fixed to be more specific
             let p_cnode =
-                channeler.make_cnode(vec![], 0, Programmability::Bulk(BulkProperties::new(0, 0)));
+                channeler.make_cnode(vec![], 0, Programmability::Bulk(BulkProperties::new()));
             tmp_embeddings.insert(Tmp {
                 p_equiv,
                 p_cnode,
@@ -266,16 +253,22 @@ impl Channeler {
                 .unwrap()
                 .p_embed = Some(p_tmp_embed);
         }
-        let translate_backref =
-            |ensemble: &Ensemble, tmp_embeddings: &Arena<PEmbed, Tmp>, p_back: PBack| {
-                let p_embed = ensemble.backrefs.get_val(p_back).unwrap().p_embed.unwrap();
-                tmp_embeddings.get(p_embed).unwrap()
-            };
-        let translate_backref_mut =
-            |ensemble: &Ensemble, tmp_embeddings: &mut Arena<PEmbed, Tmp>, p_back: PBack| {
-                let p_embed = ensemble.backrefs.get_val(p_back).unwrap().p_embed.unwrap();
-                tmp_embeddings.get_mut(p_embed).unwrap()
-            };
+        fn translate_backref<'a>(
+            ensemble: &Ensemble,
+            tmp_embeddings: &'a Arena<PEmbed, Tmp>,
+            p_back: PBack,
+        ) -> &'a Tmp {
+            let p_embed = ensemble.backrefs.get_val(p_back).unwrap().p_embed.unwrap();
+            tmp_embeddings.get(p_embed).unwrap()
+        }
+        fn translate_backref_mut<'a>(
+            ensemble: &Ensemble,
+            tmp_embeddings: &'a mut Arena<PEmbed, Tmp>,
+            p_back: PBack,
+        ) -> &'a mut Tmp {
+            let p_embed = ensemble.backrefs.get_val(p_back).unwrap().p_embed.unwrap();
+            tmp_embeddings.get_mut(p_embed).unwrap()
+        }
 
         // check that all the configurations point to things that exist, and that the
         // configurations are not being driven. This protects against things like
@@ -423,19 +416,19 @@ impl Channeler {
                             // TODO transform into canonical cases in earlier pass
                             unreachable!()
                         } else {
-                            channeler.make_cedge(tmp_input.p_cnode, p_self);
+                            channeler.make_cedge(tmp_input.p_cnode, p_self, bw(1));
                             inputs.push(input);
                         }
                     }
-                    channeler.cnodes.get_mut(p_self).unwrap().programmability =
-                        Programmability::StaticLut(awi.clone());
+                    let cnode = channeler.cnodes.get_mut(p_self).unwrap();
+                    cnode.programmability = Programmability::StaticLut(awi.clone());
+                    cnode.lut_bits = awi.bw();
                 }
                 LNodeKind::DynamicLut(inp, lut) => {
                     // figure out if we have a full selector or a full arbitrary
                     let mut config = vec![];
                     for input in inp.iter().copied() {
                         let tmp_input = translate_backref(&ensemble, &tmp_embeddings, input);
-                        let p_equiv = ensemble.get_p_equiv(input).unwrap();
                         if let Some(config_bit) = tmp_input.config {
                             // probably also want to transform into one of the two canonical dynamic
                             // cases
@@ -447,7 +440,7 @@ impl Channeler {
                             // to the target `Ensemble`
                             unreachable!()
                         } else {
-                            channeler.make_cedge(tmp_input.p_cnode, p_self);
+                            channeler.make_cedge(tmp_input.p_cnode, p_self, bw(1));
                             inputs.push(input);
                         }
                     }
@@ -472,8 +465,10 @@ impl Channeler {
                                 unreachable!()
                             }
                         }
-                        channeler.cnodes.get_mut(p_self).unwrap().programmability =
+                        let cnode = channeler.cnodes.get_mut(p_self).unwrap();
+                        cnode.programmability =
                             Programmability::ArbitraryLut(ArbitraryLut { lut_config: config });
+                        cnode.lut_bits = lut.len();
                     } else {
                         // should be a full selector
                         for lut_bit in lut.iter().copied() {
@@ -481,7 +476,7 @@ impl Channeler {
                                 DynamicValue::Dynam(input) => {
                                     let tmp_input =
                                         translate_backref(&ensemble, &tmp_embeddings, input);
-                                    channeler.make_cedge(tmp_input.p_cnode, p_self);
+                                    channeler.make_cedge(tmp_input.p_cnode, p_self, bw(1));
                                     inputs.push(input);
                                 }
                                 // target ensemble is not correct
@@ -490,8 +485,10 @@ impl Channeler {
                                 }
                             }
                         }
-                        channeler.cnodes.get_mut(p_self).unwrap().programmability =
+                        let cnode = channeler.cnodes.get_mut(p_self).unwrap();
+                        cnode.programmability =
                             Programmability::SelectorLut(SelectorLut { inx_config: config });
+                        cnode.lut_bits = 0;
                     }
                 }
             }

@@ -1,13 +1,11 @@
-use std::fmt::Write;
+use std::{cmp::Ordering, fmt::Write};
 
 use awint::awint_dag::triple_arena::{Advancer, OrdArena};
 
+use super::Embedding;
 use crate::{
     ensemble::{Ensemble, PEquiv, PExternal, Referent},
-    route::{
-        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PEmbed,
-        PMapping,
-    },
+    route::{route, Channeler, Configurator, PEmbed, PMapping},
     triple_arena::Arena,
     Corresponder, Error, OptimizerOptions, SuspendedEpoch,
 };
@@ -154,12 +152,8 @@ impl Router {
         &self.mappings
     }
 
-    pub fn node_embeddings(&self) -> &Arena<PNodeEmbed, NodeEmbed> {
-        &self.node_embeddings
-    }
-
-    pub fn edge_embeddings(&self) -> &Arena<PEdgeEmbed, EdgeEmbed> {
-        &self.edge_embeddings
+    pub fn embeddings(&self) -> &Arena<PEmbed, Embedding> {
+        &self.embeddings
     }
 
     fn verify_integrity_of_mapping_target(
@@ -248,7 +242,7 @@ impl Router {
             }
         }
         // node embedding validities
-        for (p_embedding, embedding) in self.node_embeddings() {
+        for (p_embedding, embedding) in self.embeddings() {
             if !self
                 .program_ensemble()
                 .backrefs
@@ -321,153 +315,70 @@ impl Router {
                             "{p_embedding} {embedding:#?} path edge.to is invalid"
                         )))
                     }
-                    match edge.kind {
-                        EdgeKind::Transverse(q_cedge, source_i) => {
-                            if let Some(cedge) = self.target_channeler().cedges.get(q_cedge) {
-                                if cedge.sources().get(source_i).is_none() {
-                                    return Err(Error::OtherString(format!(
-                                        "{p_embedding} {embedding:#?} path sink source_i is out \
-                                         of range"
-                                    )))
-                                }
-                            } else {
-                                return Err(Error::OtherString(format!(
-                                    "{p_embedding} {embedding:#?} path edge.kind is invalid"
-                                )))
-                            }
-                        }
-                        EdgeKind::Concentrate => (),
-                        EdgeKind::Dilute => (),
-                    }
                 }
             }
             // check path continuity
             for (i, path) in hyperpath.paths().iter().enumerate() {
-                let mut q = hyperpath.target_source;
+                let start = self
+                    .target_channeler()
+                    .cnodes
+                    .get(hyperpath.target_source)
+                    .unwrap();
+                let mut prev = hyperpath.target_source;
+                let mut lvl = start.lvl;
                 for (j, edge) in path.edges().iter().enumerate() {
-                    match edge.kind {
-                        EdgeKind::Transverse(q_cedge, source_i) => {
-                            let cedge = self.target_channeler().cedges.get(q_cedge).unwrap();
-                            let source = cedge.sources()[source_i].p_cnode;
-                            if q != source {
+                    let other = self.target_channeler().cnodes.get(edge.to).unwrap();
+                    match other.lvl.cmp(&lvl) {
+                        Ordering::Less => {
+                            if other.lvl.wrapping_add(1) != lvl {
                                 return Err(Error::OtherString(format!(
-                                    "{p_embedding} {embedding:#?} path {i} source is broken at \
-                                     traversal edge {j} {cedge:#?}"
+                                    "{p_embedding} {embedding:#?} path {i}[{j}] bad level \
+                                     difference"
                                 )))
                             }
-                            q = edge.to;
-                        }
-                        EdgeKind::Concentrate => {
-                            q = self.target_channeler().get_supernode(q).unwrap();
-                            if q != edge.to {
+                            lvl = other.lvl;
+                            if self.target_channeler().get_supernode(edge.to) != Some(prev) {
                                 return Err(Error::OtherString(format!(
-                                    "{p_embedding} {embedding:#?} path {i} is broken at \
-                                     concentration edge {j}"
+                                    "{p_embedding} {embedding:#?} path {i}[{j}] bad edge.to \
+                                     supernode"
                                 )))
                             }
                         }
-                        EdgeKind::Dilute => {
-                            let supernode = self.target_channeler().get_supernode(edge.to).unwrap();
-                            if q != supernode {
+                        Ordering::Equal => {
+                            // traversal
+                            if other.lvl != lvl {
                                 return Err(Error::OtherString(format!(
-                                    "{p_embedding} {embedding:#?} path {i} is broken at dilution \
-                                     edge {j}"
+                                    "{p_embedding} {embedding:#?} path {i}[{j}] bad level \
+                                     difference"
                                 )))
                             }
-                            q = edge.to;
+                            if prev == edge.to {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:#?} path {i}[{j}] traversal in-place"
+                                )))
+                            }
+                        }
+                        Ordering::Greater => {
+                            if other.lvl != lvl.wrapping_add(1) {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:#?} path {i}[{j}] bad level \
+                                     difference"
+                                )))
+                            }
+                            lvl = other.lvl;
+                            if self.target_channeler().get_supernode(prev) != Some(edge.to) {
+                                return Err(Error::OtherString(format!(
+                                    "{p_embedding} {embedding:#?} path {i}[{j}] bad previous \
+                                     supernode"
+                                )))
+                            }
                         }
                     }
-                }
-                if q != path.target_sink().unwrap() {
-                    return Err(Error::OtherString(format!(
-                        "{p_embedding} {embedding:#?} path {i} ending does not match sink"
-                    )))
-                }
-            }
-        }
-        // edge embedding validities
-        for (p_embedding, embedding) in self.edge_embeddings() {
-            if !self
-                .program_ensemble()
-                .lnodes
-                .contains(embedding.program_edge)
-            {
-                return Err(Error::OtherString(format!(
-                    "{p_embedding} {embedding:#?}.program_edge is invalid"
-                )))
-            }
-            match embedding.target {
-                NodeOrEdge::Node(q_cnode) => {
-                    if !self.target_channeler().cnodes.contains(q_cnode) {
-                        return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.target is invalid"
-                        )))
-                    }
-                }
-                NodeOrEdge::Edge(q_cedge) => {
-                    if !self.target_channeler().cedges.contains(q_cedge) {
-                        return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.target is invalid"
-                        )))
-                    }
+                    prev = edge.to;
                 }
             }
         }
         Ok(())
-    }
-
-    /// Looks through the target ensemble for potential mapping points and their
-    /// corresponding channeling nodes
-    pub fn debug_potential_map_points(&self, locations: bool, skip_invalid: bool) -> String {
-        let mut s = String::new();
-        for (p_rnode, p_external, rnode) in self.target_ensemble().notary.rnodes() {
-            let mut init = false;
-            if !skip_invalid {
-                writeln!(
-                    s,
-                    "{p_rnode:?} {p_external:#?} debug_name: {:?}",
-                    rnode.debug_name,
-                )
-                .unwrap();
-                if locations {
-                    writeln!(s, "{:#?}", rnode.location).unwrap()
-                }
-            }
-            if let Some(bits) = rnode.bits() {
-                for (i, bit) in bits.iter().copied().enumerate() {
-                    if let Some(bit) = bit {
-                        let bit = self
-                            .target_ensemble()
-                            .backrefs
-                            .get_val(bit)
-                            .unwrap()
-                            .p_self_equiv;
-                        if let Some(q_cnode) = self.target_channeler().translate_equiv(bit) {
-                            if skip_invalid && !init {
-                                writeln!(
-                                    s,
-                                    "{p_rnode:?} {p_external:#?} debug_name: {:?}",
-                                    rnode.debug_name
-                                )
-                                .unwrap();
-                                if locations {
-                                    writeln!(s, "{:#?}", rnode.location).unwrap()
-                                }
-                                init = true;
-                            }
-                            writeln!(s, "bit {i} {q_cnode:?}").unwrap();
-                        } else if !skip_invalid {
-                            writeln!(s, "bit {i} (no corresponding channeling node)").unwrap();
-                        }
-                    } else if !skip_invalid {
-                        writeln!(s, "bit {i} (was dropped or optimized away)").unwrap();
-                    }
-                }
-            } else if !skip_invalid {
-                writeln!(s, "(`RNode` never initialized)").unwrap();
-            }
-        }
-        s
     }
 
     pub fn debug_mapping(&self, p_mapping: PMapping) -> String {
@@ -488,9 +399,6 @@ impl Router {
         if let Some(location) = rnode.location {
             writeln!(s, "{location:#?}").unwrap();
         }
-        if let Some(q_cnode) = self.target_channeler().translate_equiv(*p_equiv) {
-            writeln!(s, "{q_cnode:?}").unwrap();
-        }
         if let Some(ref source) = mapping.target_source {
             let rnode = self
                 .target_ensemble()
@@ -509,12 +417,6 @@ impl Router {
             }
             if let Some(location) = rnode.location {
                 writeln!(s, "{location:#?}").unwrap();
-            }
-            if let Some(q_cnode) = self
-                .target_channeler()
-                .translate_equiv(source.target_p_equiv)
-            {
-                writeln!(s, "{q_cnode:?}").unwrap();
             }
         }
         for (i, sink) in mapping.target_sinks.iter().enumerate() {
@@ -535,9 +437,6 @@ impl Router {
             }
             if let Some(location) = rnode.location {
                 writeln!(s, "{location:#?}").unwrap();
-            }
-            if let Some(q_cnode) = self.target_channeler().translate_equiv(sink.target_p_equiv) {
-                writeln!(s, "{q_cnode:?}").unwrap();
             }
         }
         writeln!(s, "}}").unwrap();

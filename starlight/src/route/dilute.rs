@@ -3,10 +3,8 @@
 
 use std::{cmp::Reverse, collections::BinaryHeap, num::NonZeroU64};
 
-use awint::awint_dag::triple_arena::Advancer;
-
 use crate::{
-    route::{Edge, EdgeKind, NodeOrEdge, PCNode, PEdgeEmbed, PNodeEmbed, Programmability, Router},
+    route::{Edge, EdgeKind, NodeOrEdge, PCNode, PEmbed, Programmability, Router},
     Error,
 };
 

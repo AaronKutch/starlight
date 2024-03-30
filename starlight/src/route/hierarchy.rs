@@ -1,3 +1,11 @@
+use std::{collections::BinaryHeap, num::NonZeroUsize};
+
+use super::{BulkProperties, Programmability};
+use crate::{
+    route::{Channeler, PCNode},
+    Error,
+};
+
 /*
 see embed.rs for other details
 
@@ -92,20 +100,13 @@ pub(crate) fn generate_hierarchy(channeler: &mut Channeler) -> Result<(), Error>
 
         let related = channeler.related_nodes(p_consider);
         if related.len() == 1 {
-            // the node is disconnected
+            // the node on the current level is by itself, do not concentrate it as it will
+            // be the root node of its connected region of the target
             continue
         }
-        let mut subnodes_in_tree = 0usize;
-        let mut lut_bits = 0usize;
         // check if any related nodes have supernodes
         for p_related in related.iter().copied() {
             let related_cnode = channeler.cnodes.get(p_related).unwrap();
-            subnodes_in_tree = subnodes_in_tree
-                .checked_add(related_cnode.internal_behavior.subnodes_in_tree)
-                .unwrap();
-            lut_bits = lut_bits
-                .checked_add(related_cnode.internal_behavior.lut_bits)
-                .unwrap();
             if related_cnode.p_supernode.is_some() {
                 // We can't concentrate `p_consider` because it would concentrate related nodes
                 // that are already concentrated, instead put it in `possibly_single_subnode`
@@ -117,13 +118,9 @@ pub(crate) fn generate_hierarchy(channeler: &mut Channeler) -> Result<(), Error>
         }
         // concentrate
         let p_next_lvl = channeler.make_cnode(
-            None,
             related,
             current_lvl.checked_add(1).unwrap(),
-            InternalBehavior {
-                subnodes_in_tree,
-                lut_bits,
-            },
+            Programmability::Bulk(BulkProperties::new()),
         );
         next_level_cnodes.push(p_next_lvl);
     }
@@ -143,125 +140,71 @@ fn generate_hierarchy_level(
     for p in possibly_single_subnode.drain(..) {
         let cnode = channeler.cnodes.get(p).unwrap();
         if cnode.p_supernode.is_some() {
+            // it was concentrated into something else
             continue
         }
         // need to also forward the internal behavior
-        let p_next_lvl = channeler.make_cnode(
-            None,
-            vec![p],
-            current_lvl,
-            cnode.internal_behavior().clone(),
-        );
+        let p_next_lvl = channeler.make_cnode(vec![p], current_lvl, cnode.programmability.clone());
         next_level_cnodes.push(p_next_lvl);
     }
 
-    // create bulk `CEdge`s between all nodes on the level
+    // create bulk edges between all nodes on the level
     for p_consider in next_level_cnodes.drain(..) {
-        // first get the set of subnodes
+        // first get the set of direct subnodes
         let direct_subnode_visit = channeler.next_alg_visit();
         let p_subnodes = channeler.cnodes.get(p_consider).unwrap().p_subnodes.clone();
         for p_subnode in p_subnodes.iter().copied() {
             channeler.cnodes.get_mut(p_subnode).unwrap().alg_visit = direct_subnode_visit;
         }
-        // The current plan is that we just create one big edge that has its sink
-        // incident in `p_consider`, with source incidents to all supernodes of subnodes
-        // outside of the subnode set that have source incidents to an edge that has a
-        // sink in the subnodes of `p_consider`. I'm not sure if we should discretize
-        // this more since the channel source widths are tracked separately to begin
-        // with. However I suspect that this is the correct approach because we can
-        // simplify bulk edge behavior to only track channel widths and is the only
-        // straightforward way to avoid `OrdArena`s.
 
         // iterate through the subnodes again, but now get a set of second neighbors
         // that aren't in the subnodes set
-        let related_visit = channeler.next_alg_visit();
-        let mut source_set = vec![];
-        let mut channel_widths = ChannelWidths::empty();
-        let mut lut_bits = 0usize;
+        let second_related_visit = channeler.next_alg_visit();
+        let mut second_related_nodes = vec![];
         for p_subnode in p_subnodes.iter().copied() {
-            // just go over the sink incident to avoid duplication
-            if let Some(p_cedge) = channeler.cnodes.get(p_subnode).unwrap().sink_incident {
-                let cedge = channeler.cedges.get_mut(p_cedge).unwrap();
-
-                let w = match cedge.programmability() {
-                    Programmability::StaticLut(lut) => {
-                        lut_bits = lut_bits.checked_add(lut.bw()).unwrap();
-                        1
+            let subnode = channeler.cnodes.get(p_subnode).unwrap();
+            // we avoid double counting by only handling things in the sink direction,
+            // sources of this subnode that are skipped over will be handled in another
+            // iteration
+            let sinks = subnode.sinks.clone();
+            for sink in sinks {
+                let other = channeler.cnodes.get_mut(sink.p_cnode).unwrap();
+                // make sure the `CNode` is outside the direct subnode set, and thus its
+                // supernode is not the same node as the direct subnode's supernode and the
+                // current level needs an edge between the supernodes
+                if other.alg_visit != direct_subnode_visit {
+                    let p_supernode = other.p_supernode.unwrap();
+                    let supernode = channeler.cnodes.get_mut(p_supernode).unwrap();
+                    // avoid an `OrdArena` by accumulating the width on the
+                    // related supernode
+                    if supernode.alg_visit != second_related_visit {
+                        // prep if the supernode has not been seen in the current outer loop before
+                        supernode.alg_visit = second_related_visit;
+                        supernode.alg_usize0 = 0;
+                        second_related_nodes.push(p_supernode);
                     }
-                    Programmability::ArbitraryLut(arbitrary_lut) => {
-                        lut_bits = lut_bits
-                            .checked_add(arbitrary_lut.lut_config().len())
-                            .unwrap();
-                        1
-                    }
-                    Programmability::SelectorLut(_) => 1,
-                    Programmability::Bulk(bulk) => bulk.channel_exit_width,
-                };
-                channel_widths.channel_exit_width =
-                    channel_widths.channel_exit_width.checked_add(w).unwrap();
-
-                for (i, source) in cedge.sources().iter().copied().enumerate() {
-                    let cnode = channeler.cnodes.get_mut(source.p_cnode).unwrap();
-                    // make sure the `CNode` is outside the direct subnode set
-                    if cnode.alg_visit != direct_subnode_visit {
-                        // avoid an `OrdArena` by accumulating the entry width on the
-                        // related supernode
-                        let p_supernode = cnode.p_supernode.unwrap();
-                        let supernode = channeler.cnodes.get_mut(p_supernode).unwrap();
-                        if supernode.alg_visit != related_visit {
-                            supernode.alg_visit = related_visit;
-                            supernode.alg_entry_width = 0;
-                            // TODO fix the delay here
-                            source_set.push(Source {
-                                p_cnode: p_supernode,
-                                delay_weight: NonZeroU32::new(1).unwrap(),
-                            });
-                        }
-                        let w = match cedge.programmability() {
-                            Programmability::StaticLut(_)
-                            | Programmability::ArbitraryLut(_)
-                            | Programmability::SelectorLut(_) => 1,
-                            Programmability::Bulk(bulk) => bulk.channel_entry_widths[i],
-                        };
-                        supernode.alg_entry_width =
-                            supernode.alg_entry_width.checked_add(w).unwrap();
-                    }
-                    // else the connections are internal, TODO are there
-                    // any internal connection statistics we should want
-                    // to track?
+                    supernode.alg_usize0 =
+                        supernode.alg_usize0.checked_add(sink.width.get()).unwrap();
                 }
             }
         }
-        // add on the bits from edges with sinks in `p_consider`
-        let internal_behavior = &mut channeler
-            .cnodes
-            .get_mut(p_consider)
-            .unwrap()
-            .internal_behavior;
-        internal_behavior.lut_bits = internal_behavior.lut_bits.checked_add(lut_bits).unwrap();
+        let len = second_related_nodes.len();
+        for p_second in second_related_nodes {
+            let second = channeler.cnodes.get(p_second).unwrap();
+            let width = NonZeroUsize::new(second.alg_usize0).unwrap();
+            channeler.make_cedge(p_consider, p_second, width);
+            // TODO the delay weight system is messed up for bulk edges, perhaps
+            // this is perhaps where we should add more than one
+            // edge per concentrated node if the weights vary
+            // wildly, e.g. for an island FPGA with some long range connections
+
+            // set weight here TODO
+        }
         // We want the edge source numbers to be mostly tractable. The tree will be
         // lopsided somewhat because of this, but will ultimately be WAVL-like balanced
         // because everything that doesn't have overlap issues will be concentrated
         // every round.
-        let channel_exit_width = channel_widths.channel_exit_width;
-        priority.push((channel_exit_width, p_consider));
-        // create the edge
-        if !source_set.is_empty() {
-            for source in source_set.iter().copied() {
-                let cnode = channeler.cnodes.get(source.p_cnode).unwrap();
-                channel_widths
-                    .channel_entry_widths
-                    .push(cnode.alg_entry_width);
-            }
-            // TODO the delay weight system is messed up for bulk edges, perhaps this is
-            // where we can add more than one edge per concentrated node if the weights vary
-            // wildly, e.g. for an island FPGA with some long range connections
-            channeler.make_cedge(
-                source_set,
-                p_consider,
-                Programmability::Bulk(channel_widths),
-            );
-        }
+        priority.push((len, p_consider));
     }
     Ok(())
 }

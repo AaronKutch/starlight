@@ -9,7 +9,7 @@ use awint::awint_dag::{
 };
 
 use crate::{
-    route::{CEdge, CNode, Channeler, PCEdge, PCNode},
+    route::{CNode, Channeler, PCNode},
     Error,
 };
 

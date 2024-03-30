@@ -1,37 +1,18 @@
 use crate::{
     ensemble::{PBack, PLNode},
-    route::{PCEdge, PCNode},
+    route::PCNode,
 };
 
 #[derive(Debug, Clone, Copy)]
-pub enum NodeOrEdge {
-    Node(PCNode),
-    Edge(PCEdge),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EdgeKind {
-    /// Edge through a `CEdge` between `CNode`s on the same level. The `usize`
-    /// indicates which source is used.
-    Transverse(PCEdge, usize),
-    /// Edge to a higher level `CNode`
-    Concentrate,
-    /// Edge to a lower level `CNode`
-    Dilute,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub struct Edge {
-    /// The method of traversal
-    pub kind: EdgeKind,
-    /// The incident the edge reaches, the concentration and
-    /// dilution edges can easily be derived from this.
+    /// The incident the edge reaches, may be a traversal on the same level, a
+    /// dilution to a lower level, or a concentration to a higher level
     pub to: PCNode,
 }
 
 impl Edge {
-    pub fn new(kind: EdgeKind, to: PCNode) -> Self {
-        Self { kind, to }
+    pub fn new(to: PCNode) -> Self {
+        Self { to }
     }
 }
 

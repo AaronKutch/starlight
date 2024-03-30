@@ -12,12 +12,16 @@ pub struct CNode {
     pub p_subnodes: Vec<PCNode>,
     pub sources: Vec<Source>,
     pub sinks: Vec<Sink>,
+    // this counts the total number of `lvl == 0` subnodes
+    pub base_subnodes: usize,
+    // equivalent number of LUT bits available
+    pub lut_bits: usize,
     pub programmability: Programmability,
 
     /// The lagrangian multiplier, fixed point such that (1 << 16) is 1.0
     pub lagrangian: u32,
     pub alg_visit: NonZeroU64,
-    pub alg_entry_width: usize,
+    pub alg_usize0: usize,
     // this is used in Dijkstras' and points backwards
     pub alg_edge: (Option<PCNode>, usize),
 }
@@ -84,18 +88,27 @@ impl Channeler {
             p_subnodes: vec![],
             sinks: vec![],
             sources: vec![],
+            base_subnodes: 0,
+            lut_bits: 0,
             programmability,
             lagrangian: 0,
             alg_visit: NonZeroU64::new(1).unwrap(),
-            alg_entry_width: 0,
+            alg_usize0: 0,
             alg_edge: (None, 0),
         });
+        let mut base_subnodes = if p_subnodes.is_empty() { 1usize } else { 0 };
+        let mut lut_bits = 0usize;
         for p_subnode in p_subnodes.iter().copied() {
             let cnode = self.cnodes.get_mut(p_subnode).unwrap();
+            base_subnodes = base_subnodes.checked_add(cnode.base_subnodes).unwrap();
+            lut_bits = lut_bits.checked_add(cnode.lut_bits).unwrap();
             debug_assert!(cnode.p_supernode.is_none());
             cnode.p_supernode = Some(p_supernode);
         }
-        self.cnodes.get_mut(p_supernode).unwrap().p_subnodes = p_subnodes;
+        let supernode = self.cnodes.get_mut(p_supernode).unwrap();
+        supernode.base_subnodes = base_subnodes;
+        supernode.lut_bits = lut_bits;
+        supernode.p_subnodes = p_subnodes;
         p_supernode
     }
 
