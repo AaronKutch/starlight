@@ -10,15 +10,22 @@ use awint::{
 
 use crate::{
     awint_dag::smallvec::SmallVec,
-    ensemble::{DynamicValue, Ensemble, LNodeKind, PBack, PEquiv},
+    ensemble::{DynamicValue, Ensemble, LNodeKind, PBack, PEquiv, PExternal},
     route::{generate_hierarchy, Channeler, Configurator, PCNode, PConfig, PEmbed},
     Error, SuspendedEpoch,
 };
 
+/// `PExternal` referenceable bits that aren't configuration bits
+#[derive(Debug, Clone, Copy)]
+pub struct MapPoint {
+    pub p_external: PExternal,
+    pub bit_i: usize,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ConfigBit {
-    p_config: PConfig,
-    bit_i: usize,
+    pub p_config: PConfig,
+    pub bit_i: usize,
 }
 
 /// The selector can use its configuration bits to arbitrarily select from any
@@ -137,6 +144,7 @@ impl Recast<PCNode> for Source {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Sink {
     pub p_cnode: PCNode,
+    pub source_i: usize,
     /// The weight needs to be at least 1 to prevent the algorithm from doing
     /// very bad routes
     pub delay_weight: NonZeroU32,
@@ -167,10 +175,12 @@ impl Channeler {
 
     /// Note that the `delay_weight` should be set later
     pub fn make_cedge(&mut self, source: PCNode, sink: PCNode, width: NonZeroUsize) {
+        let source_i = self.cnodes.get_mut(sink).unwrap().sources.len();
         let sinks = &mut self.cnodes.get_mut(source).unwrap().sinks;
         let sink_i = sinks.len();
         sinks.push(Sink {
             p_cnode: source,
+            source_i,
             delay_weight: NonZeroU32::new(1).unwrap(),
             width,
         });
@@ -190,6 +200,7 @@ impl Channeler {
             driven_by_count: usize,
             driver_of_count: usize,
             config: Option<ConfigBit>,
+            map_point: Option<MapPoint>,
         }
 
         // not actual embeddings, we use the `PEmbed` `Ptr`s on the target ensemble to
@@ -242,6 +253,7 @@ impl Channeler {
                 driver_of_count,
                 driven_by_count,
                 config: None,
+                map_point: None,
             });
         }
 
@@ -399,6 +411,55 @@ impl Channeler {
         // layer to be compact
         let cnode_recaster = channeler.cnodes.compress_and_shrink_recaster();
         channeler.recast(&cnode_recaster).unwrap();
+
+        // FIXME do we need map points to a `CNode`?
+
+        // after `CNode` unification has happened, handle map points
+        for (_, p_external, rnode) in ensemble.notary.rnodes() {
+            if let Some(bits) = rnode.bits() {
+                for (bit_i, bit) in bits.iter().copied().enumerate() {
+                    if let Some(bit) = bit {
+                        let tmp = translate_backref_mut(&ensemble, &mut tmp_embeddings, bit);
+                        if let Some(config_bit) = tmp.config {
+                            let config_p_external = *configurator
+                                .configurations
+                                .get(config_bit.p_config)
+                                .unwrap()
+                                .0;
+                            return Err(Error::OtherString(format!(
+                                "a configuration from {config_p_external:#?} is also shared with \
+                                 a non-configuration `RNode` from {p_external:#?}"
+                            )));
+                        }
+                        if let Some(map_point) = tmp.map_point {
+                            let other_p_external = map_point.p_external;
+                            // TODO this restriction should be lifted
+                            return Err(Error::OtherString(format!(
+                                "a non-configuration `RNode` from {other_p_external:#?} is shared \
+                                 with another non-configuration `RNode` from {p_external:#?}, \
+                                 which is currently not supported for router targets"
+                            )));
+                        }
+                        tmp.map_point = Some(MapPoint {
+                            p_external: *p_external,
+                            bit_i,
+                        });
+                    }
+                }
+            } else {
+                return Err(Error::OtherStr(
+                    "when creating a target `Channeler` for a router, found that the target epoch \
+                     has not been lowered or preferably optimized",
+                ));
+            }
+        }
+
+        // put in the map points
+        for tmp in tmp_embeddings.vals() {
+            if let Some(map_point) = tmp.map_point {
+                channeler.cnodes.get_mut(tmp.p_cnode).unwrap().map_point = Some(map_point);
+            }
+        }
 
         // connect `CNode`s according to `LNode`s
         let mut adv = ensemble.lnodes.advancer();

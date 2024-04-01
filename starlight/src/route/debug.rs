@@ -17,7 +17,6 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum LevelNodeKind {
     CNode(CNode),
-    CEdge(PCEdge, CEdge),
     Remove,
 }
 
@@ -28,33 +27,21 @@ impl DebugNodeTrait<PCNode> for LevelNodeKind {
                 sources: vec![],
                 center: {
                     let mut v = vec![
-                        format!("{} cnode {}", cnode.lvl, cnode.internal_behavior.lut_bits),
+                        format!("{} cnode {}", cnode.lvl, cnode.lut_bits),
                         format!("{:?}", p_this),
                     ];
-                    if let Some(base_p_equiv) = cnode.base_p_equiv {
-                        v.push(format!("{}", base_p_equiv));
-                    }
                     if let Some(p_supernode) = cnode.p_supernode {
                         v.push(format!("sup: {:?}", p_supernode));
                     }
                     v
                 },
-                sinks: vec![],
-            },
-            LevelNodeKind::CEdge(p_cedge, cedge) => DebugNode {
-                sources: {
+                sinks: {
                     let mut v = vec![];
-                    for source in cedge.sources().iter().copied() {
-                        v.push((source.p_cnode, format!("{}", source.delay_weight)));
+                    for sink in cnode.sinks().iter().copied() {
+                        v.push((sink.p_cnode, format!("{}", sink.delay_weight)));
                     }
                     v
                 },
-                center: {
-                    let mut v = cedge.programmability().debug_strings();
-                    v.push(format!("{p_cedge:?}"));
-                    v
-                },
-                sinks: { vec![(cedge.sink(), "".to_owned())] },
             },
             LevelNodeKind::Remove => panic!("should have been removed"),
         }
@@ -65,7 +52,6 @@ impl DebugNodeTrait<PCNode> for LevelNodeKind {
 #[derive(Debug, Clone)]
 pub enum HierarchyNodeKind {
     CNode(CNode),
-    CEdge(PCEdge, CEdge),
     Remove,
 }
 
@@ -80,26 +66,17 @@ impl DebugNodeTrait<PCNode> for HierarchyNodeKind {
                 },
                 center: {
                     vec![
-                        format!("{} cnode {}", cnode.lvl, cnode.internal_behavior.lut_bits),
+                        format!("{} cnode {}", cnode.lvl, cnode.lut_bits),
                         format!("{:?}", p_this),
                     ]
                 },
-                sinks: vec![],
-            },
-            HierarchyNodeKind::CEdge(p_cedge, cedge) => DebugNode {
-                sources: {
+                sinks: {
                     let mut v = vec![];
-                    for source in cedge.sources().iter().copied() {
-                        v.push((source.p_cnode, format!("{}", source.delay_weight)));
+                    for sink in cnode.sinks().iter().copied() {
+                        v.push((sink.p_cnode, format!("{}", sink.delay_weight)));
                     }
                     v
                 },
-                center: {
-                    let mut v = cedge.programmability().debug_strings();
-                    v.push(format!("{p_cedge:?}"));
-                    v
-                },
-                sinks: { vec![(cedge.sink(), "".to_owned())] },
             },
             HierarchyNodeKind::Remove => panic!("should have been removed"),
         }
@@ -116,11 +93,6 @@ impl Channeler {
                 LevelNodeKind::Remove
             }
         });
-        for (p_cedge, cedge) in &self.cedges {
-            if self.cnodes.get(cedge.sink()).unwrap().lvl == u16::try_from(lvl).unwrap() {
-                arena.insert(LevelNodeKind::CEdge(p_cedge, cedge.clone()));
-            }
-        }
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
             if let LevelNodeKind::Remove = arena.get(p).unwrap() {
@@ -135,9 +107,6 @@ impl Channeler {
         arena.clone_from_with(&self.cnodes, |_, cnode| {
             HierarchyNodeKind::CNode(cnode.clone())
         });
-        for (p_cedge, cedge) in &self.cedges {
-            arena.insert(HierarchyNodeKind::CEdge(p_cedge, cedge.clone()));
-        }
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
             if let HierarchyNodeKind::Remove = arena.get(p).unwrap() {

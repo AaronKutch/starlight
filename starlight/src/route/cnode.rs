@@ -2,11 +2,13 @@ use std::num::NonZeroU64;
 
 use awint::awint_dag::triple_arena::{Recast, Recaster};
 
+use super::MapPoint;
 use crate::route::{Channeler, PCNode, Programmability, Sink, Source};
 
 /// A channel node
 #[derive(Debug, Clone)]
 pub struct CNode {
+    pub map_point: Option<MapPoint>,
     pub lvl: u16,
     pub p_supernode: Option<PCNode>,
     pub p_subnodes: Vec<PCNode>,
@@ -83,6 +85,7 @@ impl Channeler {
     ) -> PCNode {
         p_subnodes.sort();
         let p_supernode = self.cnodes.insert(CNode {
+            map_point: None,
             lvl,
             p_supernode: None,
             p_subnodes: vec![],

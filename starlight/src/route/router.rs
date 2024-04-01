@@ -1,8 +1,8 @@
-use std::{cmp::Ordering, fmt::Write};
+use std::{cmp::Ordering, fmt::Write, num::NonZeroUsize};
 
 use awint::awint_dag::triple_arena::{Advancer, OrdArena};
 
-use super::Embedding;
+use super::{Embedding, PCNode};
 use crate::{
     ensemble::{Ensemble, PEquiv, PExternal, Referent},
     route::{route, Channeler, Configurator, PEmbed, PMapping},
@@ -10,19 +10,16 @@ use crate::{
     Corresponder, Error, OptimizerOptions, SuspendedEpoch,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MappingTarget {
-    pub target_p_external: PExternal,
-    pub target_bit_i: usize,
-    pub target_p_equiv: PEquiv,
+    pub p_external: PExternal,
+    pub p_cnodes: Vec<Option<PCNode>>,
 }
 
-/// The corresponding program `PBack` is in the key that this `Mapping` should
-/// be uniquely associated with.
+/// The corresponding program `PExternal` is in the key that this `Mapping`
+/// should be uniquely associated with.
 #[derive(Debug, Clone)]
 pub struct Mapping {
-    pub program_p_external: PExternal,
-    pub program_bit_i: usize,
     // Usually, only one of the following has a single `MappingTarget`, but there are cases like
     // copying a bit that all happens in a single program `CNode`, but needs to be mapped to
     // differing target `CNode`s, so in general it can map to a single target source and multiple
@@ -38,7 +35,7 @@ pub struct Router {
     pub(crate) configurator: Configurator,
     pub(crate) program_ensemble: Ensemble,
     // `PEquiv` mapping from program to target
-    pub(crate) mappings: OrdArena<PMapping, PEquiv, Mapping>,
+    pub(crate) mappings: OrdArena<PMapping, PExternal, Mapping>,
     // routing embedding of part of the program in the target
     pub(crate) embeddings: Arena<PEmbed, Embedding>,
     // this should only be set after a successful routing, and be unset the moment any mappings,
@@ -148,7 +145,7 @@ impl Router {
         &self.target_channeler
     }
 
-    pub fn mappings(&self) -> &OrdArena<PMapping, PEquiv, Mapping> {
+    pub fn mappings(&self) -> &OrdArena<PMapping, PExternal, Mapping> {
         &self.mappings
     }
 
@@ -156,40 +153,40 @@ impl Router {
         &self.embeddings
     }
 
+    /// Also returns the bitwidth
     fn verify_integrity_of_mapping_target(
         &self,
         mapping_target: &MappingTarget,
-    ) -> Result<(), Error> {
+    ) -> Result<NonZeroUsize, Error> {
         if let Ok((_, rnode)) = self
             .target_ensemble
             .notary
-            .get_rnode(mapping_target.target_p_external)
+            .get_rnode(mapping_target.p_external)
         {
             if let Some(bits) = rnode.bits() {
-                let mut ok = false;
-                if let Some(Some(bit)) = bits.get(mapping_target.target_bit_i) {
-                    if let Some(bit) = self.target_ensemble().backrefs.get_val(*bit) {
-                        if bit.p_self_equiv == mapping_target.target_p_equiv {
-                            ok = true;
-                        }
-                    }
-                }
-                if !ok {
+                if bits.len() != mapping_target.p_cnodes.len() {
                     return Err(Error::OtherString(format!(
-                        "{mapping_target:#?} rnode validity issue"
+                        "{mapping_target:#?} bitwidth mismatch"
                     )));
                 }
+                for i in 0..bits.len() {
+                    if bits[i].is_some() != mapping_target.p_cnodes[i].is_some() {
+                        return Err(Error::OtherString(format!(
+                            "{mapping_target:#?} prune state mismatch"
+                        )));
+                    }
+                }
+                Ok(rnode.nzbw())
             } else {
-                return Err(Error::OtherString(format!(
+                Err(Error::OtherString(format!(
                     "{mapping_target:#?} rnode is unlowered"
-                )));
+                )))
             }
         } else {
-            return Err(Error::OtherString(format!(
+            Err(Error::OtherString(format!(
                 "{mapping_target:#?}.target_p_external is invalid"
             )))
         }
-        Ok(())
     }
 
     pub fn verify_integrity(&self) -> Result<(), Error> {
@@ -203,42 +200,30 @@ impl Router {
             ))
         }
         // mapping validities
-        for (p_mapping, program_p_equiv, mapping) in self.mappings() {
-            if let Ok((_, rnode)) = self
-                .program_ensemble
-                .notary
-                .get_rnode(mapping.program_p_external)
-            {
-                if let Some(bits) = rnode.bits() {
-                    let mut ok = false;
-                    if let Some(Some(bit)) = bits.get(mapping.program_bit_i) {
-                        if let Some(bit) = self.program_ensemble().backrefs.get_val(*bit) {
-                            if bit.p_self_equiv == *program_p_equiv {
-                                ok = true;
-                            }
-                        }
-                    }
-                    if !ok {
+        for (p_mapping, program_p_external, mapping) in self.mappings() {
+            if let Ok((_, rnode)) = self.program_ensemble.notary.get_rnode(*program_p_external) {
+                let common_width = rnode.nzbw();
+
+                if let Some(ref mapping_target) = mapping.target_source {
+                    let w = self.verify_integrity_of_mapping_target(mapping_target)?;
+                    if w != common_width {
                         return Err(Error::OtherString(format!(
-                            "{p_mapping} {mapping:#?} rnode validity issue"
-                        )));
+                            "{p_mapping} {mapping:#?} source width mismatch"
+                        )))
                     }
-                } else {
-                    return Err(Error::OtherString(format!(
-                        "{p_mapping} {mapping:#?} rnode is unlowered"
-                    )));
+                }
+                for mapping_target in &mapping.target_sinks {
+                    let w = self.verify_integrity_of_mapping_target(mapping_target)?;
+                    if w != common_width {
+                        return Err(Error::OtherString(format!(
+                            "{p_mapping} {mapping:#?} sink width mismatch"
+                        )))
+                    }
                 }
             } else {
                 return Err(Error::OtherString(format!(
                     "{p_mapping} {mapping:#?}.program_p_external is invalid"
                 )))
-            }
-
-            if let Some(ref mapping_target) = mapping.target_source {
-                self.verify_integrity_of_mapping_target(mapping_target)?;
-            }
-            for mapping_target in &mapping.target_sinks {
-                self.verify_integrity_of_mapping_target(mapping_target)?;
             }
         }
         // node embedding validities
@@ -382,15 +367,12 @@ impl Router {
     }
 
     pub fn debug_mapping(&self, p_mapping: PMapping) -> String {
-        let (p_equiv, mapping) = self.mappings().get(p_mapping).unwrap();
-        let mut s = format!(
-            "{p_mapping:?} {p_equiv:#?} Mapping {{\nprogram: {} bit {}\n",
-            mapping.program_p_external, mapping.program_bit_i
-        );
+        let (program_p_external, mapping) = self.mappings().get(p_mapping).unwrap();
+        let mut s = format!("{p_mapping:?} Mapping {{\nprogram: {program_p_external}\n");
         let rnode = self
             .program_ensemble()
             .notary
-            .get_rnode(mapping.program_p_external)
+            .get_rnode(*program_p_external)
             .unwrap()
             .1;
         if let Some(ref debug_name) = rnode.debug_name {
@@ -403,13 +385,13 @@ impl Router {
             let rnode = self
                 .target_ensemble()
                 .notary
-                .get_rnode(source.target_p_external)
+                .get_rnode(source.p_external)
                 .unwrap()
                 .1;
             writeln!(
                 s,
-                "target source {} bit {} {}",
-                source.target_p_external, source.target_bit_i, source.target_p_equiv
+                "target source {} {:?}",
+                source.p_external, source.p_cnodes
             )
             .unwrap();
             if let Some(ref debug_name) = rnode.debug_name {
@@ -423,15 +405,10 @@ impl Router {
             let rnode = self
                 .target_ensemble()
                 .notary
-                .get_rnode(sink.target_p_external)
+                .get_rnode(sink.p_external)
                 .unwrap()
                 .1;
-            writeln!(
-                s,
-                "target sink {i} {} bit {} {}",
-                sink.target_p_external, sink.target_bit_i, sink.target_p_equiv
-            )
-            .unwrap();
+            writeln!(s, "target sink {i} {} {:?}", sink.p_external, sink.p_cnodes).unwrap();
             if let Some(ref debug_name) = rnode.debug_name {
                 writeln!(s, "debug_name: {debug_name}").unwrap();
             }
@@ -485,92 +462,74 @@ impl Router {
                 if len0 != len1 {
                     return Err(Error::OtherString(format!(
                         "when mapping bits, found that the bitwidths of {program:#?} ({len0}) and \
-                         {target:#?} ({len1}) differ"
+                         {target:#?} ({len1}) mismatch"
                     )));
                 }
-                for (bit_i, the_two) in program_rnode_bits
-                    .iter()
-                    .copied()
-                    .zip(target_rnode_bits.iter().copied())
-                    .enumerate()
-                {
-                    match the_two {
-                        (Some(program_bit), Some(target_bit)) => {
-                            let program_p_equiv = self
-                                .program_ensemble
-                                .backrefs
-                                .get_val(program_bit)
-                                .unwrap()
-                                .p_self_equiv;
-                            let target_p_equiv = self
-                                .target_ensemble
-                                .backrefs
-                                .get_val(target_bit)
-                                .unwrap()
-                                .p_self_equiv;
 
-                            // insert new mapping target
-                            let mapping_target = MappingTarget {
-                                target_p_external: target,
-                                target_bit_i: bit_i,
-                                target_p_equiv,
-                            };
-                            if let Some(p_map) = self.mappings.find_key(&program_p_equiv) {
-                                let mapping = self.mappings.get_val_mut(p_map).unwrap();
-                                if is_driver {
-                                    if mapping.target_source.is_some() {
-                                        return Err(Error::OtherString(format!(
-                                            "Tried to map multiple program drivers for the same \
-                                             program `RNode` {:#?}, probably called \
-                                             `Router::map_*` twice on the same program `LazyAwi`",
-                                            program
-                                        )));
-                                    }
-                                    mapping.target_source = Some(mapping_target);
-                                } else {
-                                    for target_sink in &mapping.target_sinks {
-                                        if target_sink.target_p_equiv
-                                            == mapping_target.target_p_equiv
-                                        {
-                                            return Err(Error::OtherString(format!(
-                                                "Tried to map multiple program value sinks for \
-                                                 the same program `RNode` {:#?}, probably called \
-                                                 `Router::map_*` twice on the same program \
-                                                 `EvalAwi`",
-                                                program
-                                            )));
-                                        }
-                                    }
-                                    mapping.target_sinks.push(mapping_target);
-                                }
-                            } else {
-                                let mapping = if is_driver {
-                                    Mapping {
-                                        program_p_external: program,
-                                        program_bit_i: bit_i,
-                                        target_source: Some(mapping_target),
-                                        target_sinks: vec![],
-                                    }
-                                } else {
-                                    Mapping {
-                                        program_p_external: program,
-                                        program_bit_i: bit_i,
-                                        target_source: None,
-                                        target_sinks: vec![mapping_target],
-                                    }
-                                };
-                                let _ = self.mappings.insert(program_p_equiv, mapping);
+                // first get the `p_cnode`s for the target
+                let mut p_cnodes = vec![];
+                for (bit_i, bit) in target_rnode_bits.iter().copied().enumerate() {
+                    if let Some(bit) = bit {
+                        let mut adv = self.target_ensemble.backrefs.advancer_surject(bit);
+                        while let Some(p_ref) = adv.advance(&self.target_ensemble.backrefs) {
+                            match *self.target_ensemble.backrefs.get_key(p_ref).unwrap() {
+                                Referent::ThisEquiv
+                                | Referent::ThisLNode(_)
+                                | Referent::ThisTNode(_)
+                                | Referent::ThisStateBit(..)
+                                | Referent::Input(_)
+                                | Referent::Driver(_) => (),
+                                Referent::ThisRNode(p_rnode) => self.target_ensemble,
                             }
                         }
-                        (None, None) => (),
-                        _ => {
-                            // maybe it should just be a no-op? haven't encountered a case yet
+                    } else {
+                        p_cnodes.push(None);
+                    }
+                }
+
+                // insert new mapping target
+                let mapping_target = MappingTarget {
+                    p_external: target,
+                    p_cnodes,
+                };
+                if let Some(p_map) = self.mappings.find_key(&program_p_equiv) {
+                    let mapping = self.mappings.get_val_mut(p_map).unwrap();
+                    if is_driver {
+                        if mapping.target_source.is_some() {
                             return Err(Error::OtherString(format!(
-                                "when mapping bits {program:#?} and {target:#?}, one or the other \
-                                 bits were optimized away inconsistently"
+                                "Tried to map multiple program drivers for the same program \
+                                 `RNode` {:#?}, probably called `Router::map_*` twice on the same \
+                                 program `LazyAwi`",
+                                program
                             )));
                         }
+                        mapping.target_source = Some(mapping_target);
+                    } else {
+                        for target_sink in &mapping.target_sinks {
+                            if *target_sink == mapping_target {
+                                return Err(Error::OtherString(format!(
+                                    "Tried to map multiple program value sinks for the same \
+                                     program `RNode` {:#?}, probably called `Router::map_*` twice \
+                                     on the same program `EvalAwi`",
+                                    program
+                                )));
+                            }
+                        }
+                        mapping.target_sinks.push(mapping_target);
                     }
+                } else {
+                    let mapping = if is_driver {
+                        Mapping {
+                            target_source: Some(mapping_target),
+                            target_sinks: vec![],
+                        }
+                    } else {
+                        Mapping {
+                            target_source: None,
+                            target_sinks: vec![mapping_target],
+                        }
+                    };
+                    let _ = self.mappings.insert(program, mapping);
                 }
                 Ok(())
             } else {

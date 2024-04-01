@@ -15,7 +15,7 @@ mod routing;
 use std::num::NonZeroU32;
 
 use awint::awint_dag::triple_arena::ptr_struct;
-pub use cedge::{BulkProperties, Programmability, SelectorLut, Sink, Source};
+pub use cedge::{BulkProperties, MapPoint, Programmability, SelectorLut, Sink, Source};
 pub use channel::Channeler;
 pub use cnode::CNode;
 pub use config::{Config, Configurator};
@@ -72,7 +72,7 @@ ptr_struct!(
 // these are completely internal and so can always go without gen counters
 
 #[cfg(any(debug_assertions, not(feature = "u32_ptrs")))]
-ptr_struct!(PBackToCnode());
+ptr_struct!(PMapPointToCnode());
 
 #[cfg(all(not(debug_assertions), feature = "u32_ptrs"))]
-ptr_struct!(PBackToCnode[NonZeroU32]());
+ptr_struct!(PMapPointToCnode[NonZeroU32]());

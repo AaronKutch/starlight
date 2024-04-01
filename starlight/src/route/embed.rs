@@ -2,8 +2,9 @@ use std::fmt::Write;
 
 use awint::awint_dag::triple_arena::Advancer;
 
+use super::{MapPoint, PEmbed};
 use crate::{
-    ensemble::{PBack, PEquiv, Referent},
+    ensemble::{PBack, PEquiv, PExternal, Referent},
     route::{Edge, HyperPath, PCNode, PMapping, Path, Router},
     Error,
 };
@@ -70,9 +71,9 @@ impl Router {
                     }
                     Some(Referent::Input(p_lnode)) => {
                         let lnode = self.program_ensemble.lnodes.get_mut(*p_lnode).unwrap();
-                        if lnode.p_edge_embed.is_none() {
-                            lnode.p_edge_embed =
-                                Some(self.edge_embeddings.insert(EdgeEmbed::new(
+                        if lnode.p_embed.is_none() {
+                            lnode.p_embed =
+                                Some(self.embeddings.insert(Embedding::new(
                                     *p_lnode,
                                     NodeOrEdge::Node(common_root),
                                 )));
@@ -87,8 +88,8 @@ impl Router {
             }
 
             let node = self.program_ensemble.backrefs.get_val_mut(p_start).unwrap();
-            if node.p_node_embed.is_none() {
-                node.p_node_embed = Some(self.node_embeddings.insert(NodeEmbed::new(
+            if node.p_embed.is_none() {
+                node.p_embed = Some(self.embeddings.insert(Embedding::new(
                     node.p_self_equiv,
                     HyperPath::new(program_source, common_root, paths),
                     embedding_from,
@@ -105,32 +106,34 @@ impl Router {
     /// every thing in target root nodes. This will create a base hyperpath
     /// embedding, returning an error if `program_node` has been already
     /// embedded with an incompatible embedding. `common_root` should be `None`
-    /// only in the special program copy case. `hyperpath` should not have a
-    /// `program_source`.
+    /// only in the special program copy case.
     fn make_hyperpath_embedding(
         &mut self,
-        program_node: PEquiv,
+        program_node: MapPoint,
         hyperpath: HyperPath,
         common_root: Option<PCNode>,
         embedding_from: PMapping,
     ) -> Result<(), Error> {
         let node = self
             .program_ensemble
-            .backrefs
-            .get_val_mut(program_node.into())
+            .notary
+            .get_rnode(program_node.p_external)
+            .unwrap()
+            .1
+            .bits()
+            .unwrap()
+            .get(program_node.bit_i)
             .unwrap();
-        if node.p_node_embed.is_none() {
+        if node.p_embed.is_none() {
             if let Some(common_root) = common_root {
                 // embed the region
                 self.embed_all_connected(common_root, program_node.into(), embedding_from)?;
             } else {
                 // the simple program copy that doesn't trigger other embeddings
-                let p_node_embed = self.node_embeddings.insert(NodeEmbed::new(
-                    program_node,
-                    hyperpath,
-                    embedding_from,
-                ));
-                node.p_node_embed = Some(p_node_embed);
+                let p_embed =
+                    self.embeddings
+                        .insert(Embedding::new(program_node, hyperpath, embedding_from));
+                node.p_embed = Some(p_embed);
                 return Ok(());
             }
         }
@@ -141,9 +144,9 @@ impl Router {
             .unwrap();
         // should be embedded now if it wasn't already at the beginning of the function,
         // now we make it more specific
-        let p_node_embed = node.p_node_embed.unwrap();
+        let p_embed = node.p_embed.unwrap();
         if let Some(common_root) = common_root {
-            let embedding = self.node_embeddings.get(p_node_embed).unwrap();
+            let embedding = self.embeddings.get(p_embed).unwrap();
 
             // If this was from an exploration, then all should share a common root.
             let mut all_match = true;
@@ -161,7 +164,7 @@ impl Router {
                 }
             }
             if all_match {
-                let embedding = self.node_embeddings.get_mut(p_node_embed).unwrap();
+                let embedding = self.embeddings.get_mut(p_embed).unwrap();
                 // new `LNode` drivers not expected to be handled
                 assert!(hyperpath.program_source.is_none());
                 if embedding.hyperpath.program_source.is_some() {
@@ -221,9 +224,7 @@ impl Router {
 
     /// Makes a necessary embedding to express the given mapping.
     fn make_embedding_for_mapping(&mut self, p_mapping: PMapping) -> Result<(), Error> {
-        let (program_p_equiv, mapping) = self.mappings.get(p_mapping).unwrap();
-        let program_p_equiv = *program_p_equiv;
-
+        //let program_
         // TODO support custom `CEdge` mappings
 
         // remember that `*_root` does not necessarily mean a global root, just a common
@@ -242,7 +243,7 @@ impl Router {
             let mut path_to_root = vec![];
             while let Some(tmp) = self.target_channeler().get_supernode(q) {
                 q = tmp;
-                path_to_root.push(Edge::new(EdgeKind::Concentrate, q));
+                path_to_root.push(Edge::new(q));
             }
             let target_root = q;
             let mut paths = vec![];
@@ -265,10 +266,10 @@ impl Router {
                         .unwrap();
 
                     let mut q = target_sink_p_cnode;
-                    let mut path_to_sink = vec![Edge::new(EdgeKind::Dilute, q)];
+                    let mut path_to_sink = vec![Edge::new(q)];
                     while let Some(tmp) = self.target_channeler().get_supernode(q) {
                         q = tmp;
-                        path_to_sink.push(Edge::new(EdgeKind::Dilute, q));
+                        path_to_sink.push(Edge::new(q));
                     }
                     if q != target_root {
                         let s = self.debug_mapping(p_mapping);
@@ -360,10 +361,10 @@ impl Router {
                     .unwrap();
 
                 let mut q = target_sink_q_cnode;
-                let mut path_to_sink = vec![Edge::new(EdgeKind::Dilute, q)];
+                let mut path_to_sink = vec![Edge::new(q)];
                 while let Some(tmp) = self.target_channeler().get_supernode(q) {
                     q = tmp;
-                    path_to_sink.push(Edge::new(EdgeKind::Dilute, q));
+                    path_to_sink.push(Edge::new(q));
                 }
                 let root_node = q;
                 // remove extra dilution to root and reverse
@@ -401,13 +402,12 @@ impl Router {
     /// be possible.
     pub fn initialize_embeddings(&mut self) -> Result<(), Error> {
         // in case of rerouting we need to clear old embeddings
-        self.node_embeddings.clear();
-        self.edge_embeddings.clear();
+        self.embeddings.clear();
         for node in self.program_ensemble.backrefs.vals_mut() {
-            node.p_node_embed = None;
+            node.p_embed = None;
         }
         for node in self.program_ensemble.lnodes.vals_mut() {
-            node.p_edge_embed = None;
+            node.p_embed = None;
         }
 
         // After much thought, I have come to the conclusion that we should embed all
@@ -444,23 +444,15 @@ impl Router {
         Ok(())
     }
 
-    pub fn debug_node_embedding(&self, p_node_embed: PNodeEmbed) -> String {
-        let node_embed = self.node_embeddings().get(p_node_embed).unwrap();
-        format!("{node_embed:#?}")
-    }
-
-    pub fn debug_edge_embedding(&self, p_edge_embed: PEdgeEmbed) -> String {
-        let edge_embed = self.edge_embeddings().get(p_edge_embed).unwrap();
-        format!("{edge_embed:#?}")
+    pub fn debug_embedding(&self, p_embed: PEmbed) -> String {
+        let embed = self.embeddings().get(p_embed).unwrap();
+        format!("{embed:#?}")
     }
 
     pub fn debug_all_embeddings(&self) -> String {
         let mut s = String::new();
-        for p_node_embed in self.node_embeddings().ptrs() {
-            writeln!(s, "{}\n", self.debug_node_embedding(p_node_embed)).unwrap();
-        }
-        for p_edge_embed in self.edge_embeddings().ptrs() {
-            writeln!(s, "{}\n", self.debug_edge_embedding(p_edge_embed)).unwrap();
+        for p_embed in self.embeddings().ptrs() {
+            writeln!(s, "{}\n", self.debug_embedding(p_embed)).unwrap();
         }
         s
     }

@@ -2,10 +2,10 @@ use std::num::NonZeroU64;
 
 use awint::awint_dag::triple_arena::{Arena, OrdArena, Recast, Recaster};
 
+use super::{MapPoint, PMapPointToCnode};
 use crate::{
-    ensemble::{Ensemble, PBack, PEquiv},
-    route::{CNode, PBackToCnode, PCNode, Programmability},
-    utils::binary_search_similar_by,
+    ensemble::PExternal,
+    route::{CNode, PCNode, Programmability},
     Error,
 };
 
@@ -13,6 +13,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Channeler {
     pub cnodes: Arena<PCNode, CNode>,
+    pub map_point_to_p_cnode: OrdArena<PMapPointToCnode, MapPoint, PCNode>,
     // used by algorithms to avoid `OrdArena`s
     pub alg_visit: NonZeroU64,
 }
@@ -30,6 +31,7 @@ impl Channeler {
     pub fn empty() -> Self {
         Self {
             cnodes: Arena::new(),
+            map_point_to_p_cnode: OrdArena::new(),
             alg_visit: NonZeroU64::new(2).unwrap(),
         }
     }
@@ -41,20 +43,12 @@ impl Channeler {
 
     pub fn verify_integrity(&self) -> Result<(), Error> {
         // return errors in order of most likely to be root cause
-        /*
         // make sure some things are sorted
         for (p_cnode, cnode) in &self.cnodes {
             for i in 1..cnode.p_subnodes.len() {
                 if cnode.p_subnodes[i - 1] >= cnode.p_subnodes[i] {
                     return Err(Error::OtherString(format!(
                         "{p_cnode} {cnode:?}.p_subnodes is unsorted or not hereditary"
-                    )))
-                }
-            }
-            for i in 1..cnode.source_incidents.len() {
-                if cnode.source_incidents[i - 1].0 >= cnode.source_incidents[i].0 {
-                    return Err(Error::OtherString(format!(
-                        "{p_cnode} {cnode:?}.source_incidents is unsorted or not hereditary"
                     )))
                 }
             }
@@ -81,76 +75,49 @@ impl Channeler {
             }
         }
         for (p_cnode, cnode) in &self.cnodes {
-            if let Some(p_sink) = cnode.sink_incident {
-                if let Some(cedge) = self.cedges.get(p_sink) {
-                    if cedge.sink() != p_cnode {
-                        return Err(Error::OtherString(format!(
-                            "{p_cnode} {cnode:?}.sink_incident could not roundtrip"
-                        )))
-                    }
-                } else {
-                    return Err(Error::OtherString(format!(
-                        "{p_cnode} {cnode:?}.sink_incident is invalid"
-                    )))
-                }
-            }
-            for (p_source, i) in cnode.source_incidents.iter().copied() {
-                if let Some(cedge) = self.cedges.get(p_source) {
-                    if let Some(source) = cedge.sources().get(i) {
+            for (i, sink) in cnode.sinks.iter().enumerate() {
+                if let Some(other) = self.cnodes.get(sink.p_cnode) {
+                    if let Some(source) = other.sources.get(sink.source_i) {
                         if source.p_cnode != p_cnode {
                             return Err(Error::OtherString(format!(
-                                "{p_cnode} {cnode:?}.source_incidents[{i}] could not roundtrip"
+                                "{p_cnode} {cnode:?}.sinks[{i}] could not roundtrip"
                             )))
                         }
                     } else {
                         return Err(Error::OtherString(format!(
-                            "{p_cnode} {cnode:?}.source_incidents[{i}] out of range"
+                            "{p_cnode} {cnode:?}.sinks[{i}] could not get source_i"
                         )))
                     }
                 } else {
                     return Err(Error::OtherString(format!(
-                        "{p_cnode} {cnode:?}.source_incidents[{i}] is invalid"
+                        "{p_cnode} {cnode:?}.sinks[{i}].p_cnode is invalid"
                     )))
                 }
             }
-        }
-        for (p_cedge, cedge) in &self.cedges {
-            for source in cedge.sources().iter().copied() {
-                if let Some(cnode) = self.cnodes.get(source.p_cnode) {
-                    if binary_search_similar_by(&cnode.source_incidents, |(p_cedge1, _)| {
-                        p_cedge1.cmp(&p_cedge)
-                    })
-                    .1
-                    .is_ne()
-                    {
+            for (i, source) in cnode.sources.iter().enumerate() {
+                if let Some(other) = self.cnodes.get(source.p_cnode) {
+                    if let Some(sink) = other.sinks.get(source.sink_i) {
+                        if sink.p_cnode != p_cnode {
+                            return Err(Error::OtherString(format!(
+                                "{p_cnode} {cnode:?}.sources[{i}] could not roundtrip"
+                            )))
+                        }
+                    } else {
                         return Err(Error::OtherString(format!(
-                            "{p_cedge} {cedge:?} source {source:?} could not roundtrip"
+                            "{p_cnode} {cnode:?}.sources[{i}] could not get sink_i"
                         )))
                     }
                 } else {
                     return Err(Error::OtherString(format!(
-                        "{p_cedge} {cedge:?} source {source:?} is invalid",
+                        "{p_cnode} {cnode:?}.sources[{i}].p_cnode is invalid"
                     )))
                 }
-            }
-            if let Some(cnode) = self.cnodes.get(cedge.sink()) {
-                if cnode.sink_incident != Some(p_cedge) {
-                    return Err(Error::OtherString(format!(
-                        "{p_cedge} {cedge:?} sink could not roundtrip"
-                    )))
-                }
-            } else {
-                return Err(Error::OtherString(format!(
-                    "{cedge:?} sink {:?} is invalid",
-                    cedge.sink()
-                )))
             }
         }
         // non `Ptr` validities
-        for p_cedge in self.cedges.ptrs() {
-            let cedge = self.cedges.get(p_cedge).unwrap();
-            let sources_len = cedge.sources().len();
-            let ok = match cedge.programmability() {
+        for (p_cnode, cnode) in &self.cnodes {
+            let sources_len = cnode.sources().len();
+            let ok = match cnode.programmability() {
                 Programmability::StaticLut(lut) => {
                     // TODO find every place I did the trailing zeros thing and have a function that
                     // does the more efficient thing the core `lut_` function does
@@ -165,40 +132,14 @@ impl Channeler {
                     selector_lut.verify_integrity(sources_len)?;
                     true
                 }
-                Programmability::Bulk(bulk_behavior) => {
-                    bulk_behavior.channel_entry_widths.len() == cedge.sources().len()
-                }
+                Programmability::Bulk(_) => true,
             };
             if !ok {
                 return Err(Error::OtherString(format!(
-                    "{cedge:?} an invariant is broken"
+                    "{p_cnode} {cnode:?} an invariant is broken"
                 )))
             }
         }
-        // insure `CEdge`s are only between nodes on the same level
-        for (p_cedge, cedge) in &self.cedges {
-            if cedge.sources().is_empty() {
-                return Err(Error::OtherString(format!(
-                    "{p_cedge:?} edge has no sources",
-                )));
-            }
-            let mut lvl = None;
-            let mut res = Ok(());
-            cedge.incidents(|p_cnode| {
-                let other_lvl = self.cnodes.get(p_cnode).unwrap().lvl;
-                if let Some(lvl) = lvl {
-                    if lvl != other_lvl {
-                        res = Err(Error::OtherString(format!(
-                            "{p_cedge:?} incidents not all on same level",
-                        )));
-                    }
-                } else {
-                    lvl = Some(other_lvl);
-                }
-            });
-            res?;
-        }*/
-        todo!();
         Ok(())
     }
 }
