@@ -19,8 +19,8 @@ use crate::{
     Error,
 };
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct CostU8(pub u8);
+//#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+//pub struct CostU8(pub u8);
 
 /// These variants must occur generally in order of easiest and most affecting
 /// to hardest and computationally expensive, so  that things like removing

@@ -426,7 +426,7 @@ fn dilute_edge_embedding(
             }
         }
     }
-    Ok(())
+    //Ok(())
 }
 
 /// Reduces the maximum level of hyperpaths. Currently requires that there is at
