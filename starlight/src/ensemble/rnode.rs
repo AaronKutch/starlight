@@ -66,7 +66,7 @@ unsafe impl Ptr for PExternal {
     }
 
     #[inline]
-    fn gen(self) -> Self::Gen {
+    fn generation(self) -> Self::Gen {
         self._internal_gen
     }
 

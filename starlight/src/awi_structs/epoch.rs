@@ -14,7 +14,7 @@ use std::{
 
 use awint::{
     awint_dag::{
-        epoch::{EpochCallback, EpochKey, _get_epoch_stack},
+        epoch::{_get_epoch_stack, EpochCallback, EpochKey},
         triple_arena::{ptr_struct, Arena},
         Lineage, Location, Op, PState,
     },
@@ -542,6 +542,7 @@ pub fn _callback() -> EpochCallback {
         })
     }
     EpochCallback {
+        name: "starlight_callback",
         new_pstate,
         register_assertion_bit,
         get_nzbw,
