@@ -127,10 +127,10 @@ impl Corresponder {
             while let Some(p_correspond) = adv.advance(&self.c) {
                 let p_meta = *self.c.get_key(p_correspond).unwrap();
                 let p_external = *self.a.get_key(p_meta).unwrap();
-                if p_external != p {
-                    if let Ok(l) = LazyAwi::try_clone_from(p_external, None) {
-                        v.push(l);
-                    }
+                if p_external != p
+                    && let Ok(l) = LazyAwi::try_clone_from(p_external, None)
+                {
+                    v.push(l);
                 }
             }
             Ok(v)
@@ -171,10 +171,10 @@ impl Corresponder {
             while let Some(p_correspond) = adv.advance(&self.c) {
                 let p_meta = *self.c.get_key(p_correspond).unwrap();
                 let p_external = *self.a.get_key(p_meta).unwrap();
-                if p_external != p {
-                    if let Ok(l) = EvalAwi::try_clone_from(p_external) {
-                        v.push(l);
-                    }
+                if p_external != p
+                    && let Ok(l) = EvalAwi::try_clone_from(p_external)
+                {
+                    v.push(l);
                 }
             }
             Ok(v)

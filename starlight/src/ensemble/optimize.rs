@@ -381,23 +381,22 @@ impl Ensemble {
 
                 // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
                 for i in (0..len).rev() {
-                    if lut.len() > 1 {
-                        if let Some((reduced, removed)) =
+                    if lut.len() > 1
+                        && let Some((reduced, removed)) =
                             LNode::reduce_independent_dynamic_lut(&self.backrefs, lut, i)
-                        {
-                            // independent of the `i`th bit
-                            *lut = reduced;
-                            let p_inp = inp.remove(i);
-                            let equiv = self.backrefs.get_val(p_inp).unwrap();
+                    {
+                        // independent of the `i`th bit
+                        *lut = reduced;
+                        let p_inp = inp.remove(i);
+                        let equiv = self.backrefs.get_val(p_inp).unwrap();
+                        self.optimizer
+                            .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
+                        self.backrefs.remove_key(p_inp).unwrap();
+                        for remove in removed {
+                            let equiv = self.backrefs.get_val(remove).unwrap();
                             self.optimizer
                                 .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                            self.backrefs.remove_key(p_inp).unwrap();
-                            for remove in removed {
-                                let equiv = self.backrefs.get_val(remove).unwrap();
-                                self.optimizer
-                                    .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                                self.backrefs.remove_key(remove).unwrap();
-                            }
+                            self.backrefs.remove_key(remove).unwrap();
                         }
                     }
                 }
@@ -735,19 +734,19 @@ impl Ensemble {
                             let mut found = false;
                             if let Some(bits) = rnode.bits_mut() {
                                 for bit in bits {
-                                    if let Some(bit) = bit {
-                                        if *bit == p_back {
-                                            let p_back_new = self
-                                                .backrefs
-                                                .insert_key(
-                                                    p_source.into(),
-                                                    Referent::ThisRNode(p_rnode),
-                                                )
-                                                .unwrap();
-                                            *bit = p_back_new;
-                                            found = true;
-                                            break;
-                                        }
+                                    if let Some(bit) = bit
+                                        && *bit == p_back
+                                    {
+                                        let p_back_new = self
+                                            .backrefs
+                                            .insert_key(
+                                                p_source.into(),
+                                                Referent::ThisRNode(p_rnode),
+                                            )
+                                            .unwrap();
+                                        *bit = p_back_new;
+                                        found = true;
+                                        break;
                                     }
                                 }
                             }

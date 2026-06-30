@@ -12,13 +12,6 @@ description = "experimental HDL and optimizer for DAGs of lookup tables"
 keywords = ["dag", "rtl", "hdl"]
 categories = ["algorithms"]
 
-[dependencies]
-awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
-#awint = { version = "0.17", default-features = false, features = ["rand_support", "dag"] }
-rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
-rand_xoshiro = { version = "0.6", default-features = false }
-thiserror = "1.0"
-
 [features]
 # note: "dag", "rand_support", and "std" are all turned on always
 default = ["try_support"]
@@ -39,3 +32,10 @@ u32_ptrs = ["awint/u32_for_pstate"]
 gen_counters = []
 # enables generation counters for `PState`
 gen_counter_for_pstate = ["awint/gen_counter_for_pstate"]
+
+[dependencies]
+awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
+#awint = { version = "0.17", default-features = false, features = ["rand_support", "dag"] }
+rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
+rand_xoshiro = { version = "0.6", default-features = false }
+thiserror = "1.0"

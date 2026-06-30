@@ -91,23 +91,22 @@ impl Channeler {
             }
         }
         for (p_cnode, cnode) in &self.cnodes {
-            if let Some(p_supernode) = cnode.p_supernode {
-                if let Some(supernode) = self.cnodes.get(p_supernode) {
-                    if supernode.p_subnodes.binary_search(&p_cnode).is_err() {
-                        return Err(Error::OtherString(format!(
-                            "{p_cnode} {cnode:?}.p_supernode could not roundtrip"
-                        )));
-                    }
-                }
+            if let Some(p_supernode) = cnode.p_supernode
+                && let Some(supernode) = self.cnodes.get(p_supernode)
+                && supernode.p_subnodes.binary_search(&p_cnode).is_err()
+            {
+                return Err(Error::OtherString(format!(
+                    "{p_cnode} {cnode:?}.p_supernode could not roundtrip"
+                )));
             }
             // both directions
             for p_subnode in cnode.p_subnodes.iter().copied() {
-                if let Some(subnode) = self.cnodes.get(p_subnode) {
-                    if subnode.p_supernode != Some(p_cnode) {
-                        return Err(Error::OtherString(format!(
-                            "{p_cnode} {cnode:?}.p_subnode could not roundtrip"
-                        )));
-                    }
+                if let Some(subnode) = self.cnodes.get(p_subnode)
+                    && subnode.p_supernode != Some(p_cnode)
+                {
+                    return Err(Error::OtherString(format!(
+                        "{p_cnode} {cnode:?}.p_subnode could not roundtrip"
+                    )));
                 }
             }
         }

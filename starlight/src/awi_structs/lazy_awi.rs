@@ -350,6 +350,7 @@ impl AsRef<dag::Bits> for LazyAwi {
     }
 }
 
+#[allow(clippy::collapsible_if)]
 pub(crate) fn format_auto_awi(
     name: &str,
     p_external: PExternal,
@@ -359,18 +360,17 @@ pub(crate) fn format_auto_awi(
     let mut tmp = f.debug_struct(name);
     tmp.field("p_external", &p_external);
     tmp.field("nzbw", &nzbw);
-    if let Ok(epoch) = get_current_epoch() {
-        if let Ok(lock) = epoch.epoch_data.try_borrow() {
-            if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(p_external) {
-                if let Some(ref debug_name) = rnode.debug_name {
-                    tmp.field("debug_name", &DisplayStr(debug_name));
-                }
-                /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                    tmp.field("state", &DisplayStr(&s));
-                }*/
-                //tmp.field("bits", &rnode.bits());
-            }
+    if let Ok(epoch) = get_current_epoch()
+        && let Ok(lock) = epoch.epoch_data.try_borrow()
+        && let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(p_external)
+    {
+        if let Some(ref debug_name) = rnode.debug_name {
+            tmp.field("debug_name", &DisplayStr(debug_name));
         }
+        /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+            tmp.field("state", &DisplayStr(&s));
+        }*/
+        //tmp.field("bits", &rnode.bits());
     }
     tmp.finish()
 }

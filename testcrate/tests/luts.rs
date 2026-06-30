@@ -39,7 +39,7 @@ fn lut_optimization_with_dup() {
                 }
             }
             for _ in 0..input_w {
-                if (rng.next_u8() % 8) == 0 {
+                if rng.next_u8().is_multiple_of(8) {
                     let inx0 = (rng.next_u8() % (input_w as awi::u8)) as awi::usize;
                     let inx1 = (rng.next_u8() % (input_w as awi::u8)) as awi::usize;
                     if opaque_set.get(inx0).unwrap() && opaque_set.get(inx1).unwrap() {

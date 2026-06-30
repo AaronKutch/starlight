@@ -155,11 +155,9 @@ impl Ensemble {
             Op::Argument(_) => {
                 return Ok(());
             }
-            Op::Opaque(ref v, name) => {
-                if name.is_none() {
-                    assert!(v.is_empty());
-                    is_const = true;
-                }
+            Op::Opaque(ref v, name) if name.is_none() => {
+                assert!(v.is_empty());
+                is_const = true;
             }
             _ => (),
         }
@@ -204,10 +202,10 @@ impl Ensemble {
         let mut pstate_stack = vec![p_state];
         while let Some(p) = pstate_stack.pop() {
             let mut delete = false;
-            if let Some(state) = self.stator.states.get(p) {
-                if state.pruning_allowed() {
-                    delete = true;
-                }
+            if let Some(state) = self.stator.states.get(p)
+                && state.pruning_allowed()
+            {
+                delete = true;
             }
             if delete {
                 for i in 0..self.stator.states[p].op.operands_len() {
@@ -860,7 +858,9 @@ fn lower_elementary_to_lnodes_intermediate(
                         if delay.is_zero() {
                             // the function that creates DELAYED_LOOP_SOURCE is supposed to do a
                             // LOOP_SOURCE instead
-                            return Err(Error::OtherStr("delayed loop source delay amount is zero"));
+                            return Err(Error::OtherStr(
+                                "delayed loop source delay amount is zero",
+                            ));
                         }
                         for i in 0..w {
                             let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();

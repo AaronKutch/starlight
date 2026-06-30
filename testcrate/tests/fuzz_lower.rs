@@ -297,15 +297,18 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             let cout = m.next(1);
             let cin_a = m.get_awi(cin);
             let cin_b = m.get_dag(cin);
-            let out_a;
-            let out_b;
-            if rng.next_bool() {
-                out_a = m.get_mut_awi(x).inc_(cin_a.to_bool());
-                out_b = m.get_mut_dag(x).inc_(cin_b.to_bool());
+
+            let (out_a, out_b) = if rng.next_bool() {
+                (
+                    m.get_mut_awi(x).inc_(cin_a.to_bool()),
+                    m.get_mut_dag(x).inc_(cin_b.to_bool()),
+                )
             } else {
-                out_a = m.get_mut_awi(x).dec_(cin_a.to_bool());
-                out_b = m.get_mut_dag(x).dec_(cin_b.to_bool());
-            }
+                (
+                    m.get_mut_awi(x).dec_(cin_a.to_bool()),
+                    m.get_mut_dag(x).dec_(cin_b.to_bool()),
+                )
+            };
             m.get_mut_awi(cout).bool_(out_a);
             m.get_mut_dag(cout).bool_(out_b);
         }

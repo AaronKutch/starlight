@@ -175,12 +175,11 @@ impl Router {
         {
             if let Some(bits) = rnode.bits() {
                 let mut ok = false;
-                if let Some(Some(bit)) = bits.get(mapping_target.target_bit_i) {
-                    if let Some(bit) = self.target_ensemble().backrefs.get_val(*bit) {
-                        if bit.p_self_equiv == mapping_target.target_p_equiv {
-                            ok = true;
-                        }
-                    }
+                if let Some(Some(bit)) = bits.get(mapping_target.target_bit_i)
+                    && let Some(bit) = self.target_ensemble().backrefs.get_val(*bit)
+                    && bit.p_self_equiv == mapping_target.target_p_equiv
+                {
+                    ok = true;
                 }
                 if !ok {
                     return Err(Error::OtherString(format!(
@@ -219,12 +218,11 @@ impl Router {
             {
                 if let Some(bits) = rnode.bits() {
                     let mut ok = false;
-                    if let Some(Some(bit)) = bits.get(mapping.program_bit_i) {
-                        if let Some(bit) = self.program_ensemble().backrefs.get_val(*bit) {
-                            if bit.p_self_equiv == *program_p_equiv {
-                                ok = true;
-                            }
-                        }
+                    if let Some(Some(bit)) = bits.get(mapping.program_bit_i)
+                        && let Some(bit) = self.program_ensemble().backrefs.get_val(*bit)
+                        && bit.p_self_equiv == *program_p_equiv
+                    {
+                        ok = true;
                     }
                     if !ok {
                         return Err(Error::OtherString(format!(

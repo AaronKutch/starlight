@@ -371,13 +371,11 @@ impl EpochShared {
                 i += 1;
             }
         }
-        if strict {
-            if let Some(p_external) = unknown {
-                return Err(Error::OtherString(format!(
-                    "an assertion bit could not be evaluated to a known value, failed on \
-                     {p_external:#?}"
-                )));
-            }
+        if strict && let Some(p_external) = unknown {
+            return Err(Error::OtherString(format!(
+                "an assertion bit could not be evaluated to a known value, failed on \
+                 {p_external:#?}"
+            )));
         }
         Ok(())
     }
@@ -566,10 +564,10 @@ impl Drop for EpochInnerDrop {
             if let Err(e) = self.epoch_shared.drop_associated() {
                 panic!("{e}");
             }
-            if !self.is_suspended {
-                if let Err(e) = self.epoch_shared.remove_as_current() {
-                    panic!("panicked upon dropping an `Epoch`: {e}");
-                }
+            if !self.is_suspended
+                && let Err(e) = self.epoch_shared.remove_as_current()
+            {
+                panic!("panicked upon dropping an `Epoch`: {e}");
             }
         }
     }

@@ -109,19 +109,17 @@ impl fmt::Debug for PExternal {
         if f.alternate() {
             let mut tmp = f.debug_struct("PExternal");
             tmp.field("p_external", &HexadecimalNonZeroU128(self.inx()));
-            if let Ok(epoch) = get_current_epoch() {
-                if let Ok(lock) = epoch.epoch_data.try_borrow() {
-                    if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(*self) {
-                        if let Some(ref name) = rnode.debug_name {
-                            tmp.field("debug_name", &DisplayStr(name));
-                        }
-                        /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                            tmp.field("state", &DisplayStr(&s));
-                        }
-                        tmp.field("bits", &rnode.bits());*/
-                    }
-                }
+            if let Ok(epoch) = get_current_epoch()
+                && let Ok(lock) = epoch.epoch_data.try_borrow()
+                && let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(*self)
+                && let Some(ref name) = rnode.debug_name
+            {
+                tmp.field("debug_name", &DisplayStr(name));
             }
+            /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+                tmp.field("state", &DisplayStr(&s));
+            }
+            tmp.field("bits", &rnode.bits());*/
             tmp.finish()
         } else {
             f.write_fmt(format_args!(

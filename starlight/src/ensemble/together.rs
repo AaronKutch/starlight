@@ -91,12 +91,12 @@ impl Ensemble {
             }
             // need to roundtrip in both directions to ensure existence and uniqueness of a
             // `ThisEquiv` for each equivalence surject
-            if let Some(Referent::ThisEquiv) = self.backrefs.get_key(p_back) {
-                if p_back != equiv.p_self_equiv.into() {
-                    return Err(Error::OtherString(format!(
-                        "{equiv:?}.p_self_equiv roundtrip fail"
-                    )));
-                }
+            if let Some(Referent::ThisEquiv) = self.backrefs.get_key(p_back)
+                && p_back != equiv.p_self_equiv.into()
+            {
+                return Err(Error::OtherString(format!(
+                    "{equiv:?}.p_self_equiv roundtrip fail"
+                )));
             }
         }
         // check other kinds of self refs
