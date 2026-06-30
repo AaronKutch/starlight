@@ -8,4 +8,4 @@ publish = false
 starlight = { path = "../starlight", features = ["debug", "u32_ptrs"] }
 
 [dev-dependencies]
-rand_xoshiro = { version = "0.6", default-features = false }
+rand_xoshiro = { version = "0.8", default-features = false }

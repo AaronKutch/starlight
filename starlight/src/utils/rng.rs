@@ -1,8 +1,12 @@
+use std::convert::Infallible;
+
 use awint::awi::*;
 use rand_xoshiro::{
     Xoshiro128StarStar,
-    rand_core::{RngCore, SeedableRng},
+    rand_core::{Rng, SeedableRng, TryRng},
 };
+
+// FIXME import new star_rng
 
 /// A deterministic psuedo-random-number-generator. Is a wrapper around
 /// `Xoshiro128StarStar` that buffers rng calls down to the bit level
@@ -244,24 +248,20 @@ impl StarRng {
     }
 }
 
-impl RngCore for StarRng {
-    fn next_u32(&mut self) -> u32 {
-        self.next_u32()
+impl TryRng for StarRng {
+    type Error = Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.next_u32())
     }
 
-    fn next_u64(&mut self) -> u64 {
-        self.next_u64()
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.next_u64())
     }
 
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
         // TODO make faster
-        for byte in dest {
-            *byte = self.next_u8();
-        }
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_xoshiro::rand_core::Error> {
-        for byte in dest {
+        for byte in dst {
             *byte = self.next_u8();
         }
         Ok(())
