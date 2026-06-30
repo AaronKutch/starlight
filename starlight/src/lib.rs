@@ -186,7 +186,7 @@ pub mod route;
 /// Miscellanious utilities
 pub mod utils;
 pub use awi_structs::{
-    delay, epoch, Assertions, Drive, Epoch, EvalAwi, In, LazyAwi, Loop, Net, Out, SuspendedEpoch,
+    Assertions, Drive, Epoch, EvalAwi, In, LazyAwi, Loop, Net, Out, SuspendedEpoch, delay, epoch,
 };
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
@@ -199,9 +199,9 @@ pub use utils::Error;
 /// everything or for when using the regular items in a context with structs
 /// imported from `awint_dag`.
 pub mod awi {
-    pub use awint::awi::*;
     pub use Option::{None, Some};
     pub use Result::{Err, Ok};
+    pub use awint::awi::*;
 }
 
 /// Reexports all the mimicking versions of `awi` items

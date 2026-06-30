@@ -3,10 +3,10 @@ use std::num::NonZeroU64;
 use awint::awint_dag::triple_arena::{Arena, OrdArena, Recast, Recaster};
 
 use crate::{
+    Error,
     ensemble::{Ensemble, PBack, PEquiv},
     route::{CEdge, CNode, PBackToCnode, PCEdge, PCNode, Programmability},
     utils::binary_search_similar_by,
-    Error,
 };
 
 /// A channeling graph for a target
@@ -79,14 +79,14 @@ impl Channeler {
                 if cnode.p_subnodes[i - 1] >= cnode.p_subnodes[i] {
                     return Err(Error::OtherString(format!(
                         "{p_cnode} {cnode:?}.p_subnodes is unsorted or not hereditary"
-                    )))
+                    )));
                 }
             }
             for i in 1..cnode.source_incidents.len() {
                 if cnode.source_incidents[i - 1].0 >= cnode.source_incidents[i].0 {
                     return Err(Error::OtherString(format!(
                         "{p_cnode} {cnode:?}.source_incidents is unsorted or not hereditary"
-                    )))
+                    )));
                 }
             }
         }
@@ -96,7 +96,7 @@ impl Channeler {
                     if supernode.p_subnodes.binary_search(&p_cnode).is_err() {
                         return Err(Error::OtherString(format!(
                             "{p_cnode} {cnode:?}.p_supernode could not roundtrip"
-                        )))
+                        )));
                     }
                 }
             }
@@ -106,7 +106,7 @@ impl Channeler {
                     if subnode.p_supernode != Some(p_cnode) {
                         return Err(Error::OtherString(format!(
                             "{p_cnode} {cnode:?}.p_subnode could not roundtrip"
-                        )))
+                        )));
                     }
                 }
             }
@@ -117,12 +117,12 @@ impl Channeler {
                     if cedge.sink() != p_cnode {
                         return Err(Error::OtherString(format!(
                             "{p_cnode} {cnode:?}.sink_incident could not roundtrip"
-                        )))
+                        )));
                     }
                 } else {
                     return Err(Error::OtherString(format!(
                         "{p_cnode} {cnode:?}.sink_incident is invalid"
-                    )))
+                    )));
                 }
             }
             for (p_source, i) in cnode.source_incidents.iter().copied() {
@@ -131,17 +131,17 @@ impl Channeler {
                         if source.p_cnode != p_cnode {
                             return Err(Error::OtherString(format!(
                                 "{p_cnode} {cnode:?}.source_incidents[{i}] could not roundtrip"
-                            )))
+                            )));
                         }
                     } else {
                         return Err(Error::OtherString(format!(
                             "{p_cnode} {cnode:?}.source_incidents[{i}] out of range"
-                        )))
+                        )));
                     }
                 } else {
                     return Err(Error::OtherString(format!(
                         "{p_cnode} {cnode:?}.source_incidents[{i}] is invalid"
-                    )))
+                    )));
                 }
             }
         }
@@ -156,25 +156,25 @@ impl Channeler {
                     {
                         return Err(Error::OtherString(format!(
                             "{p_cedge} {cedge:?} source {source:?} could not roundtrip"
-                        )))
+                        )));
                     }
                 } else {
                     return Err(Error::OtherString(format!(
                         "{p_cedge} {cedge:?} source {source:?} is invalid",
-                    )))
+                    )));
                 }
             }
             if let Some(cnode) = self.cnodes.get(cedge.sink()) {
                 if cnode.sink_incident != Some(p_cedge) {
                     return Err(Error::OtherString(format!(
                         "{p_cedge} {cedge:?} sink could not roundtrip"
-                    )))
+                    )));
                 }
             } else {
                 return Err(Error::OtherString(format!(
                     "{cedge:?} sink {:?} is invalid",
                     cedge.sink()
-                )))
+                )));
             }
         }
         // non `Ptr` validities
@@ -203,7 +203,7 @@ impl Channeler {
             if !ok {
                 return Err(Error::OtherString(format!(
                     "{cedge:?} an invariant is broken"
-                )))
+                )));
             }
         }
         // insure `CEdge`s are only between nodes on the same level

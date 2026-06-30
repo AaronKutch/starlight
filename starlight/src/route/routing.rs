@@ -1,8 +1,8 @@
 use std::cmp::max;
 
 use crate::{
-    route::{dilute_level, Router},
     Error,
+    route::{Router, dilute_level},
 };
 
 pub(crate) fn route(router: &mut Router) -> Result<(), Error> {
@@ -51,7 +51,7 @@ pub(crate) fn route(router: &mut Router) -> Result<(), Error> {
     // hyperpaths
     loop {
         if max_lvl == 0 {
-            break
+            break;
         }
         max_lvl = max_lvl.checked_sub(1).unwrap();
         dilute_level(router, max_lvl)?;

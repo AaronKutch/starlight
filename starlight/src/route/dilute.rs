@@ -6,8 +6,8 @@ use std::{cmp::Reverse, collections::BinaryHeap, num::NonZeroU64};
 use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
-    route::{Edge, EdgeKind, NodeOrEdge, PCNode, PEdgeEmbed, PNodeEmbed, Programmability, Router},
     Error,
+    route::{Edge, EdgeKind, NodeOrEdge, PCNode, PEdgeEmbed, PNodeEmbed, Programmability, Router},
 };
 
 /*
@@ -105,7 +105,7 @@ fn route_path_on_level(
     cnode.alg_edge.0 = None;
     if start == end {
         // only exit after we have set the `alg_edge`
-        return Ok(true)
+        return Ok(true);
     }
     // push initial edges from the entry
     let cnode = router.target_channeler.cnodes.get(start).unwrap();
@@ -135,7 +135,7 @@ fn route_path_on_level(
             if q_cnode == end {
                 // found our new path
                 found = true;
-                break
+                break;
             }
             let mut lvl = route_lvl;
             let mut q_cnode_consider = q_cnode;
@@ -149,7 +149,7 @@ fn route_path_on_level(
                         .unwrap();
                     if cnode_consider.alg_visit == backbone_visit {
                         use_it = true;
-                        break
+                        break;
                     }
                     if let Some(q_supernode) = cnode_consider.p_supernode {
                         q_cnode_consider = q_supernode;
@@ -157,7 +157,7 @@ fn route_path_on_level(
                     } else {
                         return Err(Error::OtherStr(
                             "`route_path_on_level` called with too high of a `backbone_lvl`",
-                        ))
+                        ));
                     }
                 }
             } else {
@@ -226,10 +226,10 @@ fn dilute_plateau(
         let found =
             route_path_on_level(router, backbone_visit, max_backbone_lvl, start, end).unwrap();
         if found {
-            break
+            break;
         }
         if max_backbone_lvl.is_none() {
-            return Ok(false)
+            return Ok(false);
         }
         // see `route_path_on_level`, we need to retry with a higher max backbone, but
         // first color the higher part of the backbone
@@ -250,12 +250,12 @@ fn dilute_plateau(
                     let cnode = router.target_channeler.cnodes.get_mut(q).unwrap();
                     if cnode.lvl == max_backbone_lvl.unwrap() {
                         cnode.alg_visit = backbone_visit;
-                        break
+                        break;
                     }
                     q_supernode = cnode.p_supernode;
                 } else {
                     // we have already reached the root
-                    return Ok(false)
+                    return Ok(false);
                 }
             }
         }
@@ -273,7 +273,7 @@ fn dilute_plateau(
             });
             q_cnode = cedge.sources()[j].p_cnode;
         } else {
-            break
+            break;
         }
     }
     // splice the new part into the old
@@ -451,7 +451,7 @@ pub(crate) fn dilute_level(router: &mut Router, max_lvl: u16) -> Result<(), Erro
         }
 
         if !absolute_violations {
-            break
+            break;
         }
     }
     Ok(())

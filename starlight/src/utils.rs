@@ -11,4 +11,4 @@ pub use grid::Grid;
 pub use ortho::{Ortho, OrthoArray};
 pub use render::Render;
 pub use rng::StarRng;
-pub use small_map::{binary_search_similar_by, SmallMap, SmallSet};
+pub use small_map::{SmallMap, SmallSet, binary_search_similar_by};

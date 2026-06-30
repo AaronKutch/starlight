@@ -1,17 +1,17 @@
 use std::num::NonZeroU64;
 
 use awint::awint_dag::{
-    triple_arena::{Recast, Recaster},
     PState,
+    triple_arena::{Recast, Recaster},
 };
 
 use crate::{
+    Error,
     ensemble::{
-        value::Evaluator, Delayer, Equiv, LNode, LNodeKind, Notary, Optimizer, PBack, PEquiv,
-        PLNode, PRNode, PTNode, Stator, TNode, Value,
+        Delayer, Equiv, LNode, LNodeKind, Notary, Optimizer, PBack, PEquiv, PLNode, PRNode, PTNode,
+        Stator, TNode, Value, value::Evaluator,
     },
     triple_arena::{Arena, SurjectArena},
-    Error,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -82,12 +82,12 @@ impl Ensemble {
                 {
                     return Err(Error::OtherString(format!(
                         "{equiv:?}.p_self_equiv roundtrip fail"
-                    )))
+                    )));
                 }
             } else {
                 return Err(Error::OtherString(format!(
                     "{equiv:?}.p_self_equiv is invalid"
-                )))
+                )));
             }
             // need to roundtrip in both directions to ensure existence and uniqueness of a
             // `ThisEquiv` for each equivalence surject
@@ -95,7 +95,7 @@ impl Ensemble {
                 if p_back != equiv.p_self_equiv.into() {
                     return Err(Error::OtherString(format!(
                         "{equiv:?}.p_self_equiv roundtrip fail"
-                    )))
+                    )));
                 }
             }
         }
@@ -104,11 +104,11 @@ impl Ensemble {
             if (!state.p_self_bits.is_empty()) && (state.nzbw.get() != state.p_self_bits.len()) {
                 return Err(Error::OtherString(format!(
                     "{state:?}.nzbw mismatch with p_self_bits.len"
-                )))
+                )));
             }
             for operand in state.op.operands() {
                 if !self.stator.states.contains(*operand) {
-                    return Err(Error::OtherString(format!("{state:?} operand is missing")))
+                    return Err(Error::OtherString(format!("{state:?} operand is missing")));
                 }
             }
             for (inx, p_self_bit) in state.p_self_bits.iter().copied().enumerate() {
@@ -119,12 +119,12 @@ impl Ensemble {
                         if (p_state != p_self) || (inx != inx_self) {
                             return Err(Error::OtherString(format!(
                                 "{state:?}.p_self_bits roundtrip fail"
-                            )))
+                            )));
                         }
                     } else {
                         return Err(Error::OtherString(format!(
                             "{state:?}.p_self_bits is invalid"
-                        )))
+                        )));
                     }
                 }
             }
@@ -135,10 +135,10 @@ impl Ensemble {
                 if p_lnode != p_self {
                     return Err(Error::OtherString(format!(
                         "{lnode:?}.p_self roundtrip fail"
-                    )))
+                    )));
                 }
             } else {
-                return Err(Error::OtherString(format!("{lnode:?}.p_self is invalid")))
+                return Err(Error::OtherString(format!("{lnode:?}.p_self is invalid")));
             }
         }
         for (p_tnode, tnode) in &self.tnodes {
@@ -147,10 +147,10 @@ impl Ensemble {
                 if p_tnode != p_self {
                     return Err(Error::OtherString(format!(
                         "{tnode:?}.p_self roundtrip fail"
-                    )))
+                    )));
                 }
             } else {
-                return Err(Error::OtherString(format!("{tnode:?}.p_self is invalid")))
+                return Err(Error::OtherString(format!("{tnode:?}.p_self is invalid")));
             }
         }
         // check other referent validities
@@ -166,7 +166,7 @@ impl Ensemble {
                 Referent::ThisRNode(p_rnode) => !self.notary.rnodes().contains(p_rnode),
             };
             if invalid {
-                return Err(Error::OtherString(format!("{referent:?} is invalid")))
+                return Err(Error::OtherString(format!("{referent:?} is invalid")));
             }
         }
         // other kinds of validity
@@ -202,18 +202,18 @@ impl Ensemble {
                     if !self.tnodes.contains(p_driver) {
                         return Err(Error::OtherString(format!(
                             "{p_tnode}: {tnode:?} driver referrent {p_driver} is invalid"
-                        )))
+                        )));
                     }
                 } else {
                     return Err(Error::OtherString(format!(
                         "{p_tnode}: {tnode:?} driver has incorrect referrent"
-                    )))
+                    )));
                 }
             } else {
                 return Err(Error::OtherString(format!(
                     "{p_tnode}: {tnode:?} driver {} is invalid",
                     tnode.p_driver
-                )))
+                )));
             }
         }
         for rnode in self.notary.rnodes().vals() {
@@ -225,15 +225,15 @@ impl Ensemble {
                                 if !self.notary.rnodes().contains(p_rnode) {
                                     return Err(Error::OtherString(format!(
                                         "{rnode:?} backref {p_rnode} is invalid"
-                                    )))
+                                    )));
                                 }
                             } else {
                                 return Err(Error::OtherString(format!(
                                     "{rnode:?} backref {p_back} has incorrect referrent"
-                                )))
+                                )));
                             }
                         } else {
-                            return Err(Error::OtherString(format!("rnode {p_back} is invalid")))
+                            return Err(Error::OtherString(format!("rnode {p_back} is invalid")));
                         }
                     }
                 }
@@ -283,7 +283,7 @@ impl Ensemble {
                         for bit in bits {
                             if *bit == Some(p_back) {
                                 found = true;
-                                break
+                                break;
                             }
                         }
                     }
@@ -291,7 +291,7 @@ impl Ensemble {
                 }
             };
             if fail {
-                return Err(Error::OtherString(format!("{referent:?} roundtrip fail")))
+                return Err(Error::OtherString(format!("{referent:?} roundtrip fail")));
             }
         }
         // non-pointer invariants
@@ -300,32 +300,32 @@ impl Ensemble {
                 LNodeKind::Copy(_) => (),
                 LNodeKind::Lut(inp, lut) => {
                     if inp.is_empty() {
-                        return Err(Error::OtherStr("no inputs for lookup table"))
+                        return Err(Error::OtherStr("no inputs for lookup table"));
                     }
                     if !lut.bw().is_power_of_two() {
                         return Err(Error::OtherStr(
                             "lookup table is not a power of two in bitwidth",
-                        ))
+                        ));
                     }
                     if (lut.bw().trailing_zeros() as usize) != inp.len() {
                         return Err(Error::OtherStr(
                             "number of inputs does not correspond to lookup table size",
-                        ))
+                        ));
                     }
                 }
                 LNodeKind::DynamicLut(inp, lut) => {
                     if inp.is_empty() {
-                        return Err(Error::OtherStr("no inputs for lookup table"))
+                        return Err(Error::OtherStr("no inputs for lookup table"));
                     }
                     if !lut.len().is_power_of_two() {
                         return Err(Error::OtherStr(
                             "lookup table is not a power of two in bitwidth",
-                        ))
+                        ));
                     }
                     if (lut.len().trailing_zeros() as usize) != inp.len() {
                         return Err(Error::OtherStr(
                             "number of inputs does not correspond to lookup table size",
-                        ))
+                        ));
                     }
                 }
             }
@@ -348,13 +348,13 @@ impl Ensemble {
                 return Err(Error::OtherString(format!(
                     "{p_state} {state:?} reference count mismatch, expected {}",
                     counts[p_state].0
-                )))
+                )));
             }
             if state.extern_rc != counts[p_state].1 {
                 return Err(Error::OtherString(format!(
                     "{p_state} {state:?} extern reference count mismatch, expected {}",
                     counts[p_state].1
-                )))
+                )));
             }
         }
 

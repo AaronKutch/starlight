@@ -1,7 +1,7 @@
 //! pure routing with no combinatorics
 
 use starlight::{
-    dag, delay, route::Router, Corresponder, Epoch, In, OptimizerOptions, Out, SuspendedEpoch,
+    Corresponder, Epoch, In, OptimizerOptions, Out, SuspendedEpoch, dag, delay, route::Router,
 };
 use testcrate::targets::FabricTargetInterface;
 struct SimpleCopyProgramInterface {
@@ -78,21 +78,25 @@ fn route_pure_single_small() {
                 .unwrap()
                 .retro_bool_(true)
                 .unwrap();
-            assert!(corresponder
-                .transpose_eval(&program.output)
-                .unwrap()
-                .eval_bool()
-                .unwrap());
+            assert!(
+                corresponder
+                    .transpose_eval(&program.output)
+                    .unwrap()
+                    .eval_bool()
+                    .unwrap()
+            );
             corresponder
                 .transpose_lazy(&program.input)
                 .unwrap()
                 .retro_bool_(false)
                 .unwrap();
-            assert!(!corresponder
-                .transpose_eval(&program.output)
-                .unwrap()
-                .eval_bool()
-                .unwrap());
+            assert!(
+                !corresponder
+                    .transpose_eval(&program.output)
+                    .unwrap()
+                    .eval_bool()
+                    .unwrap()
+            );
         }
     }
     drop(target_epoch);

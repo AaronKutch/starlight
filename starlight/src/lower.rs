@@ -2,4 +2,4 @@ mod lower_op;
 mod lower_state;
 pub mod meta;
 
-pub use lower_op::{lower_op, LowerManagement};
+pub use lower_op::{LowerManagement, lower_op};

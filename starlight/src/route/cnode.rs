@@ -6,9 +6,9 @@ use std::{
 use awint::awint_dag::triple_arena::{Recast, Recaster};
 
 use crate::{
+    Error,
     ensemble::PEquiv,
     route::{ChannelWidths, Channeler, PCEdge, PCNode, Programmability, Source},
-    Error,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -140,7 +140,7 @@ impl Channeler {
             // have this run first for all cases
             if p_cnode0 == p_cnode1 {
                 // case where one is the supernode of the other
-                return Some(p_cnode0)
+                return Some(p_cnode0);
             }
             if lvl0 < lvl1 {
                 p_cnode0 = self.get_supernode(p_cnode0)?;
@@ -149,7 +149,7 @@ impl Channeler {
                 p_cnode1 = self.get_supernode(p_cnode1)?;
                 lvl1 += 1;
             } else {
-                break
+                break;
             }
         }
         // find common supernode
@@ -157,7 +157,7 @@ impl Channeler {
             p_cnode0 = self.get_supernode(p_cnode0)?;
             p_cnode1 = self.get_supernode(p_cnode1)?;
             if p_cnode0 == p_cnode1 {
-                return Some(p_cnode0)
+                return Some(p_cnode0);
             }
         }
     }
@@ -222,7 +222,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) -> Result<(), Error> {
         if cnode.lvl != 0 {
             return Err(Error::OtherStr(
                 "hierarchy appears to have been generated before",
-            ))
+            ));
         }
         priority.push((0, p_cnode));
     }
@@ -233,7 +233,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) -> Result<(), Error> {
             p_consider
         } else {
             if next_level_cnodes.is_empty() {
-                break
+                break;
             }
             current_lvl = current_lvl.checked_add(1).unwrap();
             // before going to the next level, need to handle this
@@ -249,7 +249,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) -> Result<(), Error> {
         let cnode = channeler.cnodes.get(p_consider).unwrap();
         if cnode.p_supernode.is_some() {
             // has already been concentrated
-            continue
+            continue;
         }
 
         // For each cnode on a given level, we will attempt to concentrate it and all
@@ -258,7 +258,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) -> Result<(), Error> {
         let related = channeler.related_nodes(p_consider);
         if related.len() == 1 {
             // the node is disconnected
-            continue
+            continue;
         }
         let mut subnodes_in_tree = 0usize;
         let mut lut_bits = 0usize;
@@ -277,7 +277,7 @@ pub fn generate_hierarchy(channeler: &mut Channeler) -> Result<(), Error> {
                 // because it may end up in a solution where it can't concentrate with any other
                 // nodes because of overlap.
                 possibly_single_subnode.push(p_consider);
-                continue 'outer
+                continue 'outer;
             }
         }
         // concentrate
@@ -308,7 +308,7 @@ pub fn generate_hierarchy_level(
     for p in possibly_single_subnode.drain(..) {
         let cnode = channeler.cnodes.get(p).unwrap();
         if cnode.p_supernode.is_some() {
-            continue
+            continue;
         }
         // need to also forward the internal behavior
         let p_next_lvl = channeler.make_cnode(

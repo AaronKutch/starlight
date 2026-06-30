@@ -6,17 +6,16 @@ use std::{
 };
 
 use awint::{
-    awint_dag::{dag, Lineage, Location, PState},
+    awint_dag::{Lineage, Location, PState, dag},
     awint_internals::forward_debug_fmt,
     dag::Awi,
 };
 
 use crate::{
-    awi,
+    Delay, Error, EvalAwi, awi,
     ensemble::{BasicValue, BasicValueKind, CommonValue, Ensemble, PExternal},
     epoch::get_current_epoch,
     utils::DisplayStr,
-    Delay, Error, EvalAwi,
 };
 
 // Note: `mem::forget` can be used on `LazyAwi`s, but in this crate it should
@@ -297,7 +296,7 @@ impl LazyAwi {
         let lhs_w = self.bw();
         let rhs_w = rhs.bw();
         if lhs_w != rhs_w {
-            return Err(Error::BitwidthMismatch(lhs_w, rhs_w))
+            return Err(Error::BitwidthMismatch(lhs_w, rhs_w));
         }
         let delay = delay.into();
         for i in 0..lhs_w {

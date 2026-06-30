@@ -5,18 +5,18 @@ use std::{
 };
 
 use awint::{
-    awint_dag::triple_arena::{Advancer, Recast, Recaster},
     Awi,
+    awint_dag::triple_arena::{Advancer, Recast, Recaster},
 };
 
 use crate::{
+    Error, SuspendedEpoch,
     awint_dag::smallvec::SmallVec,
     ensemble::{DynamicValue, Ensemble, LNodeKind, PBack},
     route::{
-        cnode::{generate_hierarchy, InternalBehavior},
         Channeler, Configurator, PCEdge, PCNode, PConfig,
+        cnode::{InternalBehavior, generate_hierarchy},
     },
-    Error, SuspendedEpoch,
 };
 
 /// The selector can use its configuration bits to arbitrarily select from any
@@ -273,7 +273,7 @@ impl Channeler {
                     }
                 }
             } else {
-                return Err(Error::ConfigurationNotFound(config.p_external))
+                return Err(Error::ConfigurationNotFound(config.p_external));
             }
         }
 
@@ -305,13 +305,13 @@ impl Channeler {
                                 "configuration bit {p_external:#?} is directly driving or being \
                                  driven by a temporal node, there should be no delay immediately \
                                  associated with configuration bits"
-                            )))
+                            )));
                         }
                         ThisLNode(_) => {
                             return Err(Error::OtherString(format!(
                                 "configuration bit {p_external:#?} is driven, which shouldn't \
                                  normally be possible"
-                            )))
+                            )));
                         }
                     }
                 }
@@ -394,7 +394,7 @@ impl Channeler {
                 .alg_visit;
             if *node_visit == visit {
                 // already done, avoid quadratics
-                continue
+                continue;
             }
             *node_visit = visit;
             // will explore from here and handle `p_self`, could have started from either

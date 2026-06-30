@@ -1,4 +1,4 @@
-use starlight::{awi, dag, Delay, Epoch, EvalAwi, LazyAwi, Net, OptimizerOptions};
+use starlight::{Delay, Epoch, EvalAwi, LazyAwi, Net, OptimizerOptions, awi, dag};
 
 // this is done separately from the benchmarks because getting the `ensemble` is
 // expensive

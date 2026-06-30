@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, mem};
 
-use awint::awint_dag::smallvec::{smallvec, SmallVec};
+use awint::awint_dag::smallvec::{SmallVec, smallvec};
 
 /// Binary searches `slice` with the comparator function. Assuming that `slice`
 /// is ordered and `f` is consistent, finds an index that is as similar to the
@@ -66,7 +66,7 @@ pub fn binary_search_similar_by<T, F: FnMut(&T) -> Ordering>(
     mut f: F,
 ) -> (usize, Ordering) {
     if slice.is_empty() {
-        return (0, Ordering::Less)
+        return (0, Ordering::Less);
     }
     let mut size = slice.len();
     let mut left = 0;

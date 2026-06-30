@@ -11,10 +11,10 @@ use awint::{
 
 use super::lazy_awi::format_auto_awi;
 use crate::{
+    Delay, Error, EvalAwi, LazyAwi,
     awi::{self, *},
     dag,
     ensemble::PExternal,
-    Delay, Error, EvalAwi, LazyAwi,
 };
 
 /// A wrapper around [crate::LazyAwi] that has a constant width

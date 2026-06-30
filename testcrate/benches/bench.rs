@@ -1,7 +1,7 @@
 #![feature(test)]
 
 extern crate test;
-use starlight::{awi, dag::*, Epoch, EvalAwi, LazyAwi, Net, OptimizerOptions};
+use starlight::{Epoch, EvalAwi, LazyAwi, Net, OptimizerOptions, awi, dag::*};
 use test::Bencher;
 
 #[bench]

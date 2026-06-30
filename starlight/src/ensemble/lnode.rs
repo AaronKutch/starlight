@@ -5,22 +5,20 @@ use std::{
 };
 
 use awint::{
-    awi,
+    Awi, Bits, awi,
     awint_dag::{
-        smallvec,
+        PState, smallvec,
         triple_arena::{
-            surject_iterators::SurjectPtrAdvancer, Advancer, Recast, Recaster, SurjectArena,
+            Advancer, Recast, Recaster, SurjectArena, surject_iterators::SurjectPtrAdvancer,
         },
-        PState,
     },
-    Awi, Bits,
 };
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use crate::{
+    Error,
     ensemble::{DynamicValue, Ensemble, Equiv, PBack, PLNode, Referent, Value},
     route::PEdgeEmbed,
-    Error,
 };
 
 #[derive(Debug, Clone)]
@@ -415,7 +413,7 @@ impl LNode {
                         DynamicValue::ConstUnknown => return None,
                         DynamicValue::Const(b1) => {
                             if b0 != b1 {
-                                return None
+                                return None;
                             }
                         }
                         DynamicValue::Dynam(_) => return None,
@@ -425,7 +423,7 @@ impl LNode {
                         DynamicValue::Const(_) => return None,
                         DynamicValue::Dynam(p1) => {
                             if !backrefs.in_same_set(p0, p1).unwrap() {
-                                return None
+                                return None;
                             }
                         }
                     },
@@ -556,16 +554,16 @@ impl Ensemble {
                 if inp_len == 0 {
                     // only one LUT bit left, no inputs
                     if lut_known.get(0).unwrap() {
-                        return Ok((Value::Dynam(lut.get(0).unwrap()), max_partial_ord_num))
+                        return Ok((Value::Dynam(lut.get(0).unwrap()), max_partial_ord_num));
                     } else {
-                        return Ok((Value::Unknown, max_partial_ord_num))
+                        return Ok((Value::Unknown, max_partial_ord_num));
                     }
                 }
                 if lut_known.is_umax() {
                     if lut.is_zero() {
-                        return Ok((Value::Dynam(false), max_partial_ord_num))
+                        return Ok((Value::Dynam(false), max_partial_ord_num));
                     } else if lut.is_umax() {
-                        return Ok((Value::Dynam(true), max_partial_ord_num))
+                        return Ok((Value::Dynam(true), max_partial_ord_num));
                     }
                 }
                 (Value::Unknown, max_partial_ord_num)

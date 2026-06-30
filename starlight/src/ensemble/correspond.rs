@@ -4,8 +4,8 @@ use std::num::NonZeroUsize;
 use awint::awint_dag::triple_arena::{Advancer, OrdArena, SurjectArena};
 
 use crate::{
-    ensemble::{PCorrespond, PExternal, PMeta},
     Error, EvalAwi, LazyAwi,
+    ensemble::{PCorrespond, PExternal, PMeta},
 };
 
 /// Provides a controlled way to correspond `LazyAwi`s and `EvalAwi`s in and
@@ -147,7 +147,7 @@ impl Corresponder {
         let p = tmp.p_external();
         let mut v = self.correspondences_lazy(&tmp)?;
         if v.is_empty() {
-            return Err(Error::CorrespondenceEmpty(p))
+            return Err(Error::CorrespondenceEmpty(p));
         }
         if v.len() == 1 {
             Ok(v.pop().unwrap())
@@ -191,7 +191,7 @@ impl Corresponder {
         let p = tmp.p_external();
         let mut v = self.correspondences_eval(&tmp)?;
         if v.is_empty() {
-            return Err(Error::CorrespondenceEmpty(p))
+            return Err(Error::CorrespondenceEmpty(p));
         }
         if v.len() == 1 {
             Ok(v.pop().unwrap())

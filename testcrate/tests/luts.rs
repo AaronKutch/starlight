@@ -3,16 +3,16 @@
 use std::num::NonZeroUsize;
 
 use starlight::{
+    Epoch, EvalAwi, LazyAwi, OptimizerOptions,
     awi::{self, *},
     awint_dag::{
-        smallvec::{smallvec, SmallVec},
         Lineage, Op,
+        smallvec::{SmallVec, smallvec},
     },
     dag,
     ensemble::LNodeKind,
     lower::meta::create_static_lut,
     utils::StarRng,
-    Epoch, EvalAwi, LazyAwi, OptimizerOptions,
 };
 
 // Test static LUT simplifications, this also handles input duplication cases
@@ -211,7 +211,7 @@ fn lut_optimization() {
             }
             for i in (0..remaining_inp_len).rev() {
                 if expected_lut.bw() == 1 {
-                    break
+                    break;
                 }
                 general_reduce_independent_lut(&mut expected_lut, i);
             }
@@ -393,7 +393,7 @@ fn lut_dynamic_optimization() {
             if known_lut_bits_reduced.is_umax() {
                 for i in (0..remaining_inp_len).rev() {
                     if expected_lut.bw() == 1 {
-                        break
+                        break;
                     }
                     if general_reduce_independent_lut(&mut expected_lut, i) {
                         known_lut_bits_reduced = general_reduce_lut(

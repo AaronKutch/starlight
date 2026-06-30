@@ -1,4 +1,4 @@
-use starlight::{awi, dag, ensemble::Corresponder, Epoch, Error, EvalAwi, In, LazyAwi, Out};
+use starlight::{Epoch, Error, EvalAwi, In, LazyAwi, Out, awi, dag, ensemble::Corresponder};
 
 #[test]
 fn correspond_clone() {

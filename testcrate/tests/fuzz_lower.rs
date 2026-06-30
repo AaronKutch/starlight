@@ -6,10 +6,9 @@ use std::{
 };
 
 use starlight::{
-    awi, dag,
-    triple_arena::{ptr_struct, Arena},
+    Epoch, EvalAwi, LazyAwi, awi, dag,
+    triple_arena::{Arena, ptr_struct},
     utils::StarRng,
-    Epoch, EvalAwi, LazyAwi,
 };
 
 // miri is just here to check that the unsized deref hacks are working
@@ -71,7 +70,7 @@ impl Mem {
         if self.rng.out_of_4(3) && (!self.v[w].is_empty()) {
             let p = *self.rng.index_slice(&self.v[w]).unwrap();
             if self.get_awi(p).to_usize() < cap {
-                return p
+                return p;
             }
         }
         let nzbw = NonZeroUsize::new(w).unwrap();

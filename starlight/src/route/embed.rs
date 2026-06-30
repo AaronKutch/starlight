@@ -3,12 +3,12 @@ use std::fmt::Write;
 use awint::awint_dag::triple_arena::Advancer;
 
 use crate::{
+    Error,
     ensemble::{PBack, PEquiv, PLNode, Referent},
     route::{
         Edge, EdgeKind, HyperPath, NodeOrEdge, PCNode, PEdgeEmbed, PMapping, PNodeEmbed, Path,
         Router,
     },
-    Error,
 };
 
 #[derive(Debug, Clone)]
@@ -61,7 +61,7 @@ impl Router {
         while let Some(p_start) = front.pop() {
             let node = self.program_ensemble.backrefs.get_val_mut(p_start).unwrap();
             if node.alg_visit == visit {
-                continue
+                continue;
             }
             node.alg_visit = visit;
             let mut program_source = None;

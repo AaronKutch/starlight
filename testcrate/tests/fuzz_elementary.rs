@@ -1,11 +1,11 @@
 use std::{cmp::min, num::NonZeroUsize};
 
 use starlight::{
+    Epoch, EvalAwi, LazyAwi, OptimizerOptions,
     awint::{awi, dag},
     delay,
-    triple_arena::{ptr_struct, Arena},
+    triple_arena::{Arena, ptr_struct},
     utils::StarRng,
-    Epoch, EvalAwi, LazyAwi, OptimizerOptions,
 };
 
 #[cfg(debug_assertions)]
@@ -93,7 +93,7 @@ impl Mem {
         if self.rng.out_of_4(3) && (!self.v[w].is_empty()) {
             let p = *self.rng.index_slice(&self.v[w]).unwrap();
             if self.get_awi(p).to_usize() < cap {
-                return p
+                return p;
             }
         }
         let nzbw = NonZeroUsize::new(w).unwrap();

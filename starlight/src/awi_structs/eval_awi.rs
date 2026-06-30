@@ -1,15 +1,14 @@
 use std::{fmt, num::NonZeroUsize, thread::panicking};
 
 use awint::{
-    awint_dag::{dag, Lineage, Location, PState},
-    awint_internals::{forward_debug_fmt, BITS},
+    awint_dag::{Lineage, Location, PState, dag},
+    awint_internals::{BITS, forward_debug_fmt},
 };
 
 use crate::{
-    awi,
+    Error, awi,
     ensemble::{Ensemble, PExternal},
     epoch::get_current_epoch,
-    Error,
 };
 
 // Note: `mem::forget` can be used on `EvalAwi`s, but in this crate it should
@@ -208,7 +207,7 @@ impl EvalAwi {
                 return Err(Error::OtherString(format!(
                     "could not eval bit {bit_i} to known value, the node is {}",
                     self.p_external()
-                )))
+                )));
             }
         }
         Ok(res)

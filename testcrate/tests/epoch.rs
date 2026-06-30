@@ -1,5 +1,5 @@
 use dag::*;
-use starlight::{awi, dag, Epoch, Error, EvalAwi, LazyAwi, Loop, OptimizerOptions};
+use starlight::{Epoch, Error, EvalAwi, LazyAwi, Loop, OptimizerOptions, awi, dag};
 
 #[test]
 #[should_panic]

@@ -1,4 +1,4 @@
-use starlight::{awi, dag, delay, Delay, Epoch, EvalAwi, LazyAwi, OptimizerOptions};
+use starlight::{Delay, Epoch, EvalAwi, LazyAwi, OptimizerOptions, awi, dag, delay};
 
 // Note: these tests have duplications between versions with quiescence testing,
 // because `EvalAwi`s and quiescence testing both do lowering stuff, and we need

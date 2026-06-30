@@ -3,13 +3,13 @@ use std::fmt::Write;
 use awint::awint_dag::triple_arena::{Advancer, OrdArena};
 
 use crate::{
+    Corresponder, Error, OptimizerOptions, SuspendedEpoch,
     ensemble::{Ensemble, PEquiv, PExternal, Referent},
     route::{
-        route, Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PEdgeEmbed,
-        PMapping, PNodeEmbed,
+        Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PEdgeEmbed, PMapping,
+        PNodeEmbed, route,
     },
     triple_arena::Arena,
-    Corresponder, Error, OptimizerOptions, SuspendedEpoch,
 };
 
 #[derive(Debug, Clone)]
@@ -195,7 +195,7 @@ impl Router {
         } else {
             return Err(Error::OtherString(format!(
                 "{mapping_target:#?}.target_p_external is invalid"
-            )))
+            )));
         }
         Ok(())
     }
@@ -208,7 +208,7 @@ impl Router {
         if !self.program_ensemble().tnodes.is_empty() {
             return Err(Error::OtherStr(
                 "there are tnodes in the program ensemble after `Router` creation",
-            ))
+            ));
         }
         // mapping validities
         for (p_mapping, program_p_equiv, mapping) in self.mappings() {
@@ -239,7 +239,7 @@ impl Router {
             } else {
                 return Err(Error::OtherString(format!(
                     "{p_mapping} {mapping:#?}.program_p_external is invalid"
-                )))
+                )));
             }
 
             if let Some(ref mapping_target) = mapping.target_source {
@@ -258,7 +258,7 @@ impl Router {
             {
                 return Err(Error::OtherString(format!(
                     "{p_embedding} {embedding:#?}.program_node is invalid"
-                )))
+                )));
             }
             let hyperpath = &embedding.hyperpath;
             if !self
@@ -268,13 +268,13 @@ impl Router {
             {
                 return Err(Error::OtherString(format!(
                     "{p_embedding} {embedding:#?}.hyperpath.target_source is invalid"
-                )))
+                )));
             }
             if let Some(program_source) = hyperpath.program_source {
                 if !self.program_ensemble().lnodes.contains(program_source) {
                     return Err(Error::OtherString(format!(
                         "{p_embedding} {embedding:#?}.hyperpath.program_source is invalid"
-                    )))
+                    )));
                 }
             } else {
                 let p_source = hyperpath.target_source;
@@ -282,7 +282,7 @@ impl Router {
                     return Err(Error::OtherString(format!(
                         "{p_embedding} {embedding:#?} with `program_source == None` has a target \
                          source that is not on the base level"
-                    )))
+                    )));
                 }
             }
             for path in hyperpath.paths() {
@@ -292,12 +292,12 @@ impl Router {
                             return Err(Error::OtherString(format!(
                                 "{p_embedding} {embedding:#?} path program sink does not point to \
                                  `Referent::Input`"
-                            )))
+                            )));
                         }
                     } else {
                         return Err(Error::OtherString(format!(
                             "{p_embedding} {embedding:#?} path program sink is invalid"
-                        )))
+                        )));
                     }
                 } else {
                     let p_sink = path.target_sink().unwrap_or(hyperpath.target_source);
@@ -305,7 +305,7 @@ impl Router {
                         return Err(Error::OtherString(format!(
                             "{p_embedding} {embedding:#?} path with `program_sink == None` has a \
                              target sink that is not on the base level"
-                        )))
+                        )));
                     }
                 }
                 if !self
@@ -315,13 +315,13 @@ impl Router {
                 {
                     return Err(Error::OtherString(format!(
                         "{p_embedding} {embedding:#?} path target sink is invalid"
-                    )))
+                    )));
                 }
                 for edge in path.edges() {
                     if !self.target_channeler().cnodes.contains(edge.to) {
                         return Err(Error::OtherString(format!(
                             "{p_embedding} {embedding:#?} path edge.to is invalid"
-                        )))
+                        )));
                     }
                     match edge.kind {
                         EdgeKind::Transverse(q_cedge, source_i) => {
@@ -330,12 +330,12 @@ impl Router {
                                     return Err(Error::OtherString(format!(
                                         "{p_embedding} {embedding:#?} path sink source_i is out \
                                          of range"
-                                    )))
+                                    )));
                                 }
                             } else {
                                 return Err(Error::OtherString(format!(
                                     "{p_embedding} {embedding:#?} path edge.kind is invalid"
-                                )))
+                                )));
                             }
                         }
                         EdgeKind::Concentrate => (),
@@ -355,7 +355,7 @@ impl Router {
                                 return Err(Error::OtherString(format!(
                                     "{p_embedding} {embedding:#?} path {i} source is broken at \
                                      traversal edge {j} {cedge:#?}"
-                                )))
+                                )));
                             }
                             q = edge.to;
                         }
@@ -365,7 +365,7 @@ impl Router {
                                 return Err(Error::OtherString(format!(
                                     "{p_embedding} {embedding:#?} path {i} is broken at \
                                      concentration edge {j}"
-                                )))
+                                )));
                             }
                         }
                         EdgeKind::Dilute => {
@@ -374,7 +374,7 @@ impl Router {
                                 return Err(Error::OtherString(format!(
                                     "{p_embedding} {embedding:#?} path {i} is broken at dilution \
                                      edge {j}"
-                                )))
+                                )));
                             }
                             q = edge.to;
                         }
@@ -383,7 +383,7 @@ impl Router {
                 if q != path.target_sink().unwrap() {
                     return Err(Error::OtherString(format!(
                         "{p_embedding} {embedding:#?} path {i} ending does not match sink"
-                    )))
+                    )));
                 }
             }
         }
@@ -396,21 +396,21 @@ impl Router {
             {
                 return Err(Error::OtherString(format!(
                     "{p_embedding} {embedding:#?}.program_edge is invalid"
-                )))
+                )));
             }
             match embedding.target {
                 NodeOrEdge::Node(q_cnode) => {
                     if !self.target_channeler().cnodes.contains(q_cnode) {
                         return Err(Error::OtherString(format!(
                             "{p_embedding} {embedding:#?}.target is invalid"
-                        )))
+                        )));
                     }
                 }
                 NodeOrEdge::Edge(q_cedge) => {
                     if !self.target_channeler().cedges.contains(q_cedge) {
                         return Err(Error::OtherString(format!(
                             "{p_embedding} {embedding:#?}.target is invalid"
-                        )))
+                        )));
                     }
                 }
             }

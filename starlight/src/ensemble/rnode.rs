@@ -1,23 +1,23 @@
 use std::{
     fmt,
-    num::{NonZeroU128, NonZeroU64, NonZeroUsize},
+    num::{NonZeroU64, NonZeroU128, NonZeroUsize},
 };
 
 use awint::awint_dag::{
-    smallvec::{smallvec, SmallVec},
-    triple_arena::{
-        utils::{PtrGen, PtrInx},
-        Arena, OrdArena, Ptr, Recast, Recaster,
-    },
     Location, PState,
+    smallvec::{SmallVec, smallvec},
+    triple_arena::{
+        Arena, OrdArena, Ptr, Recast, Recaster,
+        utils::{PtrGen, PtrInx},
+    },
 };
 
 use crate::{
+    Error,
     awi::*,
     ensemble::{CommonValue, Delay, Ensemble, PBack, PRNode, Referent, Value},
-    epoch::{get_current_epoch, EpochShared},
+    epoch::{EpochShared, get_current_epoch},
     utils::{DisplayStr, HexadecimalNonZeroU128},
-    Error,
 };
 
 // substituted because we need a custom `Debug` impl
@@ -559,7 +559,7 @@ impl Ensemble {
         } else {
             return Err(Error::OtherStr(
                 "something went wrong, found `RNode` for `TNode` driving but a bit was pruned",
-            ))
+            ));
         };
         let (_, driver_rnode) = lock.ensemble.notary.get_rnode(p_driver)?;
         if driver_bit_i >= driver_rnode.bits.len() {
@@ -572,7 +572,7 @@ impl Ensemble {
         } else {
             return Err(Error::OtherStr(
                 "something went wrong, found `RNode` for `TNode` driving but a bit was pruned",
-            ))
+            ));
         };
 
         // now connect with `TNode`

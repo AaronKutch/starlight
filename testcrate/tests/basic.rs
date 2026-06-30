@@ -1,7 +1,8 @@
 use starlight::{
+    Epoch, EvalAwi, LazyAwi, OptimizerOptions,
     awi::{self, *},
-    awint_dag::{epoch::register_assertion_bit_for_current_epoch, Location},
-    dag, Epoch, EvalAwi, LazyAwi, OptimizerOptions,
+    awint_dag::{Location, epoch::register_assertion_bit_for_current_epoch},
+    dag,
 };
 
 #[test]

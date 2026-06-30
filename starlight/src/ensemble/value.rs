@@ -7,8 +7,8 @@ use std::{
 use awint::{awi::*, awint_dag::triple_arena::Advancer};
 
 use crate::{
-    ensemble::{Ensemble, PBack, PEquiv, PLNode, PTNode, Referent},
     Error,
+    ensemble::{Ensemble, PBack, PEquiv, PLNode, PTNode, Referent},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -217,15 +217,15 @@ impl PartialEq for Event {
 
 impl Eq for Event {}
 
-impl PartialOrd for Event {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.partial_ord_num.cmp(&other.partial_ord_num))
-    }
-}
-
 impl Ord for Event {
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_ord_num.cmp(&other.partial_ord_num)
+    }
+}
+
+impl PartialOrd for Event {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other)) 
     }
 }
 
@@ -332,13 +332,13 @@ impl Ensemble {
         if let Some(equiv) = self.backrefs.get_val_mut(p_equiv.into()) {
             if equiv.val == value {
                 // no change needed
-                return Ok(())
+                return Ok(());
             }
             if equiv.val.is_const() && (equiv.val != value) {
                 return Err(Error::OtherStr(
                     "tried to change a constant (probably, `retro_const_*` was used followed by a \
                      contradicting `retro_*`, or some invariant was broken)",
-                ))
+                ));
             }
             equiv.val = value;
             if equiv.evaluator_partial_order <= source_partial_ord_num {
@@ -424,7 +424,7 @@ impl Ensemble {
     pub fn request_value(&mut self, p_back: PBack) -> Result<Value, Error> {
         if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
             if equiv.val.is_const() {
-                return Ok(equiv.val)
+                return Ok(equiv.val);
             }
             self.switch_to_request_phase()?;
             Ok(self.backrefs.get_val(p_back).unwrap().val)

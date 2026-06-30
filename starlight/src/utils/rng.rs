@@ -1,7 +1,7 @@
 use awint::awi::*;
 use rand_xoshiro::{
-    rand_core::{RngCore, SeedableRng},
     Xoshiro128StarStar,
+    rand_core::{RngCore, SeedableRng},
 };
 
 /// A deterministic psuedo-random-number-generator. Is a wrapper around
@@ -142,13 +142,13 @@ impl StarRng {
             let remaining_in_buf = usize::from(Self::BW_U8.wrapping_sub(self.used));
             let remaining = bits.bw().wrapping_sub(processed);
             if remaining == 0 {
-                break
+                break;
             }
             if remaining < remaining_in_buf {
                 bits.field(processed, &self.buf, usize::from(self.used), remaining)
                     .unwrap();
                 self.used = self.used.wrapping_add(remaining as u8);
-                break
+                break;
             } else {
                 bits.field(
                     processed,

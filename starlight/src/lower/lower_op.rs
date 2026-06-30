@@ -7,17 +7,17 @@ use std::{cmp::min, num::NonZeroUsize};
 
 use awint::{
     awint_dag::{
-        triple_arena::Ptr,
         DummyDefault, Lineage,
         Op::{self, *},
         PState,
+        triple_arena::Ptr,
     },
     bw,
 };
-use dag::{awi, inlawi, Awi, Bits, InlAwi};
+use dag::{Awi, Bits, InlAwi, awi, inlawi};
 
 use super::meta::*;
-use crate::{awi, dag, Error};
+use crate::{Error, awi, dag};
 
 pub trait LowerManagement<P: Ptr + DummyDefault> {
     fn graft(&mut self, output_and_operands: &[PState]);
@@ -784,11 +784,7 @@ pub fn lower_op<P: Ptr + DummyDefault>(
             let inx_tmp = Awi::opaque(m.get_nzbw(inx));
             let out = if m.is_literal(inx) {
                 let b = m.bool(inx);
-                if b {
-                    x1.clone()
-                } else {
-                    x0.clone()
-                }
+                if b { x1.clone() } else { x0.clone() }
             } else {
                 static_mux(&x0, &x1, &inx_tmp)
             };

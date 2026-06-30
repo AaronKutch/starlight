@@ -3,8 +3,8 @@ use std::num::NonZeroU64;
 use awint::awint_dag::triple_arena::{OrdArena, Recast, Recaster};
 
 use crate::{
-    ensemble::{Ensemble, PBack, PSimEvent, PTNode, Referent},
     Error,
+    ensemble::{Ensemble, PBack, PSimEvent, PTNode, Referent},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -210,7 +210,7 @@ impl Ensemble {
         let final_time = self.delayer.current_time.checked_add(delay).unwrap();
         while let Some(next_time) = self.delayer.peek_next_event_time() {
             if next_time > final_time {
-                break
+                break;
             }
             let (time, events) = self.delayer.pop_next_simultaneous_events().unwrap();
             self.delayer.current_time = time;

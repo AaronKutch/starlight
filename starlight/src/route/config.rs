@@ -1,12 +1,12 @@
 use std::num::NonZeroU64;
 
-use awint::{awint_dag::triple_arena::OrdArena, Awi};
+use awint::{Awi, awint_dag::triple_arena::OrdArena};
 
 use crate::{
+    Error, LazyAwi,
     ensemble::{Ensemble, PEquiv, PExternal, Value},
     epoch::get_current_epoch,
     route::{EdgeKind, PConfig, Programmability, Router},
-    Error, LazyAwi,
 };
 
 #[derive(Debug, Clone)]
@@ -104,7 +104,7 @@ impl Router {
     #[allow(unused)]
     pub fn get_config<L: std::borrow::Borrow<LazyAwi>>(&self, config: &L) -> Result<Awi, Error> {
         if !self.is_valid_routing {
-            return Err(Error::RoutingIsInvalid)
+            return Err(Error::RoutingIsInvalid);
         }
         let config = config.borrow();
         let p_external = config.p_external();
@@ -160,7 +160,7 @@ impl Router {
     /// - If the target epoch is not the current `Epoch`
     pub fn config_target(&self) -> Result<(), Error> {
         if !self.is_valid_routing {
-            return Err(Error::RoutingIsInvalid)
+            return Err(Error::RoutingIsInvalid);
         }
         let epoch_shared = get_current_epoch()?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
@@ -178,7 +178,7 @@ impl Router {
     /// - If the `ensemble` is not the target ensemble
     pub fn ensemble_config_target(&self, ensemble: &mut Ensemble) -> Result<(), Error> {
         if !self.is_valid_routing {
-            return Err(Error::RoutingIsInvalid)
+            return Err(Error::RoutingIsInvalid);
         }
         for (p_config, p_equiv, config) in &self.configurator.configurations {
             // check that we are in the right epoch, the `p_equiv` lookup could collide
@@ -195,7 +195,7 @@ impl Router {
                     "`config_target`: when trying to change the target bit corresponding to \
                      {p_config:#?}, encountered error that may be because the wrong `Epoch` is \
                      active or because the target was improperly mutated: {e:?}"
-                )))
+                )));
             }
         }
         Ok(())

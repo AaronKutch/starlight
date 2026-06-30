@@ -1,6 +1,6 @@
 use std::num::NonZeroUsize;
 
-use starlight::{awi, dag, ensemble::Delay, Epoch, EvalAwi, LazyAwi, Loop, Net, OptimizerOptions};
+use starlight::{Epoch, EvalAwi, LazyAwi, Loop, Net, OptimizerOptions, awi, dag, ensemble::Delay};
 
 // be careful not to change existing tests too much, these test a lot of
 // ordering and nonoptimization cases

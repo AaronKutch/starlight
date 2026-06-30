@@ -1,5 +1,5 @@
 use starlight::{
-    route::Router, Corresponder, Epoch, Error, In, OptimizerOptions, Out, SuspendedEpoch,
+    Corresponder, Epoch, Error, In, OptimizerOptions, Out, SuspendedEpoch, route::Router,
 };
 use testcrate::targets::FabricTargetInterface;
 
@@ -180,21 +180,25 @@ fn route_errors_simple() {
         .unwrap()
         .retro_bool_(true)
         .unwrap();
-    assert!(corresponder
-        .transpose_eval(&program.output)
-        .unwrap()
-        .eval_bool()
-        .unwrap());
+    assert!(
+        corresponder
+            .transpose_eval(&program.output)
+            .unwrap()
+            .eval_bool()
+            .unwrap()
+    );
     corresponder
         .transpose_lazy(&program.input)
         .unwrap()
         .retro_bool_(false)
         .unwrap();
-    assert!(!corresponder
-        .transpose_eval(&program.output)
-        .unwrap()
-        .eval_bool()
-        .unwrap());
+    assert!(
+        !corresponder
+            .transpose_eval(&program.output)
+            .unwrap()
+            .eval_bool()
+            .unwrap()
+    );
 
     drop(target_epoch);
     drop(program_epoch);

@@ -14,16 +14,16 @@ use std::{
 
 use awint::{
     awint_dag::{
-        epoch::{_get_epoch_stack, EpochCallback, EpochKey},
-        triple_arena::{ptr_struct, Arena},
         Lineage, Location, Op, PState,
+        epoch::{_get_epoch_stack, EpochCallback, EpochKey},
+        triple_arena::{Arena, ptr_struct},
     },
     bw, dag,
 };
 
 use crate::{
-    ensemble::{Delay, Ensemble, OptimizerOptions, Value},
     Error, EvalAwi,
+    ensemble::{Delay, Ensemble, OptimizerOptions, Value},
 };
 
 /// A list of single bit `EvalAwi`s for assertions
@@ -328,7 +328,7 @@ impl EpochShared {
         let mut i = 0;
         loop {
             if i >= len {
-                break
+                break;
             }
             let epoch_data = self.epoch_data.borrow();
             let eval_awi = &epoch_data
@@ -344,7 +344,7 @@ impl EpochShared {
                 if !val {
                     return Err(Error::OtherString(format!(
                         "an assertion bit evaluated to false, failed on {p_external:#?}"
-                    )))
+                    )));
                 }
             } else if unknown.is_none() {
                 // get the earliest failure to evaluate, should be closest to the root cause.
@@ -376,7 +376,7 @@ impl EpochShared {
                 return Err(Error::OtherString(format!(
                     "an assertion bit could not be evaluated to a known value, failed on \
                      {p_external:#?}"
-                )))
+                )));
             }
         }
         Ok(())

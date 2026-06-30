@@ -6,13 +6,13 @@ use awint::{
 };
 
 use crate::{
+    Epoch, Error,
     ensemble::{
         DynamicValue, Ensemble, Equiv, LNode, LNodeKind, PBack, PEquiv, PLNode, PRNode, PTNode,
         Referent, State,
     },
     triple_arena::{Advancer, ChainArena},
-    triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
-    Epoch, Error,
+    triple_arena_render::{DebugNode, DebugNodeTrait, render_to_svg_file},
 };
 
 impl DebugNodeTrait<PState> for State {
@@ -46,11 +46,7 @@ impl DebugNodeTrait<PState> for State {
                     }
                 }
                 fn short(b: bool) -> &'static str {
-                    if b {
-                        "t"
-                    } else {
-                        "f"
-                    }
+                    if b { "t" } else { "f" }
                 }
                 v.push(format!(
                     "{} {} {} {}",

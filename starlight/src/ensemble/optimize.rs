@@ -1,22 +1,22 @@
 use std::{mem, num::NonZeroUsize};
 
 use awint::{
+    Awi, InlAwi,
     awint_dag::{
+        PState,
         smallvec::SmallVec,
         triple_arena::{Advancer, Ptr},
-        PState,
     },
-    Awi, InlAwi,
 };
 
 use crate::{
+    Error,
     ensemble::{
         DynamicValue, Ensemble, LNode, LNodeKind, PBack, PEquiv, PLNode, POpt, PTNode, Referent,
         Value,
     },
     triple_arena::OrdArena,
     utils::SmallMap,
-    Error,
 };
 
 //#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -192,11 +192,11 @@ impl Ensemble {
                                 self.backrefs.remove_key(inp[j]).unwrap();
                                 inp.remove(j);
                                 lut = next_lut;
-                                continue 'outer
+                                continue 'outer;
                             }
                         }
                     }
-                    break
+                    break;
                 }
 
                 // now check for input independence, e.x. for 0101 the 2^1 bit changes nothing
@@ -243,14 +243,14 @@ impl Ensemble {
                     // fix the `lut` to its new state, do this even if we are doing the constant
                     // optimization
                     *original_lut = lut;
-                    return Ok(true)
+                    return Ok(true);
                 } else if (lut.bw() == 2) && lut.get(1).unwrap() {
                     // the only `lut.bw() == 2` cases that survive independence removal is identity
                     // and inversion. If it is identity, register this for forwarding
                     lnode.kind = LNodeKind::Copy(inp[0]);
                     self.optimizer
                         .insert(Optimization::ForwardEquiv(lnode.p_self));
-                    return Ok(false)
+                    return Ok(false);
                 }
                 // only at the very end do we consider `ConstUnknown` inputs, because if we
                 // naively try to constify to `ConstUnknown` when the LUT does not reduce, we
@@ -269,7 +269,7 @@ impl Ensemble {
                             Value::ConstUnknown => (),
                             Value::Const(_) | Value::Dynam(_) | Value::Unknown => {
                                 all_const_unknown = false;
-                                break
+                                break;
                             }
                         }
                     }
@@ -277,7 +277,7 @@ impl Ensemble {
                         let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
                         equiv.val = Value::ConstUnknown;
                         *original_lut = lut;
-                        return Ok(true)
+                        return Ok(true);
                     }
                 }
                 *original_lut = lut;
@@ -413,18 +413,18 @@ impl Ensemble {
                         DynamicValue::ConstUnknown => {
                             let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
                             equiv.val = Value::ConstUnknown;
-                            return Ok(true)
+                            return Ok(true);
                         }
                         DynamicValue::Const(b) => {
                             let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
                             equiv.val = Value::Const(b);
-                            return Ok(true)
+                            return Ok(true);
                         }
                         DynamicValue::Dynam(bit) => {
                             lnode.kind = LNodeKind::Copy(bit);
                             self.optimizer
                                 .insert(Optimization::ForwardEquiv(lnode.p_self));
-                            return Ok(false)
+                            return Ok(false);
                         }
                     }
                 }
@@ -449,7 +449,7 @@ impl Ensemble {
                 if all_const_unknown {
                     let equiv = self.backrefs.get_val_mut(lnode.p_self).unwrap();
                     equiv.val = Value::ConstUnknown;
-                    return Ok(true)
+                    return Ok(true);
                 }
                 if all_const_known {
                     let mut awi_lut = Awi::zero(w);
@@ -683,7 +683,7 @@ impl Ensemble {
                         unreachable!()
                     }
                 } else {
-                    return Ok(())
+                    return Ok(());
                 };
                 let mut adv = self.backrefs.advancer_surject(p_ident);
                 while let Some(p_back) = adv.advance(&self.backrefs) {
@@ -746,7 +746,7 @@ impl Ensemble {
                                                 .unwrap();
                                             *bit = p_back_new;
                                             found = true;
-                                            break
+                                            break;
                                         }
                                     }
                                 }
@@ -761,7 +761,7 @@ impl Ensemble {
             }
             Optimization::ConstifyEquiv(p_equiv) => {
                 if !self.backrefs.contains(p_equiv.into()) {
-                    return Ok(())
+                    return Ok(());
                 };
                 // for removing `ThisLNode` safely
                 let mut remove = SmallVec::<[PBack; 16]>::new();
@@ -795,7 +795,7 @@ impl Ensemble {
             }
             Optimization::InvestigateUsed(p_equiv) => {
                 if !self.backrefs.contains(p_equiv.into()) {
-                    return Ok(())
+                    return Ok(());
                 };
                 let mut found_use = false;
                 let mut adv = self.backrefs.advancer_surject(p_equiv.into());
@@ -815,18 +815,18 @@ impl Ensemble {
                         }
                         Referent::Input(_) => {
                             found_use = true;
-                            break
+                            break;
                         }
                         Referent::Driver(p_driver) => {
                             let p_back_driver = self.tnodes.get(p_driver).unwrap().p_self;
                             if !self.backrefs.in_same_set(p_back, p_back_driver).unwrap() {
                                 found_use = true;
-                                break
+                                break;
                             }
                         }
                         Referent::ThisRNode(_) => {
                             found_use = true;
-                            break
+                            break;
                         }
                     }
                 }
@@ -836,7 +836,7 @@ impl Ensemble {
             }
             Optimization::InvestigateConst(p_lnode) => {
                 if !self.lnodes.contains(p_lnode) {
-                    return Ok(())
+                    return Ok(());
                 };
                 if self.const_eval_lnode(p_lnode)? {
                     self.optimizer.insert(Optimization::ConstifyEquiv(
@@ -847,7 +847,7 @@ impl Ensemble {
             }
             Optimization::InvestigateDriverConst(p_tnode) => {
                 if !self.tnodes.contains(p_tnode) {
-                    return Ok(())
+                    return Ok(());
                 };
                 if self.const_eval_tnode(p_tnode) {
                     self.optimizer.insert(Optimization::ConstifyEquiv(
@@ -870,7 +870,7 @@ impl Ensemble {
             }
             Optimization::RemoveLNode(p_back) => {
                 if !self.backrefs.contains(p_back) {
-                    return Ok(())
+                    return Ok(());
                 }
                 todo!()
             }

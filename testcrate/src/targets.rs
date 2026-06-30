@@ -3,15 +3,15 @@
 use std::{array, collections::HashMap};
 
 use starlight::{
+    Drive, Epoch, In, LazyAwi, Net, OptimizerOptions, Out, SuspendedEpoch,
     awi::*,
     ensemble::{
-        render::{RenderArena, RenderNodeKind},
         PExternal,
+        render::{RenderArena, RenderNodeKind},
     },
     route::{Channeler, Configurator, PCNode},
-    triple_arena::{ptr_struct, OrdArena},
+    triple_arena::{OrdArena, ptr_struct},
     utils::{Grid, Ortho::*, OrthoArray, Render},
-    Drive, Epoch, In, LazyAwi, Net, OptimizerOptions, Out, SuspendedEpoch,
 };
 
 // TODO in another file test routing an example state machine over an island
@@ -240,7 +240,7 @@ pub fn render_cnode_hierarchy(r: &mut Render, web: &RenderArena, channeler: &Cha
             }
         }
         if level.is_empty() {
-            break
+            break;
         }
         // normalized so next level uses the right positions
         for node in level.vals_mut() {
