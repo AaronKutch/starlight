@@ -3,16 +3,15 @@ name: Starlight CI
 on: [pull_request]
 
 env:
+  RUSTFLAGS: -D warnings
   RUST_BACKTRACE: 1
 
 jobs:
   test_suite:
     name: Test suite
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
       - name: Install Rust components
         run: |
           rustup set profile minimal
@@ -26,15 +25,13 @@ jobs:
 
   msrv_test_suite:
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@v2
-      - name: Install Rust components
+      - uses: actions/checkout@v7
+      - name: Install MSRV
         run: |
           rustup set profile minimal
           rustup install nightly-2023-04-14
-      - name: Run test suite
+      - name: Run test suite on MSRV
         run: |
           cd ./starlight && cargo build --no-default-features
 
@@ -42,7 +39,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
       # Acquire the most recent nightly with a rustfmt component
       - name: Install most recent Rustfmt
         run: |
@@ -57,7 +54,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
       # Acquire the most recent nightly with a clippy component
       - name: Install most recent Clippy
         run: |

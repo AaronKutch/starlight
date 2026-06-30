@@ -2,7 +2,7 @@
 name = "starlight"
 # TODO the key to parallelization is probably that the arenas and such used in each task do not waste space and time on per-node locks and other stuff, but rather they copy local parts of the graphs with recasters and generalizations of `clone_from_with` into their own local arenas. Preapportioning ahead of time is required for determinism anyway, and we will probably need databases before long for the really large stuff anyway so the extra cloning redundancy won't mean much
 version = "0.4.0"
-edition = "2021"
+edition = "2024"
 authors = ["Aaron Kutch <aaronkutch@att.net>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -13,8 +13,8 @@ keywords = ["dag", "rtl", "hdl"]
 categories = ["algorithms"]
 
 [dependencies]
-#awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
-awint = { version = "0.17", default-features = false, features = ["rand_support", "dag"] }
+awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
+#awint = { version = "0.17", default-features = false, features = ["rand_support", "dag"] }
 rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
 rand_xoshiro = { version = "0.6", default-features = false }
 thiserror = "1.0"

@@ -283,7 +283,7 @@ impl Ensemble {
                 *original_lut = lut;
                 false
             }
-            LNodeKind::DynamicLut(inp, ref mut lut) => {
+            LNodeKind::DynamicLut(inp, lut) => {
                 // acquire LUT table inputs, convert to constants
                 for lut_bit in lut.iter_mut() {
                     if let DynamicValue::Dynam(p) = lut_bit {
