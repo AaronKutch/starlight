@@ -2,11 +2,7 @@ use std::{mem, num::NonZeroUsize};
 
 use awint::{
     Awi, InlAwi,
-    awint_dag::{
-        PState,
-        smallvec::SmallVec,
-        triple_arena::{Advancer, Ptr},
-    },
+    awint_dag::{PState, smallvec::SmallVec},
 };
 
 use crate::{
@@ -15,7 +11,7 @@ use crate::{
         DynamicValue, Ensemble, LNode, LNodeKind, PBack, PEquiv, PLNode, POpt, PTNode, Referent,
         Value,
     },
-    triple_arena::OrdArena,
+    triple_arena::{OrdArena, traits::*},
     utils::SmallMap,
 };
 

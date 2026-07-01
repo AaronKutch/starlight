@@ -1,7 +1,5 @@
 use std::fmt::Write;
 
-use awint::awint_dag::triple_arena::{Advancer, OrdArena};
-
 use crate::{
     Corresponder, Error, OptimizerOptions, SuspendedEpoch,
     ensemble::{Ensemble, PEquiv, PExternal, Referent},
@@ -9,7 +7,7 @@ use crate::{
         Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PEdgeEmbed, PMapping,
         PNodeEmbed, route,
     },
-    triple_arena::Arena,
+    triple_arena::{Arena, OrdArena, traits::*},
 };
 
 #[derive(Debug, Clone)]

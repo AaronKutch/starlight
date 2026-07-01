@@ -4,10 +4,7 @@ use std::{
     num::{NonZeroU32, NonZeroU64},
 };
 
-use awint::{
-    Awi,
-    awint_dag::triple_arena::{Advancer, Recast, Recaster},
-};
+use awint::Awi;
 
 use crate::{
     Error, SuspendedEpoch,
@@ -17,6 +14,7 @@ use crate::{
         Channeler, Configurator, PCEdge, PCNode, PConfig,
         cnode::{InternalBehavior, generate_hierarchy},
     },
+    triple_arena::traits::*,
 };
 
 /// The selector can use its configuration bits to arbitrarily select from any

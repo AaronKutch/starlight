@@ -6,10 +6,6 @@ use std::{
 use awint::awint_dag::{
     Location, PState,
     smallvec::{SmallVec, smallvec},
-    triple_arena::{
-        Arena, OrdArena, Ptr, Recast, Recaster,
-        utils::{PtrGen, PtrInx},
-    },
 };
 
 use crate::{
@@ -17,6 +13,11 @@ use crate::{
     awi::*,
     ensemble::{CommonValue, Delay, Ensemble, PBack, PRNode, Referent, Value},
     epoch::{EpochShared, get_current_epoch},
+    triple_arena::{
+        Arena, OrdArena,
+        traits::*,
+        utils::{PtrGen, PtrInx},
+    },
     utils::{DisplayStr, HexadecimalNonZeroU128},
 };
 

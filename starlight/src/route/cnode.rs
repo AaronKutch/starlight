@@ -3,12 +3,11 @@ use std::{
     num::{NonZeroU32, NonZeroU64},
 };
 
-use awint::awint_dag::triple_arena::{Recast, Recaster};
-
 use crate::{
     Error,
     ensemble::PEquiv,
     route::{ChannelWidths, Channeler, PCEdge, PCNode, Programmability, Source},
+    triple_arena::traits::*,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

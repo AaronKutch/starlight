@@ -1,7 +1,5 @@
 use std::fmt::Write;
 
-use awint::awint_dag::triple_arena::Advancer;
-
 use crate::{
     Error,
     ensemble::{PBack, PEquiv, PLNode, Referent},
@@ -9,6 +7,7 @@ use crate::{
         Edge, EdgeKind, HyperPath, NodeOrEdge, PCNode, PEdgeEmbed, PMapping, PNodeEmbed, Path,
         Router,
     },
+    triple_arena::traits::*,
 };
 
 #[derive(Debug, Clone)]

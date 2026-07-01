@@ -10,14 +10,13 @@ use awint::{
         DummyDefault, Lineage,
         Op::{self, *},
         PState,
-        triple_arena::Ptr,
     },
     bw,
 };
 use dag::{Awi, Bits, InlAwi, awi, inlawi};
 
 use super::meta::*;
-use crate::{Error, awi, dag};
+use crate::{Error, awi, dag, triple_arena::traits::*};
 
 pub trait LowerManagement<P: Ptr + DummyDefault> {
     fn graft(&mut self, output_and_operands: &[PState]);

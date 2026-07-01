@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
 
-use awint::awint_dag::triple_arena::{Advancer, OrdArena, ptr_struct};
-
-use crate::ensemble::{Ensemble, PEquiv, PExternal, PLNode, PRNode, PTNode, Referent};
+use crate::{
+    ensemble::{Ensemble, PEquiv, PExternal, PLNode, PRNode, PTNode, Referent},
+    triple_arena::{OrdArena, ptr_struct, traits::*},
+};
 
 ptr_struct!(PRenderNode);
 

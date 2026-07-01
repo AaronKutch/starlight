@@ -10,7 +10,6 @@ use awint::{
         Op::{self, *},
         PState,
         smallvec::{SmallVec, smallvec},
-        triple_arena::{Advancer, Arena},
     },
 };
 
@@ -19,6 +18,7 @@ use crate::{
     awi_structs::{DELAY, DELAYED_LOOP_SOURCE, LOOP_SOURCE, UNDRIVEN_LOOP_SOURCE},
     ensemble::{ChangeKind, Delay, DynamicValue, Ensemble, Equiv, Event, PBack, Referent, Value},
     epoch::EpochShared,
+    triple_arena::{Arena, traits::*},
 };
 
 /// Represents a single state that `awint_dag::mimick::Bits` is in at one point

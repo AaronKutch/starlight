@@ -6,12 +6,7 @@ use std::{
 
 use awint::{
     Awi, Bits, awi,
-    awint_dag::{
-        PState, smallvec,
-        triple_arena::{
-            Advancer, Recast, Recaster, SurjectArena, surject_iterators::SurjectPtrAdvancer,
-        },
-    },
+    awint_dag::{PState, smallvec},
 };
 use smallvec::{SmallVec, smallvec};
 
@@ -19,6 +14,7 @@ use crate::{
     Error,
     ensemble::{DynamicValue, Ensemble, Equiv, PBack, PLNode, Referent, Value},
     route::PEdgeEmbed,
+    triple_arena::{SurjectArena, surject_iterators::SurjectPtrAdvancer, traits::*},
 };
 
 #[derive(Debug, Clone)]

@@ -1,10 +1,9 @@
 use std::{fmt, num::NonZeroU64};
 
-use awint::awint_dag::triple_arena::{Recast, Recaster};
-
 use crate::{
     ensemble::{PBack, Value},
     route::PNodeEmbed,
+    triple_arena::traits::*,
 };
 
 /// A guard around a `PBack` indicating that this uniquely corresponds to a

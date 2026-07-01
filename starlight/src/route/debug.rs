@@ -3,14 +3,12 @@
 
 use std::path::PathBuf;
 
-use awint::awint_dag::{
-    triple_arena::{Advancer, Arena},
-    triple_arena_render::{DebugNode, DebugNodeTrait, render_to_svg_file},
-};
+use awint::awint_dag::triple_arena_render::{DebugNode, DebugNodeTrait, render_to_svg_file};
 
 use crate::{
     Error,
     route::{CEdge, CNode, Channeler, PCEdge, PCNode},
+    triple_arena::{Arena, traits::*},
 };
 
 /// For viewing the cgraph at only one level

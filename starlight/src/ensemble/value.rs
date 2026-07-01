@@ -4,11 +4,12 @@ use std::{
     num::{NonZeroU64, NonZeroUsize},
 };
 
-use awint::{awi::*, awint_dag::triple_arena::Advancer};
+use awint::awi::*;
 
 use crate::{
     Error,
     ensemble::{Ensemble, PBack, PEquiv, PLNode, PTNode, Referent},
+    triple_arena::traits::*,
 };
 
 #[derive(Debug, Clone, Copy)]

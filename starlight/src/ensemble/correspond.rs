@@ -1,11 +1,10 @@
 use core::fmt;
 use std::num::NonZeroUsize;
 
-use awint::awint_dag::triple_arena::{Advancer, OrdArena, SurjectArena};
-
 use crate::{
     Error, EvalAwi, LazyAwi,
     ensemble::{PCorrespond, PExternal, PMeta},
+    triple_arena::{OrdArena, SurjectArena, traits::*},
 };
 
 /// Provides a controlled way to correspond `LazyAwi`s and `EvalAwi`s in and

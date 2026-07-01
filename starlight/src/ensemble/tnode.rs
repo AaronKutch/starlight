@@ -1,10 +1,9 @@
 use std::num::NonZeroU64;
 
-use awint::awint_dag::triple_arena::{OrdArena, Recast, Recaster};
-
 use crate::{
     Error,
     ensemble::{Ensemble, PBack, PSimEvent, PTNode, Referent},
+    triple_arena::{OrdArena, traits::*},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

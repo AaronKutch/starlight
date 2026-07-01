@@ -1,9 +1,6 @@
 use std::num::NonZeroU64;
 
-use awint::awint_dag::{
-    PState,
-    triple_arena::{Recast, Recaster},
-};
+use awint::awint_dag::PState;
 
 use crate::{
     Error,
@@ -11,7 +8,7 @@ use crate::{
         Delayer, Equiv, LNode, LNodeKind, Notary, Optimizer, PBack, PEquiv, PLNode, PRNode, PTNode,
         Stator, TNode, Value, value::Evaluator,
     },
-    triple_arena::{Arena, SurjectArena},
+    triple_arena::{Arena, SurjectArena, traits::*},
 };
 
 #[derive(Debug, Clone, Copy)]

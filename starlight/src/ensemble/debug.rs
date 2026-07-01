@@ -1,9 +1,6 @@
 use std::path::PathBuf;
 
-use awint::{
-    awint_dag::{Op, PState},
-    awint_macro_internals::triple_arena::Arena,
-};
+use awint::awint_dag::{Op, PState};
 
 use crate::{
     Epoch, Error,
@@ -11,7 +8,7 @@ use crate::{
         DynamicValue, Ensemble, Equiv, LNode, LNodeKind, PBack, PEquiv, PLNode, PRNode, PTNode,
         Referent, State,
     },
-    triple_arena::{Advancer, ChainArena},
+    triple_arena::{Arena, ChainArena, traits::*},
     triple_arena_render::{DebugNode, DebugNodeTrait, render_to_svg_file},
 };
 

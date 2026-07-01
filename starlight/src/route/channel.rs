@@ -1,11 +1,10 @@
 use std::num::NonZeroU64;
 
-use awint::awint_dag::triple_arena::{Arena, OrdArena, Recast, Recaster};
-
 use crate::{
     Error,
     ensemble::{Ensemble, PBack, PEquiv},
     route::{CEdge, CNode, PBackToCnode, PCEdge, PCNode, Programmability},
+    triple_arena::{Arena, OrdArena, traits::*},
     utils::binary_search_similar_by,
 };
 
