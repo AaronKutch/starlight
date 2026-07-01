@@ -2,7 +2,7 @@
 # rustup default
 #
 # - Nix: `nix develop .#nightly -c just check` (or `.#msrv`, or nothing for default pinned)
-# - rustup: `just toolchain=nightly check` (or `toolchain=1.85`, etc.)
+# - rustup: `just toolchain=nightly check` (or `toolchain=1.96`, etc.)
 toolchain := ""
 cargo := if toolchain == "" { "cargo" } else { "cargo +" + toolchain }
 rustc := if toolchain == "" { "rustc" } else { "rustc +" + toolchain }
@@ -35,6 +35,7 @@ test_all *ARGS:
   {{cargo}} nextest run --all-features {{ARGS}}
   {{cargo}} t --doc --all-features {{ARGS}}
 
+# TODO still requiring nightly for the moment
 # Needs to be run with the MSRV toolchain
 test_for_msrv *ARGS:
   {{cargo}} t --all-features {{ARGS}}

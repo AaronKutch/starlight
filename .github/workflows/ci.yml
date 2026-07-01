@@ -30,7 +30,7 @@ jobs:
       - name: Install MSRV
         run: |
           rustup set profile minimal
-          rustup install nightly-2023-04-14
+          rustup install 1.96
       - name: Run test suite on MSRV
         run: |
           cd ./starlight && cargo build --no-default-features

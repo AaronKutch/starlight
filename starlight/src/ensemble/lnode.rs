@@ -14,7 +14,9 @@ use crate::{
     Error,
     ensemble::{DynamicValue, Ensemble, Equiv, PBack, PLNode, Referent, Value},
     route::PEdgeEmbed,
-    triple_arena::{SurjectArena, surject_iterators::SurjectPtrAdvancer, traits::*},
+    triple_arena::{
+        SurjectArena, surject_iterators::SurjectPtrAdvancer, traits::*, utils::HeapBacking,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -689,7 +691,7 @@ impl Ensemble {
 }
 
 pub struct SurjectPLNodeAdvancer {
-    adv: SurjectPtrAdvancer<PBack, Referent, Equiv>,
+    adv: SurjectPtrAdvancer<PBack, Referent, Equiv, HeapBacking>,
 }
 
 impl Advancer for SurjectPLNodeAdvancer {
