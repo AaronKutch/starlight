@@ -31,9 +31,10 @@ test *ARGS:
 
 test_all *ARGS:
   {{cargo}} sort -cw
-  {{cargo}} doc --no-deps
+  {{cargo}} doc --no-deps --all-features
   {{cargo}} nextest run --all-features {{ARGS}}
   {{cargo}} t --doc --all-features {{ARGS}}
+  {{cargo}} machete
 
 # TODO still requiring nightly for the moment
 # Needs to be run with the MSRV toolchain
