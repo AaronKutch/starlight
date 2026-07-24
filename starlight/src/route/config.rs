@@ -1,6 +1,9 @@
 use std::num::NonZeroU64;
 
-use awint::{Awi, awint_dag::triple_arena::OrdArena};
+use awint::{
+    Awi,
+    awint_dag::triple_arena::{OrdArena, traits::*},
+};
 
 use crate::{
     Error, LazyAwi,

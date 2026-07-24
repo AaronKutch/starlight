@@ -16,7 +16,7 @@ use crate::{
     triple_arena::{
         Arena, OrdArena,
         traits::*,
-        utils::{PtrGen, PtrInx},
+        utils::traits::{PtrGen, PtrInx},
     },
     utils::{DisplayStr, HexadecimalNonZeroU128},
 };
@@ -56,7 +56,7 @@ unsafe impl Ptr for PExternal {
     #[inline]
     fn invalid() -> Self {
         Self {
-            _internal_inx: PtrInx::new(<Self::Inx as PtrInx>::max()),
+            _internal_inx: PtrInx::best_effort_invalid(),
             _internal_gen: PtrGen::one(),
         }
     }

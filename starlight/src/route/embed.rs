@@ -418,8 +418,8 @@ impl Router {
     /// be possible.
     pub fn initialize_embeddings(&mut self) -> Result<(), Error> {
         // in case of rerouting we need to clear old embeddings
-        self.node_embeddings.clear();
-        self.edge_embeddings.clear();
+        self.node_embeddings.clear().allow();
+        self.edge_embeddings.clear().allow();
         for node in self.program_ensemble.backrefs.vals_mut() {
             node.p_node_embed = None;
         }

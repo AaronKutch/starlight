@@ -410,7 +410,7 @@ fn dilute_edge_embedding(
             // for the dilution step I'm thinking about just diluting into any compatible
             // node or edge and letting the other phase handle moving around since it will
             // need that anyway
-            dbg!(&cnode.p_subnodes);
+            //&cnode.p_subnodes;
             todo!();
         }
         NodeOrEdge::Edge(p_cedge) => {

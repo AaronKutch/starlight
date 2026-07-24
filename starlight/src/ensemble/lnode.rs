@@ -14,9 +14,7 @@ use crate::{
     Error,
     ensemble::{DynamicValue, Ensemble, Equiv, PBack, PLNode, Referent, Value},
     route::PEdgeEmbed,
-    triple_arena::{
-        SurjectArena, surject_iterators::SurjectPtrAdvancer, traits::*, utils::HeapBacking,
-    },
+    triple_arena::{SurjectArena, surject_iterators::SurjectPtrAdvancer, traits::*},
 };
 
 #[derive(Debug, Clone)]
@@ -691,14 +689,15 @@ impl Ensemble {
 }
 
 pub struct SurjectPLNodeAdvancer {
-    adv: SurjectPtrAdvancer<PBack, Referent, Equiv, HeapBacking>,
+    adv: SurjectPtrAdvancer<PBack>,
 }
 
-impl Advancer for SurjectPLNodeAdvancer {
-    type Collection = SurjectArena<PBack, Referent, Equiv>;
+type Internal = SurjectArena<PBack, Referent, Equiv>;
+
+impl Advancer<SurjectArena<PBack, Referent, Equiv>> for SurjectPLNodeAdvancer {
     type Item = PLNode;
 
-    fn advance(&mut self, collection: &Self::Collection) -> Option<Self::Item> {
+    fn advance(&mut self, collection: &SurjectArena<PBack, Referent, Equiv>) -> Option<Self::Item> {
         while let Some(p_ref) = self.adv.advance(collection) {
             match collection.get_key(p_ref) {
                 Some(Referent::ThisLNode(p_lnode)) => return Some(*p_lnode),
@@ -707,5 +706,11 @@ impl Advancer for SurjectPLNodeAdvancer {
             }
         }
         None
+    }
+
+    fn empty() -> Self {
+        Self {
+            adv: <SurjectPtrAdvancer<PBack> as Advancer<Internal>>::empty(),
+        }
     }
 }

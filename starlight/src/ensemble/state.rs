@@ -230,7 +230,7 @@ impl Ensemble {
         // set associated states to none to help prevent issues when there are no
         // generation counters
         self.remove_all_rnode_associated_states();
-        for (_, mut state) in self.stator.states.drain() {
+        for (_, mut state) in self.stator.states.drain().map(|x| x.allow()) {
             for p_self_state in state.p_self_bits.drain(..) {
                 if let Some(p_self_state) = p_self_state {
                     self.backrefs.remove_key(p_self_state).unwrap();

@@ -1,4 +1,6 @@
-use starlight::{Delay, Epoch, EvalAwi, LazyAwi, Net, OptimizerOptions, awi, dag};
+use starlight::{
+    Delay, Epoch, EvalAwi, LazyAwi, Net, OptimizerOptions, awi, dag, triple_arena::traits::*,
+};
 
 // this is done separately from the benchmarks because getting the `ensemble` is
 // expensive

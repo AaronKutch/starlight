@@ -12,6 +12,7 @@ use starlight::{
     dag,
     ensemble::LNodeKind,
     lower::meta::create_static_lut,
+    triple_arena::traits::*,
     utils::StarRng,
 };
 

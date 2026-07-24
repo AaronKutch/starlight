@@ -2,6 +2,7 @@
 
 use starlight::{
     Corresponder, Epoch, In, OptimizerOptions, Out, SuspendedEpoch, dag, delay, route::Router,
+    triple_arena::traits::*,
 };
 use testcrate::targets::FabricTargetInterface;
 struct SimpleCopyProgramInterface {

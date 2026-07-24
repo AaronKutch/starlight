@@ -1,5 +1,7 @@
 use dag::*;
-use starlight::{Epoch, Error, EvalAwi, LazyAwi, Loop, OptimizerOptions, awi, dag};
+use starlight::{
+    Epoch, Error, EvalAwi, LazyAwi, Loop, OptimizerOptions, awi, dag, triple_arena::traits::*,
+};
 
 #[test]
 #[should_panic]

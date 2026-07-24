@@ -16,7 +16,7 @@ use awint::{
     awint_dag::{
         Lineage, Location, Op, PState,
         epoch::{_get_epoch_stack, EpochCallback, EpochKey},
-        triple_arena::{Arena, ptr_struct},
+        triple_arena::{Arena, ptr_struct, traits::*},
     },
     bw, dag,
 };
@@ -83,7 +83,7 @@ pub struct EpochData {
 
 impl Drop for EpochData {
     fn drop(&mut self) {
-        for (_, mut shared) in self.responsible_for.drain() {
+        for (_, mut shared) in self.responsible_for.drain().map(|x| x.allow()) {
             for eval_awi in shared.assertions.bits.drain(..) {
                 // avoid the `EvalAwi` drop code
                 mem::forget(eval_awi);

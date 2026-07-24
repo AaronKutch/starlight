@@ -4,7 +4,7 @@ use starlight::{
     Epoch, EvalAwi, LazyAwi, OptimizerOptions,
     awint::{awi, dag},
     delay,
-    triple_arena::{Arena, ptr_struct},
+    triple_arena::{Arena, ptr_struct, traits::*},
     utils::StarRng,
 };
 
@@ -49,7 +49,7 @@ impl Mem {
     }
 
     pub fn clear(&mut self) {
-        self.a.clear();
+        self.a.clear().allow();
         self.v.clear();
         self.roots.clear();
         for _ in 0..65 {

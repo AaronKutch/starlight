@@ -10,7 +10,7 @@ use starlight::{
         render::{RenderArena, RenderNodeKind},
     },
     route::{Channeler, Configurator, PCNode},
-    triple_arena::{OrdArena, ptr_struct},
+    triple_arena::{OrdArena, ptr_struct, traits::*},
     utils::{Grid, Ortho::*, OrthoArray, Render},
 };
 
