@@ -1,7 +1,9 @@
 use std::num::NonZeroUsize;
 
 use awint::{
-    awint_dag::{ConcatFieldsType, ConcatType, Op::*, PState, smallvec::smallvec},
+    awint_dag::{
+        ConcatFieldsType, ConcatType, Op::*, PState, smallvec::smallvec, triple_arena::traits::*,
+    },
     bw,
 };
 

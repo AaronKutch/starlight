@@ -164,7 +164,7 @@ fn operation(rng: &mut StarRng, m: &mut Mem, use_tnodes: bool) {
             let (w, from) = m.next6();
             let to = m.next(w);
             if to != from {
-                let (to, from) = m.a.get2_mut(to, from).unwrap();
+                let [to, from] = m.a.get_disjoint_mut([to, from]).unwrap();
                 to.awi.copy_(&from.awi).unwrap();
                 to.dag.copy_(&from.dag).unwrap();
                 if use_tnodes {

@@ -593,21 +593,25 @@ impl Ensemble {
                 Equiv::new(p_self_equiv, Value::Unknown),
             )
         });
-        let p_lnode = self.lnodes.insert_with(|p_lnode| {
-            let p_self = self
+        let entry = self.lnodes.entry_insert();
+        let p_lnode = entry.ptr();
+        let p_self = self
+            .backrefs
+            .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
+            .unwrap();
+        let mut inp = smallvec![];
+        for p_inx in p_inxs {
+            let p_back = self
                 .backrefs
-                .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
+                .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
                 .unwrap();
-            let mut inp = smallvec![];
-            for p_inx in p_inxs {
-                let p_back = self
-                    .backrefs
-                    .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
-                    .unwrap();
-                inp.push(p_back);
-            }
-            LNode::new(p_self, LNodeKind::Lut(inp, Awi::from(lut)), lowered_from)
-        });
+            inp.push(p_back);
+        }
+        entry.insert(LNode::new(
+            p_self,
+            LNodeKind::Lut(inp, Awi::from(lut)),
+            lowered_from,
+        ));
         // For DFS lowering, we want to calculate the current `Lut` value and set it to
         // prevent issues about change events that would happen if we didn't simply
         // calculate now. This is also where partial ordering is initialized in a way
@@ -644,33 +648,37 @@ impl Ensemble {
                 Equiv::new(p_self_equiv, Value::Unknown),
             )
         });
-        let p_lnode = self.lnodes.insert_with(|p_lnode| {
-            let p_self = self
+        let entry = self.lnodes.entry_insert();
+        let p_lnode = entry.ptr();
+        let p_self = self
+            .backrefs
+            .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
+            .unwrap();
+        let mut inp = smallvec![];
+        for p_inx in p_inxs {
+            let p_back = self
                 .backrefs
-                .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
+                .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
                 .unwrap();
-            let mut inp = smallvec![];
-            for p_inx in p_inxs {
+            inp.push(p_back);
+        }
+        let mut lut = vec![];
+        for p_lut_bit in p_lut_bits.iter().copied() {
+            if let DynamicValue::Dynam(p_lut_bit) = p_lut_bit {
                 let p_back = self
                     .backrefs
-                    .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
+                    .insert_key(p_lut_bit, Referent::Input(p_lnode))
                     .unwrap();
-                inp.push(p_back);
+                lut.push(DynamicValue::Dynam(p_back));
+            } else {
+                lut.push(p_lut_bit);
             }
-            let mut lut = vec![];
-            for p_lut_bit in p_lut_bits.iter().copied() {
-                if let DynamicValue::Dynam(p_lut_bit) = p_lut_bit {
-                    let p_back = self
-                        .backrefs
-                        .insert_key(p_lut_bit, Referent::Input(p_lnode))
-                        .unwrap();
-                    lut.push(DynamicValue::Dynam(p_back));
-                } else {
-                    lut.push(p_lut_bit);
-                }
-            }
-            LNode::new(p_self, LNodeKind::DynamicLut(inp, lut), lowered_from)
-        });
+        }
+        entry.insert(LNode::new(
+            p_self,
+            LNodeKind::DynamicLut(inp, lut),
+            lowered_from,
+        ));
         // same as in the static LUT case
         let (init_val, source_partial_ordering) = self.calculate_lnode_value(p_lnode).unwrap();
         let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();

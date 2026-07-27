@@ -95,7 +95,8 @@ impl Stator {
         if !self.states.is_empty() {
             return Err(Error::OtherStr("states need to be empty"));
         }
-        self.states.clear_and_shrink();
+        self.states.clear().allow();
+        // FIXME do we shrink?
         self.states_to_lower.clear();
         self.states_to_lower.shrink_to_fit();
         Ok(())
@@ -215,7 +216,7 @@ impl Ensemble {
                     };
                     pstate_stack.push(op);
                 }
-                let mut state = self.stator.states.remove(p).unwrap();
+                let mut state = self.stator.states.remove(p).allow().unwrap();
                 for p_self_state in state.p_self_bits.drain(..) {
                     if let Some(p_self_state) = p_self_state {
                         self.backrefs.remove_key(p_self_state).unwrap();

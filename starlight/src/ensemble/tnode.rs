@@ -184,17 +184,18 @@ impl Ensemble {
     /// handled by the caller. Panics if something is invalid.
     #[must_use]
     pub fn make_tnode(&mut self, p_source: PBack, p_driver: PBack, delay: Delay) -> PTNode {
-        self.tnodes.insert_with(|p_tnode| {
-            let p_driver = self
-                .backrefs
-                .insert_key(p_driver, Referent::Driver(p_tnode))
-                .unwrap();
-            let p_self = self
-                .backrefs
-                .insert_key(p_source, Referent::ThisTNode(p_tnode))
-                .unwrap();
-            TNode::new(p_self, p_driver, delay)
-        })
+        let entry = self.tnodes.entry_insert();
+        let p_tnode = entry.ptr();
+        let p_driver = self
+            .backrefs
+            .insert_key(p_driver, Referent::Driver(p_tnode))
+            .unwrap();
+        let p_self = self
+            .backrefs
+            .insert_key(p_source, Referent::ThisTNode(p_tnode))
+            .unwrap();
+        entry.insert(TNode::new(p_self, p_driver, delay));
+        p_tnode
     }
 
     /// Runs temporal evaluation until `delay` has passed since the current time

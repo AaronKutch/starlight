@@ -15,6 +15,7 @@ use crate::{
         cnode::{InternalBehavior, generate_hierarchy},
     },
     triple_arena::traits::*,
+    utils::compress_recaster,
 };
 
 /// The selector can use its configuration bits to arbitrarily select from any
@@ -214,25 +215,26 @@ impl Channeler {
         sink: PCNode,
         programmability: Programmability,
     ) -> PCEdge {
-        self.cedges.insert_with(|p_self| {
-            for (i, source) in sources.iter().enumerate() {
-                self.cnodes
-                    .get_mut(source.p_cnode)
-                    .unwrap()
-                    .source_incidents
-                    .push((p_self, i));
-            }
-            let sink_incident = &mut self.cnodes.get_mut(sink).unwrap().sink_incident;
-            debug_assert!(sink_incident.is_none());
-            *sink_incident = Some(p_self);
-            CEdge {
-                sources,
-                sink,
-                programmability,
-                lagrangian: 0,
-                alg_visit: NonZeroU64::new(1).unwrap(),
-            }
-        })
+        let entry = self.cedges.entry_insert();
+        let p_self = entry.ptr();
+        for (i, source) in sources.iter().enumerate() {
+            self.cnodes
+                .get_mut(source.p_cnode)
+                .unwrap()
+                .source_incidents
+                .push((p_self, i));
+        }
+        let sink_incident = &mut self.cnodes.get_mut(sink).unwrap().sink_incident;
+        debug_assert!(sink_incident.is_none());
+        *sink_incident = Some(p_self);
+        entry.insert(CEdge {
+            sources,
+            sink,
+            programmability,
+            lagrangian: 0,
+            alg_visit: NonZeroU64::new(1).unwrap(),
+        });
+        p_self
     }
 
     pub fn from_target(
@@ -405,7 +407,7 @@ impl Channeler {
                     // remove cnode, because of cycles we can't have the cnode generation phase
                     // decide to only insert one in the first place, we must remove all but
                     // `p_forward` here.
-                    channeler.cnodes.remove(p_cnode_old).unwrap();
+                    channeler.cnodes.remove(p_cnode_old).allow().unwrap();
                     // set new translation
                     channeler.set_translation(p_equiv, p_forward).unwrap();
                 }
@@ -445,7 +447,7 @@ impl Channeler {
 
         // perform a compression step because of the `CNode` removals, want the base
         // layer to be compact
-        let cnode_recaster = channeler.cnodes.compress_and_shrink_recaster();
+        let cnode_recaster = compress_recaster(&mut channeler.cnodes, false);
         channeler.recast(&cnode_recaster).unwrap();
 
         // add `CEdge`s according to `LNode`s

@@ -300,7 +300,7 @@ impl Ensemble {
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
             if let NodeKind::Remove = arena.get(p).unwrap() {
-                arena.remove(p).unwrap();
+                arena.remove(p).allow().unwrap();
             }
         }
         arena

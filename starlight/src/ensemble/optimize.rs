@@ -107,7 +107,8 @@ impl Optimizer {
         if !self.optimizations.is_empty() {
             return Err(Error::OtherStr("optimizations need to be empty"));
         }
-        self.optimizations.clear_and_shrink();
+        // FIXME this was _and_shrink, do we want that?
+        self.optimizations.clear();
         Ok(())
     }
 
@@ -579,7 +580,7 @@ impl Ensemble {
     /// `ensemble.backrefs.remove(lnode.p_self).unwrap()` which is important for
     /// `Advancer`s.
     pub fn remove_lnode_not_p_self(&mut self, p_lnode: PLNode) {
-        let lnode = self.lnodes.remove(p_lnode).unwrap();
+        let lnode = self.lnodes.remove(p_lnode).allow().unwrap();
         lnode.inputs(|inp| {
             let p_equiv = self.backrefs.get_val(inp).unwrap().p_self_equiv;
             self.optimizer
@@ -592,7 +593,7 @@ impl Ensemble {
     /// `ensemble.backrefs.remove(tnode.p_self).unwrap()` which is important for
     /// `Advancer`s.
     pub fn remove_tnode_not_p_self(&mut self, p_tnode: PTNode) {
-        let tnode = self.tnodes.remove(p_tnode).unwrap();
+        let tnode = self.tnodes.remove(p_tnode).allow().unwrap();
         let p_equiv = self.backrefs.get_val(tnode.p_driver).unwrap().p_self_equiv;
         self.optimizer
             .insert(Optimization::InvestigateUsed(p_equiv));
@@ -608,7 +609,7 @@ impl Ensemble {
         if options.union_remove_all_tnodes {
             let mut adv = self.tnodes.advancer();
             while let Some(p_tnode) = adv.advance(&self.tnodes) {
-                let tnode = self.tnodes.remove(p_tnode).unwrap();
+                let tnode = self.tnodes.remove(p_tnode).allow().unwrap();
                 // one `union_equiv` could lead another `TNode` to already be unioned
                 let _ = self.union_equiv(tnode.p_self, tnode.p_driver);
                 self.backrefs.remove_key(tnode.p_self).unwrap();

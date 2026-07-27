@@ -242,7 +242,7 @@ impl EpochShared {
     /// This function should not be called more than once per `self.p_self`.
     pub fn drop_associated(&self) -> Result<(), Error> {
         let mut lock = self.epoch_data.borrow_mut();
-        if let Some(mut ours) = lock.responsible_for.remove(self.p_self) {
+        if let Some(mut ours) = lock.responsible_for.remove(self.p_self).allow() {
             let assertion_bits = mem::take(&mut ours.assertions.bits);
             drop(lock);
             // drop the `EvalAwi`s

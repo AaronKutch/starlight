@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, num::NonZeroUsize, ops::Deref};
 
-use awint::awint_dag::{Lineage, Op, PState};
+use awint::awint_dag::{Lineage, Op, PState, triple_arena::traits::*};
 
 use crate::{Delay, Error, awi, dag, epoch::get_current_epoch, lower::meta::general_mux};
 

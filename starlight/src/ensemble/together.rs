@@ -9,6 +9,7 @@ use crate::{
         Stator, TNode, Value, value::Evaluator,
     },
     triple_arena::{Arena, SurjectArena, traits::*},
+    utils::compress_recaster,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -329,7 +330,9 @@ impl Ensemble {
         }
         // state reference counts
         let mut counts = Arena::<PState, (usize, usize)>::new();
-        counts.clone_from_with(&self.stator.states, |_, _| (0, 0));
+        counts
+            .clone_from_with(&self.stator.states, |_, _| (0, 0))
+            .unwrap();
         for state in self.stator.states.vals() {
             for operand in state.op.operands() {
                 counts[*operand].0 = counts[operand].0.checked_add(1).unwrap();
@@ -366,14 +369,14 @@ impl Ensemble {
         self.stator.check_clear()?;
 
         self.delayer.compress();
-        let p_tnode_recaster = self.tnodes.compress_and_shrink_recaster();
+        let p_tnode_recaster = compress_recaster(&mut self.tnodes, true);
         if let Err(e) = self.delayer.recast(&p_tnode_recaster) {
             return Err(Error::OtherString(format!(
                 "recast error with {e} in the `Delayer`"
             )));
         }
 
-        let p_lnode_recaster = self.lnodes.compress_and_shrink_recaster();
+        let p_lnode_recaster = compress_recaster(&mut self.lnodes, true);
         let p_rnode_recaster = self.notary.recast_p_rnode();
 
         for referent in self.backrefs.keys_mut() {

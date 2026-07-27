@@ -107,13 +107,15 @@ impl DebugNodeTrait<PCNode> for HierarchyNodeKind {
 impl Channeler {
     pub fn to_cnode_level_debug(&self, lvl: usize) -> Arena<PCNode, LevelNodeKind> {
         let mut arena = Arena::<PCNode, LevelNodeKind>::new();
-        arena.clone_from_with(&self.cnodes, |_, cnode| {
-            if cnode.lvl == u16::try_from(lvl).unwrap() {
-                LevelNodeKind::CNode(cnode.clone())
-            } else {
-                LevelNodeKind::Remove
-            }
-        });
+        arena
+            .clone_from_with(&self.cnodes, |_, cnode| {
+                if cnode.lvl == u16::try_from(lvl).unwrap() {
+                    LevelNodeKind::CNode(cnode.clone())
+                } else {
+                    LevelNodeKind::Remove
+                }
+            })
+            .unwrap();
         for (p_cedge, cedge) in &self.cedges {
             if self.cnodes.get(cedge.sink()).unwrap().lvl == u16::try_from(lvl).unwrap() {
                 arena.insert(LevelNodeKind::CEdge(p_cedge, cedge.clone()));
@@ -122,7 +124,7 @@ impl Channeler {
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
             if let LevelNodeKind::Remove = arena.get(p).unwrap() {
-                arena.remove(p).unwrap();
+                arena.remove(p).allow().unwrap();
             }
         }
         arena
@@ -130,16 +132,18 @@ impl Channeler {
 
     pub fn to_cnode_hierarchy_debug(&self) -> Arena<PCNode, HierarchyNodeKind> {
         let mut arena = Arena::<PCNode, HierarchyNodeKind>::new();
-        arena.clone_from_with(&self.cnodes, |_, cnode| {
-            HierarchyNodeKind::CNode(cnode.clone())
-        });
+        arena
+            .clone_from_with(&self.cnodes, |_, cnode| {
+                HierarchyNodeKind::CNode(cnode.clone())
+            })
+            .unwrap();
         for (p_cedge, cedge) in &self.cedges {
             arena.insert(HierarchyNodeKind::CEdge(p_cedge, cedge.clone()));
         }
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
             if let HierarchyNodeKind::Remove = arena.get(p).unwrap() {
-                arena.remove(p).unwrap();
+                arena.remove(p).allow().unwrap();
             }
         }
         arena
