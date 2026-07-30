@@ -421,7 +421,8 @@ impl Ensemble {
             }
         }
 
-        let p_back_recaster = self.backrefs.compress_and_shrink_recaster();
+        // FIXME
+        /*let p_back_recaster = self.backrefs.compress_and_shrink_recaster();
         if let Err(e) = self.backrefs.recast(&p_back_recaster) {
             return Err(Error::OtherString(format!(
                 "recast error with {e} in the backrefs"
@@ -441,7 +442,7 @@ impl Ensemble {
             return Err(Error::OtherString(format!(
                 "recast error with {e} in the tnodes"
             )));
-        }
+        }*/
         Ok(())
     }
 
@@ -451,18 +452,19 @@ impl Ensemble {
 
     /// Inserts a `LNode` with `lit` value and returns a `PBack` to it
     pub fn make_literal(&mut self, lit: Option<bool>) -> PBack {
-        self.backrefs.insert_with(|p_self_equiv| {
-            (
-                Referent::ThisEquiv,
-                Equiv::new(p_self_equiv, {
-                    if let Some(b) = lit {
-                        Value::Const(b)
-                    } else {
-                        Value::Unknown
-                    }
-                }),
-            )
-        })
+        let entry = self.backrefs.entry_insert_reallocating().unwrap();
+        let p_equiv = entry.ptr();
+        entry.insert(
+            Referent::ThisEquiv,
+            Equiv::new(p_equiv, {
+                if let Some(b) = lit {
+                    Value::Const(b)
+                } else {
+                    Value::Unknown
+                }
+            }),
+        );
+        p_equiv
     }
 
     pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), Error> {
@@ -485,6 +487,7 @@ impl Ensemble {
         // remove the extra `ThisEquiv`
         self.backrefs
             .remove_key(removed_equiv.p_self_equiv.into())
+            .allow()
             .unwrap();
         Ok(())
     }

@@ -164,29 +164,28 @@ impl Ensemble {
         }
         let mut bits = smallvec![];
         for i in 0..state.nzbw.get() {
-            let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
-                (
-                    Referent::ThisEquiv,
-                    Equiv::new(
-                        p_self_equiv,
-                        if is_const {
-                            if known {
-                                Value::Const(vals.get(i).unwrap())
-                            } else {
-                                Value::ConstUnknown
-                            }
-                        } else if known {
-                            Value::Dynam(vals.get(i).unwrap())
+            let entry = self.backrefs.entry_insert_reallocating().unwrap();
+            let p_equiv = entry.ptr();
+            entry.insert(
+                Referent::ThisEquiv,
+                Equiv::new(
+                    p_equiv,
+                    if is_const {
+                        if known {
+                            Value::Const(vals.get(i).unwrap())
                         } else {
-                            Value::Unknown
-                        },
-                    ),
-                )
-            });
+                            Value::ConstUnknown
+                        }
+                    } else if known {
+                        Value::Dynam(vals.get(i).unwrap())
+                    } else {
+                        Value::Unknown
+                    },
+                ),
+            );
             bits.push(Some(
                 self.backrefs
-                    .insert_key(p_equiv, Referent::ThisStateBit(p_state, i))
-                    .unwrap(),
+                    .insert_key(p_equiv, Referent::ThisStateBit(p_state, i)),
             ));
         }
         let state = self.stator.states.get_mut(p_state).unwrap();
@@ -219,7 +218,7 @@ impl Ensemble {
                 let mut state = self.stator.states.remove(p).allow().unwrap();
                 for p_self_state in state.p_self_bits.drain(..) {
                     if let Some(p_self_state) = p_self_state {
-                        self.backrefs.remove_key(p_self_state).unwrap();
+                        self.backrefs.remove_key(p_self_state).allow().unwrap();
                     }
                 }
             }
@@ -234,7 +233,7 @@ impl Ensemble {
         for (_, mut state) in self.stator.states.drain().map(|x| x.allow()) {
             for p_self_state in state.p_self_bits.drain(..) {
                 if let Some(p_self_state) = p_self_state {
-                    self.backrefs.remove_key(p_self_state).unwrap();
+                    self.backrefs.remove_key(p_self_state).allow().unwrap();
                 }
             }
         }

@@ -155,7 +155,7 @@ impl Ensemble {
                             // investigated
                             self.optimizer
                                 .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                            self.backrefs.remove_key(p_inp).unwrap();
+                            self.backrefs.remove_key(p_inp).allow().unwrap();
                             inp.remove(i);
                             LNode::reduce_lut(&mut lut, i, val);
                         }
@@ -186,7 +186,7 @@ impl Ensemble {
                                 }
                                 self.optimizer
                                     .insert(Optimization::InvestigateUsed(p_equiv));
-                                self.backrefs.remove_key(inp[j]).unwrap();
+                                self.backrefs.remove_key(inp[j]).allow().unwrap();
                                 inp.remove(j);
                                 lut = next_lut;
                                 continue 'outer;
@@ -205,7 +205,7 @@ impl Ensemble {
                         let equiv = self.backrefs.get_val(p_inp).unwrap();
                         self.optimizer
                             .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                        self.backrefs.remove_key(p_inp).unwrap();
+                        self.backrefs.remove_key(p_inp).allow().unwrap();
                     }
                 }
 
@@ -290,14 +290,14 @@ impl Ensemble {
                                 // we will be removing the input, mark it to be investigated
                                 self.optimizer
                                     .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                                self.backrefs.remove_key(*p).unwrap();
+                                self.backrefs.remove_key(*p).allow().unwrap();
                                 *lut_bit = DynamicValue::ConstUnknown;
                             }
                             Value::Const(val) => {
                                 // we will be removing the input, mark it to be investigated
                                 self.optimizer
                                     .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                                self.backrefs.remove_key(*p).unwrap();
+                                self.backrefs.remove_key(*p).allow().unwrap();
                                 *lut_bit = DynamicValue::Const(val);
                             }
                             Value::Unknown | Value::Dynam(_) => (),
@@ -316,7 +316,7 @@ impl Ensemble {
                             // we will be removing the input, mark it to be investigated
                             self.optimizer
                                 .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                            self.backrefs.remove_key(p_inp).unwrap();
+                            self.backrefs.remove_key(p_inp).allow().unwrap();
                             inp.remove(i);
 
                             let (tmp, removed) = LNode::reduce_dynamic_lut(lut, i, val);
@@ -325,7 +325,7 @@ impl Ensemble {
                                 let equiv = self.backrefs.get_val(remove).unwrap();
                                 self.optimizer
                                     .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                                self.backrefs.remove_key(remove).unwrap();
+                                self.backrefs.remove_key(remove).allow().unwrap();
                             }
                         }
                         Value::Unknown | Value::Dynam(_) => (),
@@ -388,12 +388,12 @@ impl Ensemble {
                         let equiv = self.backrefs.get_val(p_inp).unwrap();
                         self.optimizer
                             .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                        self.backrefs.remove_key(p_inp).unwrap();
+                        self.backrefs.remove_key(p_inp).allow().unwrap();
                         for remove in removed {
                             let equiv = self.backrefs.get_val(remove).unwrap();
                             self.optimizer
                                 .insert(Optimization::InvestigateUsed(equiv.p_self_equiv));
-                            self.backrefs.remove_key(remove).unwrap();
+                            self.backrefs.remove_key(remove).allow().unwrap();
                         }
                     }
                 }
@@ -585,7 +585,7 @@ impl Ensemble {
             let p_equiv = self.backrefs.get_val(inp).unwrap().p_self_equiv;
             self.optimizer
                 .insert(Optimization::InvestigateUsed(p_equiv));
-            self.backrefs.remove_key(inp).unwrap();
+            self.backrefs.remove_key(inp).allow().unwrap();
         });
     }
 
@@ -597,7 +597,7 @@ impl Ensemble {
         let p_equiv = self.backrefs.get_val(tnode.p_driver).unwrap().p_self_equiv;
         self.optimizer
             .insert(Optimization::InvestigateUsed(p_equiv));
-        self.backrefs.remove_key(tnode.p_driver).unwrap();
+        self.backrefs.remove_key(tnode.p_driver).allow().unwrap();
     }
 
     /// Removes all states, optimizes, and shrinks allocations
@@ -612,8 +612,8 @@ impl Ensemble {
                 let tnode = self.tnodes.remove(p_tnode).allow().unwrap();
                 // one `union_equiv` could lead another `TNode` to already be unioned
                 let _ = self.union_equiv(tnode.p_self, tnode.p_driver);
-                self.backrefs.remove_key(tnode.p_self).unwrap();
-                self.backrefs.remove_key(tnode.p_driver).unwrap();
+                self.backrefs.remove_key(tnode.p_self).allow().unwrap();
+                self.backrefs.remove_key(tnode.p_driver).allow().unwrap();
             }
         }
 
@@ -661,7 +661,10 @@ impl Ensemble {
                     }
                 }
                 // remove the equivalence
-                self.backrefs.remove(p_equiv.into()).unwrap();
+                self.backrefs
+                    .remove_surject(p_equiv.into())
+                    .allow()
+                    .unwrap();
             }
             Optimization::ForwardEquiv(p_ident) => {
                 let p_source = if let Some(referent) = self.backrefs.get_key(p_ident) {
@@ -696,10 +699,10 @@ impl Ensemble {
                             let p_bit = self.stator.states[p_state].p_self_bits[i_bit]
                                 .as_mut()
                                 .unwrap();
-                            let p_back_new = self
-                                .backrefs
-                                .insert_key(p_source.into(), Referent::ThisStateBit(p_state, i_bit))
-                                .unwrap();
+                            let p_back_new = self.backrefs.insert_key(
+                                p_source.into(),
+                                Referent::ThisStateBit(p_state, i_bit),
+                            );
                             *p_bit = p_back_new;
                         }
                         Referent::Input(p_input) => {
@@ -709,8 +712,7 @@ impl Ensemble {
                                 if *inp == p_back {
                                     let p_back_new = self
                                         .backrefs
-                                        .insert_key(p_source.into(), Referent::Input(p_input))
-                                        .unwrap();
+                                        .insert_key(p_source.into(), Referent::Input(p_input));
                                     *inp = p_back_new;
                                     found = true;
                                 }
@@ -722,8 +724,7 @@ impl Ensemble {
                             debug_assert_eq!(tnode.p_driver, p_back);
                             let p_back_new = self
                                 .backrefs
-                                .insert_key(p_source.into(), Referent::Driver(p_driver))
-                                .unwrap();
+                                .insert_key(p_source.into(), Referent::Driver(p_driver));
                             tnode.p_driver = p_back_new;
                         }
                         Referent::ThisRNode(p_rnode) => {
@@ -734,13 +735,10 @@ impl Ensemble {
                                     if let Some(bit) = bit
                                         && *bit == p_back
                                     {
-                                        let p_back_new = self
-                                            .backrefs
-                                            .insert_key(
-                                                p_source.into(),
-                                                Referent::ThisRNode(p_rnode),
-                                            )
-                                            .unwrap();
+                                        let p_back_new = self.backrefs.insert_key(
+                                            p_source.into(),
+                                            Referent::ThisRNode(p_rnode),
+                                        );
                                         *bit = p_back_new;
                                         found = true;
                                         break;
@@ -753,7 +751,7 @@ impl Ensemble {
                 }
                 // remove the equivalence, since everything should be forwarded and nothing
                 // depends on the identity equiv.
-                self.backrefs.remove(p_ident).unwrap();
+                self.backrefs.remove_surject(p_ident).allow().unwrap();
             }
             Optimization::ConstifyEquiv(p_equiv) => {
                 if !self.backrefs.contains(p_equiv.into()) {
@@ -786,7 +784,7 @@ impl Ensemble {
                     }
                 }
                 for p_back in remove {
-                    self.backrefs.remove_key(p_back).unwrap();
+                    self.backrefs.remove_key(p_back).allow().unwrap();
                 }
             }
             Optimization::InvestigateUsed(p_equiv) => {

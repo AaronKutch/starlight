@@ -332,8 +332,7 @@ impl Ensemble {
                         let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
                         let p_back_new = self
                             .backrefs
-                            .insert_key(p_equiv.into(), Referent::ThisRNode(p_rnode))
-                            .unwrap();
+                            .insert_key(p_equiv.into(), Referent::ThisRNode(p_rnode));
                         self.notary.rnodes[p_rnode].bits.push(Some(p_back_new));
                     } else {
                         self.notary.rnodes[p_rnode].bits.push(None);
@@ -386,7 +385,7 @@ impl Ensemble {
         }
         for p_back in rnode.bits {
             if let Some(p_back) = p_back {
-                let referent = self.backrefs.remove_key(p_back).unwrap().0;
+                let referent = self.backrefs.remove_key(p_back).allow().unwrap().0;
                 debug_assert!(matches!(referent, Referent::ThisRNode(_)));
             }
         }

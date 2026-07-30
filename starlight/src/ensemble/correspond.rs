@@ -51,7 +51,11 @@ impl Corresponder {
             if let Some(p_meta) = self.a.find_key(&p) {
                 *self.a.get_val(p_meta).unwrap()
             } else {
-                self.c.insert_with(|p_c| (self.a.insert(p, p_c).0, w))
+                let entry = self.c.entry_insert_reallocating().unwrap();
+                let p_c = entry.ptr();
+                let p_meta = self.a.insert(p, p_c).0;
+                entry.insert(p_meta, w);
+                p_c
             },
             w,
         )
@@ -87,7 +91,11 @@ impl Corresponder {
             if let Some(p_meta) = self.a.find_key(&p) {
                 *self.a.get_val(p_meta).unwrap()
             } else {
-                self.c.insert_with(|p_c| (self.a.insert(p, p_c).0, w))
+                let entry = self.c.entry_insert_reallocating().unwrap();
+                let p_c = entry.ptr();
+                let p_meta = self.a.insert(p, p_c).0;
+                entry.insert(p_meta, w);
+                p_c
             },
             w,
         )

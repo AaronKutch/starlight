@@ -188,12 +188,10 @@ impl Ensemble {
         let p_tnode = entry.ptr();
         let p_driver = self
             .backrefs
-            .insert_key(p_driver, Referent::Driver(p_tnode))
-            .unwrap();
+            .insert_key(p_driver, Referent::Driver(p_tnode));
         let p_self = self
             .backrefs
-            .insert_key(p_source, Referent::ThisTNode(p_tnode))
-            .unwrap();
+            .insert_key(p_source, Referent::ThisTNode(p_tnode));
         entry.insert(TNode::new(p_self, p_driver, delay));
         p_tnode
     }

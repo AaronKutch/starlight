@@ -587,27 +587,25 @@ impl Ensemble {
                 }
             }
         }
-        let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
-            (
-                Referent::ThisEquiv,
-                Equiv::new(p_self_equiv, Value::Unknown),
-            )
-        });
-        let entry = self.lnodes.entry_insert();
-        let p_lnode = entry.ptr();
-        let p_self = self
+        let entry = self.backrefs.entry_insert_reallocating().unwrap();
+        let p_equiv = entry.ptr();
+        entry.insert(Referent::ThisEquiv, Equiv::new(p_equiv, Value::Unknown));
+        let lnodes_entry = self.lnodes.entry_insert();
+        let p_lnode = lnodes_entry.ptr();
+        let entry = self
             .backrefs
-            .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
+            .entry_insert_key_reallocating(p_equiv)
             .unwrap();
+        let p_self = entry.ptr();
+        entry.insert(Referent::ThisLNode(p_lnode));
         let mut inp = smallvec![];
         for p_inx in p_inxs {
             let p_back = self
                 .backrefs
-                .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
-                .unwrap();
+                .insert_key(p_inx.unwrap(), Referent::Input(p_lnode));
             inp.push(p_back);
         }
-        entry.insert(LNode::new(
+        lnodes_entry.insert(LNode::new(
             p_self,
             LNodeKind::Lut(inp, Awi::from(lut)),
             lowered_from,
@@ -642,24 +640,19 @@ impl Ensemble {
                 }
             }
         }
-        let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
-            (
-                Referent::ThisEquiv,
-                Equiv::new(p_self_equiv, Value::Unknown),
-            )
-        });
-        let entry = self.lnodes.entry_insert();
-        let p_lnode = entry.ptr();
+        let entry = self.backrefs.entry_insert_reallocating().unwrap();
+        let p_equiv = entry.ptr();
+        entry.insert(Referent::ThisEquiv, Equiv::new(p_equiv, Value::Unknown));
+        let lnodes_entry = self.lnodes.entry_insert();
+        let p_lnode = lnodes_entry.ptr();
         let p_self = self
             .backrefs
-            .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
-            .unwrap();
+            .insert_key(p_equiv, Referent::ThisLNode(p_lnode));
         let mut inp = smallvec![];
         for p_inx in p_inxs {
             let p_back = self
                 .backrefs
-                .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
-                .unwrap();
+                .insert_key(p_inx.unwrap(), Referent::Input(p_lnode));
             inp.push(p_back);
         }
         let mut lut = vec![];
@@ -667,14 +660,13 @@ impl Ensemble {
             if let DynamicValue::Dynam(p_lut_bit) = p_lut_bit {
                 let p_back = self
                     .backrefs
-                    .insert_key(p_lut_bit, Referent::Input(p_lnode))
-                    .unwrap();
+                    .insert_key(p_lut_bit, Referent::Input(p_lnode));
                 lut.push(DynamicValue::Dynam(p_back));
             } else {
                 lut.push(p_lut_bit);
             }
         }
-        entry.insert(LNode::new(
+        lnodes_entry.insert(LNode::new(
             p_self,
             LNodeKind::DynamicLut(inp, lut),
             lowered_from,
