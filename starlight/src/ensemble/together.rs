@@ -214,7 +214,8 @@ impl Ensemble {
                 )));
             }
         }
-        for rnode in self.notary.rnodes().vals() {
+        for pair in self.notary.rnodes().vals() {
+            let rnode = pair.v();
             if let Some(bits) = rnode.bits() {
                 for p_back in bits.iter().copied() {
                     if let Some(p_back) = p_back {
@@ -275,7 +276,7 @@ impl Ensemble {
                     tnode.p_driver != p_back
                 }
                 Referent::ThisRNode(p_rnode) => {
-                    let rnode = self.notary.rnodes().get_val(p_rnode).unwrap();
+                    let rnode = self.notary.rnodes().get(p_rnode).unwrap().v();
                     let mut found = false;
                     if let Some(bits) = rnode.bits() {
                         for bit in bits {
@@ -338,7 +339,8 @@ impl Ensemble {
                 counts[*operand].0 = counts[operand].0.checked_add(1).unwrap();
             }
         }
-        for rnode in self.notary.rnodes().vals() {
+        for pair in self.notary.rnodes().vals() {
+            let rnode = pair.v();
             if let Some(p_state) = rnode.associated_state {
                 counts[p_state].1 = counts[p_state].1.checked_add(1).unwrap();
             }

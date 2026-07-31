@@ -1,10 +1,12 @@
 use std::num::NonZeroU64;
 
+use awint::awint_dag::triple_arena::OrdPair;
+
 use crate::{
     Error,
     ensemble::{Ensemble, PBack, PEquiv},
     route::{CEdge, CNode, PBackToCnode, PCEdge, PCNode, Programmability},
-    triple_arena::{Arena, OrdArena, traits::*},
+    triple_arena::{Arena, SimpleOrdArena, traits::*},
     utils::binary_search_similar_by,
 };
 
@@ -13,7 +15,7 @@ use crate::{
 pub struct Channeler {
     pub cnodes: Arena<PCNode, CNode>,
     pub cedges: Arena<PCEdge, CEdge>,
-    pub(crate) p_back_to_cnode: OrdArena<PBackToCnode, PBack, PCNode>,
+    pub(crate) p_back_to_cnode: SimpleOrdArena<PBackToCnode, OrdPair<PBack, PCNode>>,
     // used by algorithms to avoid `OrdArena`s
     pub alg_visit: NonZeroU64,
 }
@@ -33,7 +35,7 @@ impl Channeler {
         Self {
             cnodes: Arena::new(),
             cedges: Arena::new(),
-            p_back_to_cnode: OrdArena::new(),
+            p_back_to_cnode: SimpleOrdArena::new(),
             alg_visit: NonZeroU64::new(2).unwrap(),
         }
     }
@@ -47,7 +49,7 @@ impl Channeler {
     /// target
     pub fn translate_equiv(&self, p_equiv: PEquiv) -> Option<PCNode> {
         let p0 = self.p_back_to_cnode.find_key(&p_equiv.into())?;
-        Some(*self.p_back_to_cnode.get_val(p0).unwrap())
+        Some(*self.p_back_to_cnode.get(p0).unwrap().v())
     }
 
     /// Finds the base level `PCNode` corresponding to any `PBack` from the
@@ -59,13 +61,13 @@ impl Channeler {
     ) -> Option<(PEquiv, PCNode)> {
         let p_equiv = ensemble.get_p_equiv(p_back)?;
         let p0 = self.p_back_to_cnode.find_key(&p_equiv.into())?;
-        Some((p_equiv, *self.p_back_to_cnode.get_val(p0).unwrap()))
+        Some((p_equiv, *self.p_back_to_cnode.get(p0).unwrap().v()))
     }
 
     /// Sets the correspondence to a node
     pub fn set_translation(&mut self, p_equiv: PEquiv, p_forward: PCNode) -> Option<()> {
         let p0 = self.p_back_to_cnode.find_key(&p_equiv.into())?;
-        *self.p_back_to_cnode.get_val_mut(p0).unwrap() = p_forward;
+        *self.p_back_to_cnode.get_mut(p0).unwrap().v_mut() = p_forward;
         Some(())
     }
 

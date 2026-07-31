@@ -475,7 +475,13 @@ impl Ensemble {
             let mut lock = epoch_shared.epoch_data.borrow_mut();
             if let Some(p_rnode) = adv.advance(lock.ensemble.notary.rnodes()) {
                 // only lower state trees attached to rnodes that need lowering
-                let rnode = lock.ensemble.notary.rnodes.get_val_mut(p_rnode).unwrap();
+                let rnode = lock
+                    .ensemble
+                    .notary
+                    .rnodes
+                    .get_mut(p_rnode)
+                    .unwrap()
+                    .v_mut();
                 if rnode.lower_before_pruning {
                     drop(lock);
                     Ensemble::initialize_rnode_if_needed(epoch_shared, p_rnode, true)?;

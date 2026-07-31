@@ -1,5 +1,7 @@
 use std::fmt::Write;
 
+use awint::awint_dag::triple_arena::OrdPair;
+
 use crate::{
     Corresponder, Error, OptimizerOptions, SuspendedEpoch,
     ensemble::{Ensemble, PEquiv, PExternal, Referent},
@@ -7,7 +9,7 @@ use crate::{
         Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PEdgeEmbed, PMapping,
         PNodeEmbed, route,
     },
-    triple_arena::{Arena, OrdArena, traits::*},
+    triple_arena::{Arena, SimpleOrdArena, traits::*},
 };
 
 #[derive(Debug, Clone)]
@@ -38,7 +40,7 @@ pub struct Router {
     pub(crate) configurator: Configurator,
     pub(crate) program_ensemble: Ensemble,
     // `PEquiv` mapping from program to target
-    pub(crate) mappings: OrdArena<PMapping, PEquiv, Mapping>,
+    pub(crate) mappings: SimpleOrdArena<PMapping, OrdPair<PEquiv, Mapping>>,
     // routing embedding of part of the program in the target
     pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed>,
     pub(crate) edge_embeddings: Arena<PEdgeEmbed, EdgeEmbed>,
@@ -131,7 +133,7 @@ impl Router {
             target_channeler,
             configurator: configurator.clone(),
             program_ensemble,
-            mappings: OrdArena::new(),
+            mappings: SimpleOrdArena::new(),
             node_embeddings: Arena::new(),
             edge_embeddings: Arena::new(),
             is_valid_routing: false,
@@ -150,7 +152,7 @@ impl Router {
         &self.target_channeler
     }
 
-    pub fn mappings(&self) -> &OrdArena<PMapping, PEquiv, Mapping> {
+    pub fn mappings(&self) -> &SimpleOrdArena<PMapping, OrdPair<PEquiv, Mapping>> {
         &self.mappings
     }
 
@@ -208,7 +210,8 @@ impl Router {
             ));
         }
         // mapping validities
-        for (p_mapping, program_p_equiv, mapping) in self.mappings() {
+        for (p_mapping, pair) in self.mappings().iter() {
+            let (program_p_equiv, mapping) = pair.k_v();
             if let Ok((_, rnode)) = self
                 .program_ensemble
                 .notary
@@ -418,7 +421,8 @@ impl Router {
     /// corresponding channeling nodes
     pub fn debug_potential_map_points(&self, locations: bool, skip_invalid: bool) -> String {
         let mut s = String::new();
-        for (p_rnode, p_external, rnode) in self.target_ensemble().notary.rnodes() {
+        for (p_rnode, pair) in self.target_ensemble().notary.rnodes().iter() {
+            let (p_external, rnode) = pair.k_v();
             let mut init = false;
             if !skip_invalid {
                 writeln!(
@@ -469,7 +473,7 @@ impl Router {
     }
 
     pub fn debug_mapping(&self, p_mapping: PMapping) -> String {
-        let (p_equiv, mapping) = self.mappings().get(p_mapping).unwrap();
+        let (p_equiv, mapping) = self.mappings().get(p_mapping).unwrap().k_v();
         let mut s = format!(
             "{p_mapping:?} {p_equiv:#?} Mapping {{\nprogram: {} bit {}\n",
             mapping.program_p_external, mapping.program_bit_i
@@ -615,7 +619,7 @@ impl Router {
                                 target_p_equiv,
                             };
                             if let Some(p_map) = self.mappings.find_key(&program_p_equiv) {
-                                let mapping = self.mappings.get_val_mut(p_map).unwrap();
+                                let mapping = self.mappings.get_mut(p_map).unwrap().v_mut();
                                 if is_driver {
                                     if mapping.target_source.is_some() {
                                         return Err(Error::OtherString(format!(
@@ -658,7 +662,8 @@ impl Router {
                                         target_sinks: vec![mapping_target],
                                     }
                                 };
-                                let _ = self.mappings.insert(program_p_equiv, mapping);
+                                let _ =
+                                    self.mappings.insert(OrdPair::new(program_p_equiv, mapping));
                             }
                         }
                         (None, None) => (),
@@ -690,7 +695,8 @@ impl Router {
         &mut self,
         corresponder: &Corresponder,
     ) -> Result<(), Error> {
-        for (_, p_external, p_correspond) in &corresponder.a {
+        for (_, pair) in corresponder.a.iter() {
+            let (p_external, p_correspond) = pair.k_v();
             if let Ok((_, program_rnode)) = self.program_ensemble().notary.get_rnode(*p_external) {
                 // we are oriented around the program side of the correspondence because there
                 // should be at most one per correspondence
@@ -702,7 +708,7 @@ impl Router {
                 adv.advance(&corresponder.c);
                 while let Some(p_correspond) = adv.advance(&corresponder.c) {
                     let p_meta = *corresponder.c.get_key(p_correspond).unwrap();
-                    let target_p_external = *corresponder.a.get_key(p_meta).unwrap();
+                    let target_p_external = *corresponder.a.get(p_meta).unwrap().k();
                     if let Ok((_, target_rnode)) =
                         self.target_ensemble().notary.get_rnode(target_p_external)
                     {
@@ -744,7 +750,7 @@ impl Router {
                 adv.advance(&corresponder.c);
                 while let Some(p_correspond) = adv.advance(&corresponder.c) {
                     let p_meta = *corresponder.c.get_key(p_correspond).unwrap();
-                    let p_tmp = *corresponder.a.get_key(p_meta).unwrap();
+                    let p_tmp = *corresponder.a.get(p_meta).unwrap().k();
                     if self.program_ensemble().notary.get_rnode(p_tmp).is_ok() {
                         program_count += 1;
                     }

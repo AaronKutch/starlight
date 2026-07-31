@@ -2,7 +2,7 @@ use std::num::NonZeroU64;
 
 use awint::{
     Awi,
-    awint_dag::triple_arena::{OrdArena, traits::*},
+    awint_dag::triple_arena::{OrdPair, SimpleOrdArena, traits::*},
 };
 
 use crate::{
@@ -28,13 +28,13 @@ pub struct Config {
 #[derive(Debug, Clone)]
 pub struct Configurator {
     // `PEquiv` to `PExternal` mapping for bits we are allowed to configure
-    pub configurations: OrdArena<PConfig, PEquiv, Config>,
+    pub configurations: SimpleOrdArena<PConfig, OrdPair<PEquiv, Config>>,
 }
 
 impl Configurator {
     pub fn new() -> Self {
         Self {
-            configurations: OrdArena::new(),
+            configurations: SimpleOrdArena::new(),
         }
     }
 
@@ -67,11 +67,11 @@ impl Configurator {
             for (bit_i, bit) in bits.iter().copied().enumerate() {
                 if let Some(bit) = bit {
                     let p_equiv = ensemble.backrefs.get_val(bit).unwrap().p_self_equiv;
-                    let (_, replaced) = self.configurations.insert(p_equiv, Config {
+                    let (_, replaced) = self.configurations.insert(OrdPair::new(p_equiv, Config {
                         p_external,
                         bit_i,
                         value: None,
-                    });
+                    }));
                     // we may want to allow this, if we have a mechanism to make sure they are
                     // set to the same thing
                     if replaced.is_some() {
@@ -131,8 +131,9 @@ impl Router {
                         let value = self
                             .configurator
                             .configurations
-                            .get_val(p_config)
+                            .get(p_config)
                             .unwrap()
+                            .v()
                             .value;
                         let value = value.unwrap_or(false);
                         res.set(bit_i, value).unwrap();
@@ -183,7 +184,8 @@ impl Router {
         if !self.is_valid_routing {
             return Err(Error::RoutingIsInvalid);
         }
-        for (p_config, p_equiv, config) in &self.configurator.configurations {
+        for (p_config, pair) in self.configurator.configurations.iter() {
+            let (p_equiv, config) = pair.k_v();
             // check that we are in the right epoch, the `p_equiv` lookup could collide
             if ensemble.notary.get_rnode(config.p_external).is_err() {
                 return Err(Error::NotInTargetEpoch);
@@ -209,7 +211,7 @@ impl Router {
         // need to clear all in case of reroute, the `is_some` state is used for
         // detecting contradictions
         for configuration in self.configurator.configurations.vals_mut() {
-            configuration.value = None;
+            configuration.v_mut().value = None;
         }
         for embedding in self.node_embeddings.vals() {
             // follow the `SelectorLut`s of the hyperpath
@@ -232,8 +234,9 @@ impl Router {
                                         let value = &mut self
                                             .configurator
                                             .configurations
-                                            .get_val_mut(p_config)
+                                            .get_mut(p_config)
                                             .unwrap()
+                                            .v_mut()
                                             .value;
                                         let desired_value = Some(i.get(inx_i).unwrap());
                                         if value.is_some() && (*value != desired_value) {

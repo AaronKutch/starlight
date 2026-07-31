@@ -1,9 +1,11 @@
 use std::num::NonZeroU64;
 
+use awint::awint_dag::triple_arena::{OrdInsertKind, OrdPair};
+
 use crate::{
     Error,
     ensemble::{Ensemble, PBack, PSimEvent, PTNode, Referent},
-    triple_arena::{OrdArena, traits::*},
+    triple_arena::{SimpleOrdArena, traits::*},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -112,7 +114,7 @@ impl Recast<PTNode> for SimultaneousEvents {
 pub struct Delayer {
     /// Current time as measured by the delay between `Delayer` creation and now
     pub current_time: Delay,
-    pub delayed_events: OrdArena<PSimEvent, Delay, SimultaneousEvents>,
+    pub delayed_events: SimpleOrdArena<PSimEvent, OrdPair<Delay, SimultaneousEvents>>,
 }
 
 impl Recast<PTNode> for Delayer {
@@ -128,12 +130,12 @@ impl Delayer {
     pub fn new() -> Self {
         Self {
             current_time: Delay::zero(),
-            delayed_events: OrdArena::new(),
+            delayed_events: SimpleOrdArena::new(),
         }
     }
 
     pub fn compress(&mut self) {
-        self.delayed_events.compress_and_shrink();
+        self.delayed_events.compress(false);
     }
 
     /// Inserts an event that will be delayed by `delay` from the current time
@@ -142,23 +144,28 @@ impl Delayer {
         if let Some((p, order)) = self.delayed_events.find_similar_key(&future_time) {
             if order.is_eq() {
                 self.delayed_events
-                    .get_val_mut(p)
+                    .get_mut(p)
                     .unwrap()
+                    .v_mut()
                     .tnode_drives
                     .push(p_tnode);
             } else {
-                let _ = self
-                    .delayed_events
-                    .insert_linear(p, 2, future_time, SimultaneousEvents {
-                        tnode_drives: vec![p_tnode],
-                    });
+                let pair = OrdPair::new(future_time, SimultaneousEvents {
+                    tnode_drives: vec![p_tnode],
+                });
+                let entry = self.delayed_events.entry_insert(OrdInsertKind::Linear {
+                    p_init: p.inx(),
+                    num: 2,
+                    k: pair.k(),
+                });
+                let _ = entry.insert(pair);
             }
         } else {
-            self.delayed_events
-                .insert_empty(future_time, SimultaneousEvents {
-                    tnode_drives: vec![p_tnode],
-                })
-                .unwrap();
+            let pair = OrdPair::new(future_time, SimultaneousEvents {
+                tnode_drives: vec![p_tnode],
+            });
+            let entry = self.delayed_events.entry_insert(OrdInsertKind::Empty);
+            entry.insert(pair);
         }
     }
 
@@ -169,13 +176,16 @@ impl Delayer {
     #[must_use]
     pub fn peek_next_event_time(&self) -> Option<Delay> {
         let p_min = self.delayed_events.first()?;
-        self.delayed_events.get_key(p_min).copied()
+        self.delayed_events.get(p_min).map(|pair| pair.k()).copied()
     }
 
     #[must_use]
     pub fn pop_next_simultaneous_events(&mut self) -> Option<(Delay, SimultaneousEvents)> {
         let p_min = self.delayed_events.first()?;
-        self.delayed_events.remove(p_min)
+        self.delayed_events
+            .remove(p_min)
+            .allow()
+            .map(|pair| pair.into_k_v())
     }
 }
 

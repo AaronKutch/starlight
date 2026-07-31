@@ -6,7 +6,7 @@ use std::{
 };
 
 use awint::{
-    awint_dag::{Lineage, Location, PState, dag},
+    awint_dag::{Lineage, Location, PState, dag, triple_arena::traits::ArenaTrait},
     awint_internals::forward_debug_fmt,
     dag::Awi,
 };
@@ -177,8 +177,9 @@ impl LazyAwi {
             .ensemble
             .notary
             .rnodes()
-            .get_val(p_rnode)
+            .get(p_rnode)
             .unwrap()
+            .v()
             .nzbw();
         Ok(Self {
             p_external,

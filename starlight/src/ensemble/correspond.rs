@@ -1,16 +1,18 @@
 use core::fmt;
 use std::num::NonZeroUsize;
 
+use awint::awint_dag::triple_arena::OrdPair;
+
 use crate::{
     Error, EvalAwi, LazyAwi,
     ensemble::{PCorrespond, PExternal, PMeta},
-    triple_arena::{OrdArena, SurjectArena, traits::*},
+    triple_arena::{SimpleOrdArena, SurjectArena, traits::*},
 };
 
 /// Provides a controlled way to correspond `LazyAwi`s and `EvalAwi`s in and
 /// between different `Epoch`s.
 pub struct Corresponder {
-    pub(crate) a: OrdArena<PMeta, PExternal, PCorrespond>,
+    pub(crate) a: SimpleOrdArena<PMeta, OrdPair<PExternal, PCorrespond>>,
     pub(crate) c: SurjectArena<PCorrespond, PMeta, NonZeroUsize>,
 }
 
@@ -35,7 +37,7 @@ impl fmt::Debug for Corresponder {
 impl Corresponder {
     pub fn new() -> Self {
         Self {
-            a: OrdArena::new(),
+            a: SimpleOrdArena::new(),
             c: SurjectArena::new(),
         }
     }
@@ -49,11 +51,11 @@ impl Corresponder {
         let w = l.nzbw();
         (
             if let Some(p_meta) = self.a.find_key(&p) {
-                *self.a.get_val(p_meta).unwrap()
+                *self.a.get(p_meta).unwrap().v()
             } else {
                 let entry = self.c.entry_insert_reallocating().unwrap();
                 let p_c = entry.ptr();
-                let p_meta = self.a.insert(p, p_c).0;
+                let p_meta = self.a.insert(OrdPair::new(p, p_c)).0;
                 entry.insert(p_meta, w);
                 p_c
             },
@@ -89,11 +91,11 @@ impl Corresponder {
         let w = e.nzbw();
         (
             if let Some(p_meta) = self.a.find_key(&p) {
-                *self.a.get_val(p_meta).unwrap()
+                *self.a.get(p_meta).unwrap().v()
             } else {
                 let entry = self.c.entry_insert_reallocating().unwrap();
                 let p_c = entry.ptr();
-                let p_meta = self.a.insert(p, p_c).0;
+                let p_meta = self.a.insert(OrdPair::new(p, p_c)).0;
                 entry.insert(p_meta, w);
                 p_c
             },
@@ -128,12 +130,12 @@ impl Corresponder {
         let l = l.borrow();
         let p = l.p_external();
         if let Some(p_meta) = self.a.find_key(&p) {
-            let p_start = *self.a.get_val(p_meta).unwrap();
+            let p_start = *self.a.get(p_meta).unwrap().v();
             let mut adv = self.c.advancer_surject(p_start);
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
                 let p_meta = *self.c.get_key(p_correspond).unwrap();
-                let p_external = *self.a.get_key(p_meta).unwrap();
+                let p_external = *self.a.get(p_meta).unwrap().k();
                 if p_external != p
                     && let Ok(l) = LazyAwi::try_clone_from(p_external, None)
                 {
@@ -172,12 +174,12 @@ impl Corresponder {
         let e = e.borrow();
         let p = e.p_external();
         if let Some(p_meta) = self.a.find_key(&p) {
-            let p_start = *self.a.get_val(p_meta).unwrap();
+            let p_start = *self.a.get(p_meta).unwrap().v();
             let mut adv = self.c.advancer_surject(p_start);
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
                 let p_meta = *self.c.get_key(p_correspond).unwrap();
-                let p_external = *self.a.get_key(p_meta).unwrap();
+                let p_external = *self.a.get(p_meta).unwrap().k();
                 if p_external != p
                     && let Ok(l) = EvalAwi::try_clone_from(p_external)
                 {
@@ -210,12 +212,12 @@ impl Corresponder {
     /// Returns all correspondences with `p_external`
     pub fn correspondences(&self, p_external: PExternal) -> Result<Vec<PExternal>, Error> {
         if let Some(p_meta) = self.a.find_key(&p_external) {
-            let p_start = *self.a.get_val(p_meta).unwrap();
+            let p_start = *self.a.get(p_meta).unwrap().v();
             let mut adv = self.c.advancer_surject(p_start);
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
                 let p_meta = *self.c.get_key(p_correspond).unwrap();
-                let p_tmp = *self.a.get_key(p_meta).unwrap();
+                let p_tmp = *self.a.get(p_meta).unwrap().k();
                 if p_tmp != p_external {
                     v.push(p_tmp);
                 }

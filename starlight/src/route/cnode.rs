@@ -3,6 +3,8 @@ use std::{
     num::{NonZeroU32, NonZeroU64},
 };
 
+use awint::awint_dag::triple_arena::OrdPair;
+
 use crate::{
     Error,
     ensemble::PEquiv,
@@ -107,7 +109,7 @@ impl Channeler {
         if let Some(base_p_equiv) = base_p_equiv {
             let replaced = self
                 .p_back_to_cnode
-                .insert(base_p_equiv.into(), p_supernode)
+                .insert(OrdPair::new(base_p_equiv.into(), p_supernode))
                 .1;
             assert!(replaced.is_none());
         }

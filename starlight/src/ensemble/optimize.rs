@@ -2,7 +2,7 @@ use std::{mem, num::NonZeroUsize};
 
 use awint::{
     Awi, InlAwi,
-    awint_dag::{PState, smallvec::SmallVec},
+    awint_dag::{PState, smallvec::SmallVec, triple_arena::OrdPair},
 };
 
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
         DynamicValue, Ensemble, LNode, LNodeKind, PBack, PEquiv, PLNode, POpt, PTNode, Referent,
         Value,
     },
-    triple_arena::{OrdArena, traits::*},
+    triple_arena::{SimpleOrdArena, traits::*},
     utils::SmallMap,
 };
 
@@ -91,13 +91,13 @@ impl OptimizerOptions {
 
 #[derive(Debug, Clone)]
 pub struct Optimizer {
-    optimizations: OrdArena<POpt, Optimization, ()>,
+    optimizations: SimpleOrdArena<POpt, OrdPair<Optimization, ()>>,
 }
 
 impl Optimizer {
     pub fn new() -> Self {
         Self {
-            optimizations: OrdArena::new(),
+            optimizations: SimpleOrdArena::new(),
         }
     }
 
@@ -113,7 +113,7 @@ impl Optimizer {
     }
 
     pub fn insert(&mut self, optimization: Optimization) {
-        let _ = self.optimizations.insert(optimization, ());
+        let _ = self.optimizations.insert(OrdPair::new(optimization, ()));
     }
 }
 
@@ -535,7 +535,7 @@ impl Ensemble {
                     }
                 }
                 Referent::ThisRNode(p_rnode) => {
-                    let rnode = self.notary.rnodes().get(p_rnode).unwrap().1;
+                    let rnode = self.notary.rnodes().get(p_rnode).unwrap().v();
                     if !rnode.read_only() {
                         possible_drivers = true;
                     }
@@ -632,12 +632,13 @@ impl Ensemble {
     }
 
     pub fn optimize_single(&mut self, p_optimization: POpt) -> Result<(), Error> {
-        let optimization = self
+        let optimization = *self
             .optimizer
             .optimizations
             .remove(p_optimization)
+            .allow()
             .unwrap()
-            .0;
+            .k();
         match optimization {
             Optimization::Preinvestigate(p_equiv) => {
                 self.preinvestigate_equiv(p_equiv)?;

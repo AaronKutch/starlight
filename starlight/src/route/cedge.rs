@@ -257,17 +257,18 @@ impl Channeler {
         // check that all the configurations point to things that exist, note this is
         // only to protect against things like accidentally using the program as the
         // target or if the configurator was used in multiple ensembles
-        for (_, _p_equiv, config) in &configurator.configurations {
-            if let Ok((_, _rnode)) = ensemble.notary.get_rnode(config.p_external) {
+        for pair in configurator.configurations.vals() {
+            let (p_equiv, config) = pair.k_v();
+            if let Ok((_, rnode)) = ensemble.notary.get_rnode(config.p_external) {
                 #[cfg(debug_assertions)]
                 {
-                    if let Some(bit) = _rnode.bits().unwrap().get(config.bit_i) {
+                    if let Some(bit) = rnode.bits().unwrap().get(config.bit_i) {
                         let p_tmp = ensemble
                             .backrefs
                             .get_val(bit.unwrap())
                             .unwrap()
                             .p_self_equiv;
-                        assert_eq!(p_tmp, *_p_equiv);
+                        assert_eq!(p_tmp, *p_equiv);
                     } else {
                         unreachable!()
                     }
@@ -284,7 +285,7 @@ impl Channeler {
         for equiv in ensemble.backrefs.vals() {
             let p_equiv = equiv.p_self_equiv;
             if let Some(p_config) = configurator.configurations.find_key(&p_equiv) {
-                let config = configurator.configurations.get_val(p_config).unwrap();
+                let config = configurator.configurations.get(p_config).unwrap().v();
                 let p_external = config.p_external;
                 let mut input_count = 0;
                 // we have a configurable bit, check if it is by itself or can affect other

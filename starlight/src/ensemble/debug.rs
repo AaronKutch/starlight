@@ -277,7 +277,7 @@ impl Ensemble {
                         })
                     }
                     Referent::ThisRNode(p_rnode) => {
-                        let rnode = self.notary.rnodes().get_val(p_rnode).unwrap();
+                        let rnode = self.notary.rnodes().get(p_rnode).unwrap().v();
                         let mut inx = u64::MAX;
                         if let Some(bits) = rnode.bits() {
                             for (i, bit) in bits.iter().enumerate() {

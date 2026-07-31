@@ -238,7 +238,7 @@ impl Router {
 
     /// Makes a necessary embedding to express the given mapping.
     fn make_embedding_for_mapping(&mut self, p_mapping: PMapping) -> Result<(), Error> {
-        let (program_p_equiv, mapping) = self.mappings.get(p_mapping).unwrap();
+        let (program_p_equiv, mapping) = self.mappings.get(p_mapping).unwrap().k_v();
         let program_p_equiv = *program_p_equiv;
 
         // TODO support custom `CEdge` mappings
