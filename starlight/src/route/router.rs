@@ -768,7 +768,7 @@ impl Router {
     /// Clears any mappings currently registered for this `Router`
     pub fn clear_mappings(&mut self) {
         self.is_valid_routing = false;
-        self.mappings.clear();
+        self.mappings.clear().allow();
     }
 
     /// The same as [Router::route] except that this uses any preexisting manual

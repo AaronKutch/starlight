@@ -1,19 +1,22 @@
-use awint::awint_dag::triple_arena::{Arena, traits::*};
+use awint::awint_dag::triple_arena::{
+    DirectArena, SimpleOrdArena, SurjectArena,
+    traits::*,
+    utils::{
+        PtrNoGen,
+        traits::{ArenaBacking, PtrGen},
+    },
+};
 
 // (This would be a standard function, except there are far too many choices to
 // make on the backing of the recaster arena and how fallibility should be
 // handled)
-pub fn compress_recaster<
-    P: Ptr,
-    T,
-    A: ArenaTrait<P, T> + SingularGenerationArena<P> + ArenaCloneFromWith<P, T>,
->(
+pub fn compress_recaster<P: Ptr, T, A: CompactArenaTrait<P, T>>(
     this: &mut A,
     reset_generation: bool,
-) -> Arena<P, P> {
+) -> DirectArena<P, P> {
     // this arena will be a recaster in which we create a mapping from the old `Ptr`
     // domain to the new one
-    let mut res = Arena::<P, P>::new();
+    let mut res = DirectArena::<P, P>::new();
     // this sets all the keys of the mapping by cloning the `Ptr` validities of the
     // pre-compression `self` into the recaster and puts in invalid placeholders for
     // the new domain
@@ -23,4 +26,57 @@ pub fn compress_recaster<
     this.compress_with(reset_generation, |p, _, q| *res.get_mut(p).unwrap() = q)
         .allow();
     res
+}
+
+pub fn ord_arena_canonical_compress_recaster<P: Ptr, T, B: ArenaBacking>(
+    this: &mut SimpleOrdArena<P, T, B>,
+    reset_generation: bool,
+) -> DirectArena<P, P> {
+    // this arena will be a recaster in which we create a mapping from the old `Ptr`
+    // domain to the new one
+    let mut recaster = DirectArena::<P, P>::new();
+    let mut replacement = SimpleOrdArena::new();
+    let generation = if reset_generation {
+        <P as Ptr>::Gen::two()
+    } else {
+        this.inc_generation().allow();
+        this.generation()
+    };
+    // the recaster is automatically set up here, and the elements of `
+    replacement
+        .transfer_canonical_reallocating(generation, this, |_, t, _| t.allow(), &mut recaster)
+        .unwrap();
+    *this = replacement;
+    recaster
+}
+
+pub fn surject_arena_canonical_compress_recaster<P: Ptr, K, V, B: ArenaBacking>(
+    this: &mut SurjectArena<P, K, V, B>,
+    reset_generation: bool,
+) -> DirectArena<P, P> {
+    // this is only a temporary
+    let mut aux_recaster = DirectArena::<PtrNoGen<P>, PtrNoGen<P>>::new();
+    // this arena will be a recaster in which we create a mapping from the old `Ptr`
+    // domain to the new one
+    let mut recaster = DirectArena::<P, P>::new();
+    let mut replacement = SurjectArena::new();
+    let generation = if reset_generation {
+        <P as Ptr>::Gen::two()
+    } else {
+        this.inc_generation().allow();
+        this.generation()
+    };
+    // the recaster is automatically set up here, and the elements of `
+    replacement
+        .transfer_canonical_reallocating(
+            generation,
+            this,
+            |_, k, _| k.allow(),
+            |v| v,
+            &mut recaster,
+            &mut aux_recaster,
+        )
+        .unwrap();
+    *this = replacement;
+    recaster
 }

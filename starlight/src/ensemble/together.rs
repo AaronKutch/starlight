@@ -9,7 +9,7 @@ use crate::{
         Stator, TNode, Value, value::Evaluator,
     },
     triple_arena::{Arena, SurjectArena, traits::*},
-    utils::compress_recaster,
+    utils::{self, compress_recaster},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -423,8 +423,8 @@ impl Ensemble {
             }
         }
 
-        // FIXME
-        /*let p_back_recaster = self.backrefs.compress_and_shrink_recaster();
+        let p_back_recaster =
+            utils::surject_arena_canonical_compress_recaster(&mut self.backrefs, false);
         if let Err(e) = self.backrefs.recast(&p_back_recaster) {
             return Err(Error::OtherString(format!(
                 "recast error with {e} in the backrefs"
@@ -444,7 +444,7 @@ impl Ensemble {
             return Err(Error::OtherString(format!(
                 "recast error with {e} in the tnodes"
             )));
-        }*/
+        }
         Ok(())
     }
 

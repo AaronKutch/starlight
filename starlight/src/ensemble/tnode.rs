@@ -135,7 +135,7 @@ impl Delayer {
     }
 
     pub fn compress(&mut self) {
-        self.delayed_events.compress(false);
+        self.delayed_events.compress(false).allow();
     }
 
     /// Inserts an event that will be delayed by `delay` from the current time

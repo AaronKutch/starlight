@@ -108,7 +108,7 @@ impl Optimizer {
             return Err(Error::OtherStr("optimizations need to be empty"));
         }
         // FIXME this was _and_shrink, do we want that?
-        self.optimizations.clear();
+        self.optimizations.clear().allow();
         Ok(())
     }
 

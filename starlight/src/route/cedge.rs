@@ -444,7 +444,7 @@ impl Channeler {
         }
 
         // `p_back_to_cnode` should be frozen now since it is only on the base layer
-        channeler.p_back_to_cnode.compress_and_shrink();
+        channeler.p_back_to_cnode.compress(false).allow();
 
         // perform a compression step because of the `CNode` removals, want the base
         // layer to be compact

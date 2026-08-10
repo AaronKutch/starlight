@@ -6,7 +6,7 @@ use std::{
 use awint::awint_dag::{
     Location, PState,
     smallvec::{SmallVec, smallvec},
-    triple_arena::OrdPair,
+    triple_arena::{DirectArena, OrdPair},
 };
 
 use crate::{
@@ -15,11 +15,11 @@ use crate::{
     ensemble::{CommonValue, Delay, Ensemble, PBack, PRNode, Referent, Value},
     epoch::{EpochShared, get_current_epoch},
     triple_arena::{
-        Arena, SimpleOrdArena,
+        SimpleOrdArena,
         traits::*,
         utils::traits::{PtrGen, PtrInx},
     },
-    utils::{DisplayStr, HexadecimalNonZeroU128},
+    utils::{self, DisplayStr, HexadecimalNonZeroU128},
 };
 
 // substituted because we need a custom `Debug` impl
@@ -234,8 +234,8 @@ impl Notary {
         }
     }
 
-    pub fn recast_p_rnode(&mut self) -> Arena<PRNode, PRNode> {
-        self.rnodes.compress_and_shrink_recaster()
+    pub fn recast_p_rnode(&mut self) -> DirectArena<PRNode, PRNode> {
+        utils::ord_arena_canonical_compress_recaster(&mut self.rnodes, false)
     }
 
     pub fn rnodes(&self) -> &SimpleOrdArena<PRNode, OrdPair<PExternal, RNode>> {
