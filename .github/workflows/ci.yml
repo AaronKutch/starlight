@@ -23,17 +23,19 @@ jobs:
           cargo test --release --all-features
           cargo bench
 
-  msrv_test_suite:
+  msrv_build:
+    name: MSRV build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # reads the `rust-version` of starlight/Cargo.toml
       - name: Install MSRV
         run: |
           rustup set profile minimal
-          rustup install 1.96
-      - name: Run test suite on MSRV
+          rustup default "$(sed -n 's/^rust-version = "\(.*\)"/\1/p' starlight/Cargo.toml)"
+      - name: Check that the crate builds on its MSRV
         run: |
-          cd ./starlight && cargo build --no-default-features
+          cargo build -p starlight --no-default-features
 
   rustfmt:
     name: Rustfmt

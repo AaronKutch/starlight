@@ -1,6 +1,9 @@
 # Changelog
 
 ## [0.5.0] - TODO
+### Crate
+- MSRV 1.88
+
 ### Changes
 - The optimization functions now take a new `OptimizerOptions`
 

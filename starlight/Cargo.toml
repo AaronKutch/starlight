@@ -3,6 +3,10 @@ name = "starlight"
 # TODO the key to parallelization is probably that the arenas and such used in each task do not waste space and time on per-node locks and other stuff, but rather they copy local parts of the graphs with recasters and generalizations of `clone_from_with` into their own local arenas. Preapportioning ahead of time is required for determinism anyway, and we will probably need databases before long for the really large stuff anyway so the extra cloning redundancy won't mean much
 version = "0.4.0"
 edition = "2024"
+# `flake.nix` and `ci.yml` read this automatically, but run `nix flake update`
+# and fix any hashes. The pinned toolchain in `pinned-toolchain.toml` is
+# bumped separately.
+rust-version = "1.88"
 authors = ["Aaron Kutch <aaronkutch@att.net>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
