@@ -503,12 +503,12 @@ impl Ensemble {
         loop {
             let mut lock = epoch_shared.epoch_data.borrow_mut();
             if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
-                if let Some(state) = lock.ensemble.stator.states.get(p_state) {
-                    // first check that it has not already been lowered
-                    if !state.lowered_to_lnodes {
-                        drop(lock);
-                        Ensemble::dfs_lower(epoch_shared, p_state)?;
-                    }
+                // first check that it has not already been lowered
+                if let Some(state) = lock.ensemble.stator.states.get(p_state)
+                    && !state.lowered_to_lnodes
+                {
+                    drop(lock);
+                    Ensemble::dfs_lower(epoch_shared, p_state)?;
                 }
             } else {
                 break;

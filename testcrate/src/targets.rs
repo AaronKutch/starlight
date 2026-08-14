@@ -202,20 +202,20 @@ pub fn render_cnode_hierarchy(r: &mut Render, web: &RenderArena, channeler: &Cha
     let cnodes = &channeler.cnodes;
     for (_, pair) in web {
         let (kind, node) = pair.k_v();
-        if let RenderNodeKind::Equiv(p_equiv) = kind {
-            // remember that configurable bits are not included
-            if let Some(p_cnode) = channeler.translate_equiv(*p_equiv) {
-                let cnode = cnodes.get(p_cnode).unwrap();
-                assert_eq!(cnode.lvl, 0);
-                let replaced = level
-                    .insert(OrdPair::new(p_cnode, HierarchyNode {
-                        position: node.position,
-                        subnodes: 0,
-                        incidents: vec![],
-                    }))
-                    .1;
-                assert!(replaced.is_none());
-            }
+        // remember that configurable bits are not included
+        if let RenderNodeKind::Equiv(p_equiv) = kind
+            && let Some(p_cnode) = channeler.translate_equiv(*p_equiv)
+        {
+            let cnode = cnodes.get(p_cnode).unwrap();
+            assert_eq!(cnode.lvl, 0);
+            let replaced = level
+                .insert(OrdPair::new(p_cnode, HierarchyNode {
+                    position: node.position,
+                    subnodes: 0,
+                    incidents: vec![],
+                }))
+                .1;
+            assert!(replaced.is_none());
         }
     }
     levels.push(level);
