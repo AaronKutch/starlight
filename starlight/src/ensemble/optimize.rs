@@ -125,7 +125,7 @@ impl Ensemble {
         let lnode = self.lnodes.get_mut(p_lnode).unwrap();
         Ok(match &mut lnode.kind {
             LNodeKind::Copy(inp) => {
-                // wire propogation
+                // wire propagation
                 let input_equiv = self.backrefs.get_val(*inp).unwrap();
                 let val = input_equiv.val;
                 if val.is_const() {
@@ -490,7 +490,7 @@ impl Ensemble {
 
     /// If there exists any equivalence with no checks applied, this should
     /// always be applied before any further optimizations are applied, so that
-    /// `RemoveUnused` and `ConstPropogate` can be handled before any other
+    /// `RemoveUnused` and `Constpropagate` can be handled before any other
     /// optimization
     pub fn preinvestigate_equiv(&mut self, p_equiv: PEquiv) -> Result<(), Error> {
         let mut non_self_rc = 0usize;
@@ -527,7 +527,7 @@ impl Ensemble {
                 Referent::Input(_) => non_self_rc += 1,
                 Referent::Driver(p_driver) => {
                     // the way `Driver` networks with no real dependencies will work, is
-                    // that const propogation and other simplifications will eventually result
+                    // that const propagation and other simplifications will eventually result
                     // in a single node equivalence that drives itself, which we can remove
                     let p_back_driver = self.tnodes.get(p_driver).unwrap().p_self;
                     if !self.backrefs.in_same_set(p_back, p_back_driver).unwrap() {

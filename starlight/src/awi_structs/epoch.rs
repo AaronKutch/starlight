@@ -477,7 +477,7 @@ pub fn _callback() -> EpochCallback {
     fn register_assertion_bit(bit: dag::bool, location: Location) {
         let need_register = if let Some(awi) = bit.state().try_get_as_awi() {
             assert_eq!(awi.bw(), 1);
-            // only need to register false bits so the location can get propogated
+            // only need to register false bits so the location can get propagated
             awi.is_zero()
         } else {
             true

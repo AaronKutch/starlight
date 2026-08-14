@@ -75,7 +75,7 @@ pub(crate) fn route(router: &mut Router) -> Result<(), Error> {
         //   we would be forced to dilute all the way before resolving a
         //   possible routing, or in other words a valid routing may necessarily
         //   have violations at the concentrated level. I think the way to
-        //   resolve this is to propogate congestion sums up the tree and only
+        //   resolve this is to propagate congestion sums up the tree and only
         //   fire overall violation when the routing at the level cannot resolve
         //   the higher discovered violations. Same level violations are allowed
         //   until the base level, we use the Lagrangians to promote embedding

@@ -52,7 +52,7 @@ fn loop_zero_delay() {
         or_ctrl.retro_(&awi!(11)).unwrap();
         and_ctrl.retro_(&awi!(11)).unwrap();
         // one disadvantage is that simply reading can effect the results, the ones do
-        // not propogate through in time if we go straight to `retro_unknown`
+        // not propagate through in time if we go straight to `retro_unknown`
         eval1.eval().unwrap();
         // alternatively but handle this case later
         //epoch.run(Delay::from(1)).unwrap();

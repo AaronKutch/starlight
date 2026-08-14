@@ -144,11 +144,11 @@ pub enum DynamicValue {
 
 // Here are some of the reasons why we have chosen this somewhat convoluted
 // evaluator strategy. We want to prevent a situation where we receive a command
-// to change an equivalence value, then propogate changes as far as they will go
+// to change an equivalence value, then propagate changes as far as they will go
 // down potentially most of the DAG, then do that whole cascade for every change
 // made. Changes made to equivalences can stay in place until the point where a
 // request for a downstream value is made. A secondary goal is to avoid
-// unneccessary calculations from change propogations if they don't actually
+// unneccessary calculations from change propagations if they don't actually
 // lead to a request.
 
 // What we most want to avoid is globally requesting `TNode` drivers when most
@@ -162,12 +162,12 @@ pub enum DynamicValue {
 // zero. However, if the region source tree is large and only one small part has
 // been changed, there is a lot of wasted computation. Instead of the front
 // strategy or an intermediate change-request strategy that had issues of still
-// needing to request the whole thing, we have a modified event propogation
+// needing to request the whole thing, we have a modified event propagation
 // strategy that avoids the overwriting waste problem. Now that we have the
 // extra surjection level with known DAGs, what we do is assign partially
 // ordered integers over the DAG, such that an equivalence's number must be
 // greater than the maximum number of any of its dependencies. The event
-// propogation is calculated in order from least to greatest numbered. So, an
+// propagation is calculated in order from least to greatest numbered. So, an
 // equivalence will not be calculated until its dependencies are.
 
 // However, to allow any changes to the equivalence graph we need more referents
@@ -198,7 +198,7 @@ pub enum ChangeKind {
     // initializations rather than events, but the problem is that the DFS lowering can loop
     // around due to the other requirement to avoid handles and start from anywhere, which leads
     // to downstream values getting initialized as unknown rather than the correct initial value
-    // getting propogated.
+    // getting propagated.
     Manual(PEquiv, Value),
 }
 

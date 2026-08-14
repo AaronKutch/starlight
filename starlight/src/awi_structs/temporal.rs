@@ -9,7 +9,7 @@ pub(crate) const UNDRIVEN_LOOP_SOURCE: &str = "starlight::undriven_loop_source";
 pub(crate) const LOOP_SOURCE: &str = "starlight::loop_source";
 pub(crate) const DELAYED_LOOP_SOURCE: &str = "starlight::delayed_loop_source";
 
-/// Delays the temporal value propogation of `bits` by `delay`.
+/// Delays the temporal value propagation of `bits` by `delay`.
 ///
 /// For a purely combinatorial circuit that is run for an infinite time, this
 /// function acts like a no-op; the effects of this function are seen in
@@ -48,7 +48,7 @@ pub(crate) const DELAYED_LOOP_SOURCE: &str = "starlight::delayed_loop_source";
 ///     assert!(!epoch.quiesced().unwrap());
 ///
 ///     // only after 10 units does the
-///     // value finally finish propogating
+///     // value finally finish propagating
 ///     epoch.run(1).unwrap();
 ///     assert_eq!(a_after.eval().unwrap(), awi!(0xa_u4));
 ///     assert!(epoch.quiesced().unwrap());
