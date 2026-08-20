@@ -46,7 +46,7 @@ pub struct PExternal {
     _internal_gen: (),
 }
 
-unsafe impl Ptr for PExternal {
+impl Ptr for PExternal {
     type Gen = ();
     type Inx = NonZeroU128;
 

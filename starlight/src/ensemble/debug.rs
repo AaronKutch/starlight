@@ -213,7 +213,8 @@ impl Ensemble {
     pub fn backrefs_to_chain_arena(&self) -> ChainArena<PBack, Referent> {
         let mut chain_arena = ChainArena::new();
         self.backrefs
-            .clone_keys_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode);
+            .clone_keys_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode)
+            .unwrap();
         chain_arena
     }
 
@@ -296,7 +297,8 @@ impl Ensemble {
                     }
                     _ => NodeKind::Remove,
                 }
-            });
+            })
+            .unwrap();
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
             if let NodeKind::Remove = arena.get(p).unwrap() {
