@@ -131,7 +131,7 @@ impl Corresponder {
         let p = l.p_external();
         if let Some(p_meta) = self.a.find_key(&p) {
             let p_start = *self.a.get(p_meta).unwrap().v();
-            let mut adv = self.c.advancer_surject(p_start);
+            let mut adv = self.c.advancer_surject(p_start).unwrap();
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
                 let p_meta = *self.c.get_key(p_correspond).unwrap();
@@ -175,7 +175,7 @@ impl Corresponder {
         let p = e.p_external();
         if let Some(p_meta) = self.a.find_key(&p) {
             let p_start = *self.a.get(p_meta).unwrap().v();
-            let mut adv = self.c.advancer_surject(p_start);
+            let mut adv = self.c.advancer_surject(p_start).unwrap();
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
                 let p_meta = *self.c.get_key(p_correspond).unwrap();
@@ -213,7 +213,7 @@ impl Corresponder {
     pub fn correspondences(&self, p_external: PExternal) -> Result<Vec<PExternal>, Error> {
         if let Some(p_meta) = self.a.find_key(&p_external) {
             let p_start = *self.a.get(p_meta).unwrap().v();
-            let mut adv = self.c.advancer_surject(p_start);
+            let mut adv = self.c.advancer_surject(p_start).unwrap();
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
                 let p_meta = *self.c.get_key(p_correspond).unwrap();

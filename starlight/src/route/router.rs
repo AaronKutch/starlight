@@ -703,7 +703,7 @@ impl Router {
                 let program_p_external = *p_external;
                 let is_driver = !program_rnode.read_only();
                 let mut target_count = 0;
-                let mut adv = corresponder.c.advancer_surject(*p_correspond);
+                let mut adv = corresponder.c.advancer_surject(*p_correspond).unwrap();
                 // skip once
                 adv.advance(&corresponder.c);
                 while let Some(p_correspond) = adv.advance(&corresponder.c) {
@@ -745,7 +745,7 @@ impl Router {
                 // check that there is at least one program corresponded with this, the other
                 // branch will do the other kinds of checks
                 let mut program_count = 0;
-                let mut adv = corresponder.c.advancer_surject(*p_correspond);
+                let mut adv = corresponder.c.advancer_surject(*p_correspond).unwrap();
                 // skip once
                 adv.advance(&corresponder.c);
                 while let Some(p_correspond) = adv.advance(&corresponder.c) {

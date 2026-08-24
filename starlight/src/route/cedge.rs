@@ -290,7 +290,7 @@ impl Channeler {
                 let mut input_count = 0;
                 // we have a configurable bit, check if it is by itself or can affect other
                 // things
-                let mut adv = ensemble.backrefs.advancer_surject(p_equiv.into());
+                let mut adv = ensemble.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                     use crate::ensemble::Referent::*;
                     match ensemble.backrefs.get_key(p_ref).unwrap() {
@@ -332,7 +332,7 @@ impl Channeler {
                 // finding alternative paths, or how do we handle it?
 
                 let mut driver_count = 0;
-                let mut adv = ensemble.backrefs.advancer_surject(p_equiv.into());
+                let mut adv = ensemble.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                     use crate::ensemble::Referent::*;
                     match *ensemble.backrefs.get_key(p_ref).unwrap() {
@@ -412,7 +412,7 @@ impl Channeler {
                     // set new translation
                     channeler.set_translation(p_equiv, p_forward).unwrap();
                 }
-                let mut adv = ensemble.backrefs.advancer_surject(p_back);
+                let mut adv = ensemble.backrefs.advancer_surject(p_back).unwrap();
                 while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                     use crate::ensemble::Referent::*;
                     match *ensemble.backrefs.get_key(p_ref).unwrap() {
@@ -565,7 +565,7 @@ impl Channeler {
                 ensemble.backrefs.get_val_mut(input).unwrap().alg_visit = visit;
                 let mut next_node = Some(input);
                 'outer: while let Some(p_back) = next_node.take() {
-                    let mut adv = ensemble.backrefs.advancer_surject(p_back);
+                    let mut adv = ensemble.backrefs.advancer_surject(p_back).unwrap();
                     while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                         use crate::ensemble::Referent::*;
                         match *ensemble.backrefs.get_key(p_ref).unwrap() {

@@ -1,10 +1,7 @@
 use awint::awint_dag::triple_arena::{
     DirectArena, SimpleOrdArena, SurjectArena,
     traits::*,
-    utils::{
-        PtrNoGen,
-        traits::{ArenaBacking, PtrGen},
-    },
+    utils::traits::{ArenaBacking, PtrGen},
 };
 
 // (This would be a standard function, except there are far too many choices to
@@ -35,6 +32,7 @@ pub fn ord_arena_canonical_compress_recaster<P: Ptr, T, B: ArenaBacking>(
     // this arena will be a recaster in which we create a mapping from the old `Ptr`
     // domain to the new one
     let mut recaster = DirectArena::<P, P>::new();
+    recaster.clone_from_with(this, |_, _| P::invalid()).unwrap();
     let mut replacement = SimpleOrdArena::new();
     let generation = if reset_generation {
         <P as Ptr>::Gen::two()
@@ -42,9 +40,11 @@ pub fn ord_arena_canonical_compress_recaster<P: Ptr, T, B: ArenaBacking>(
         this.inc_generation().allow();
         this.generation()
     };
-    // the recaster is automatically set up here, and the elements of `
     replacement
-        .transfer_canonical_reallocating(generation, this, |_, t, _| t.allow(), &mut recaster)
+        .transfer_canonical_reallocating(generation, this, |q, t, p| {
+            recaster[q] = p;
+            t.allow()
+        })
         .unwrap();
     *this = replacement;
     recaster
@@ -54,11 +54,10 @@ pub fn surject_arena_canonical_compress_recaster<P: Ptr, K, V, B: ArenaBacking>(
     this: &mut SurjectArena<P, K, V, B>,
     reset_generation: bool,
 ) -> DirectArena<P, P> {
-    // this is only a temporary
-    let mut aux_recaster = DirectArena::<PtrNoGen<P>, PtrNoGen<P>>::new();
     // this arena will be a recaster in which we create a mapping from the old `Ptr`
     // domain to the new one
     let mut recaster = DirectArena::<P, P>::new();
+    recaster.reallocate_min_capacity(this.len_keys()).unwrap();
     let mut replacement = SurjectArena::new();
     let generation = if reset_generation {
         <P as Ptr>::Gen::two()
@@ -66,15 +65,15 @@ pub fn surject_arena_canonical_compress_recaster<P: Ptr, K, V, B: ArenaBacking>(
         this.inc_generation().allow();
         this.generation()
     };
-    // the recaster is automatically set up here, and the elements of `
     replacement
         .transfer_canonical_reallocating(
             generation,
             this,
-            |_, k, _| k.allow(),
+            |q, k, p| {
+                recaster.direct_insert_within_capacity(q).unwrap().insert(p);
+                k.allow()
+            },
             |v| v,
-            &mut recaster,
-            &mut aux_recaster,
         )
         .unwrap();
     *this = replacement;

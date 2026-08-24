@@ -683,7 +683,7 @@ impl Ensemble {
     /// `p_init`
     pub fn advancer_lnode_surject(&self, p_init: PBack) -> SurjectPLNodeAdvancer {
         SurjectPLNodeAdvancer {
-            adv: self.backrefs.advancer_surject(p_init),
+            adv: self.backrefs.advancer_surject(p_init).unwrap(),
         }
     }
 }

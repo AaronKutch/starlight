@@ -67,7 +67,11 @@ impl Router {
             let mut paths = vec![];
 
             // there are no `TNode`s to worry about for the program ensemble
-            let mut adv = self.program_ensemble.backrefs.advancer_surject(p_start);
+            let mut adv = self
+                .program_ensemble
+                .backrefs
+                .advancer_surject(p_start)
+                .unwrap();
             while let Some(p_ref) = adv.advance(&self.program_ensemble.backrefs) {
                 match self.program_ensemble.backrefs.get_key(p_ref) {
                     Some(Referent::ThisLNode(p_lnode)) => {
@@ -332,7 +336,8 @@ impl Router {
                 let mut adv = self
                     .program_ensemble
                     .backrefs
-                    .advancer_surject(program_p_equiv.into());
+                    .advancer_surject(program_p_equiv.into())
+                    .unwrap();
                 while let Some(p_ref) = adv.advance(&self.program_ensemble.backrefs) {
                     if let Referent::Input(_) =
                         *self.program_ensemble.backrefs.get_key(p_ref).unwrap()

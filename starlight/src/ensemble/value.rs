@@ -350,7 +350,7 @@ impl Ensemble {
             self.switch_to_change_phase();
 
             // create any needed events
-            let mut adv = self.backrefs.advancer_surject(p_equiv.into());
+            let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
             while let Some(p_back) = adv.advance(&self.backrefs) {
                 let referent = *self.backrefs.get_key(p_back).unwrap();
                 match referent {

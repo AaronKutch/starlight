@@ -497,7 +497,7 @@ impl Ensemble {
         let equiv = self.backrefs.get_val(p_equiv.into()).unwrap();
         let mut is_const = equiv.val.is_const();
         let mut possible_drivers = false;
-        let mut adv = self.backrefs.advancer_surject(p_equiv.into());
+        let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
         while let Some(p_back) = adv.advance(&self.backrefs) {
             let referent = *self.backrefs.get_key(p_back).unwrap();
             match referent {
@@ -645,7 +645,7 @@ impl Ensemble {
             }
             Optimization::RemoveEquiv(p_equiv) => {
                 // remove all associated LNodes first
-                let mut adv = self.backrefs.advancer_surject(p_equiv.into());
+                let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     match *self.backrefs.get_key(p_back).unwrap() {
                         Referent::ThisEquiv => (),
@@ -685,7 +685,7 @@ impl Ensemble {
                 } else {
                     return Ok(());
                 };
-                let mut adv = self.backrefs.advancer_surject(p_ident);
+                let mut adv = self.backrefs.advancer_surject(p_ident).unwrap();
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     let referent = *self.backrefs.get_key(p_back).unwrap();
                     match referent {
@@ -761,7 +761,7 @@ impl Ensemble {
                 // for removing `ThisLNode` safely
                 let mut remove = SmallVec::<[PBack; 16]>::new();
                 // remove all associated LNodes
-                let mut adv = self.backrefs.advancer_surject(p_equiv.into());
+                let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     match *self.backrefs.get_key(p_back).unwrap() {
                         Referent::ThisEquiv => (),
@@ -793,7 +793,7 @@ impl Ensemble {
                     return Ok(());
                 };
                 let mut found_use = false;
-                let mut adv = self.backrefs.advancer_surject(p_equiv.into());
+                let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     let referent = *self.backrefs.get_key(p_back).unwrap();
                     match referent {

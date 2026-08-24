@@ -470,7 +470,10 @@ impl Ensemble {
     }
 
     pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), Error> {
-        let (equiv0, equiv1) = self.backrefs.get2_val_mut(p_equiv0, p_equiv1).unwrap();
+        let [equiv0, equiv1] = self
+            .backrefs
+            .get_disjoint_val_mut([p_equiv0, p_equiv1])
+            .unwrap();
         if (equiv0.val.is_const() && equiv1.val.is_const()) && (equiv0.val != equiv1.val) {
             panic!("tried to merge two const equivalences with differing values");
         }
