@@ -659,7 +659,7 @@ impl Ensemble {
             }
             Optimization::RemoveEquiv(p_equiv) => {
                 // remove all associated LNodes first
-                let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap()
+                let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_back) = adv.advance(&self.backrefs) {
                     match *self.backrefs.get(p_back).unwrap() {
                         Referent::ThisEquiv => (),
