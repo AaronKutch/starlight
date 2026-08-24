@@ -57,7 +57,7 @@ impl Ensemble {
                 RenderNodeKind::Equiv(p_equiv) => {
                     let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
                     while let Some(p_ref) = adv.advance(&self.backrefs) {
-                        match *self.backrefs.get_key(p_ref).unwrap() {
+                        match *self.backrefs.get(p_ref).unwrap() {
                             Referent::ThisEquiv => (),
                             Referent::ThisLNode(p_lnode) => {
                                 edges.push(RenderNodeKind::LNode(p_lnode))

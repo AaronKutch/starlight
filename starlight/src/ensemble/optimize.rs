@@ -499,7 +499,7 @@ impl Ensemble {
         let mut possible_drivers = false;
         let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
         while let Some(p_back) = adv.advance(&self.backrefs) {
-            let referent = *self.backrefs.get_key(p_back).unwrap();
+            let referent = *self.backrefs.get(p_back).unwrap();
             match referent {
                 Referent::ThisEquiv => (),
                 Referent::ThisTNode(p_tnode) => {
@@ -647,7 +647,7 @@ impl Ensemble {
                 // remove all associated LNodes first
                 let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_back) = adv.advance(&self.backrefs) {
-                    match *self.backrefs.get_key(p_back).unwrap() {
+                    match *self.backrefs.get(p_back).unwrap() {
                         Referent::ThisEquiv => (),
                         Referent::ThisStateBit(p_state, bit_i) => {
                             self.remove_state_bit_not_p_self(p_state, bit_i);
@@ -662,13 +662,10 @@ impl Ensemble {
                     }
                 }
                 // remove the equivalence
-                self.backrefs
-                    .remove_surject(p_equiv.into())
-                    .allow()
-                    .unwrap();
+                let _ = self.backrefs.drain_surject(p_equiv.into()).unwrap();
             }
             Optimization::ForwardEquiv(p_ident) => {
-                let p_source = if let Some(referent) = self.backrefs.get_key(p_ident) {
+                let p_source = if let Some(referent) = self.backrefs.get(p_ident) {
                     if let Referent::ThisLNode(p_lnode) = referent {
                         let lnode = &self.lnodes[p_lnode];
                         if let LNodeKind::Copy(inp) = lnode.kind {
@@ -687,7 +684,7 @@ impl Ensemble {
                 };
                 let mut adv = self.backrefs.advancer_surject(p_ident).unwrap();
                 while let Some(p_back) = adv.advance(&self.backrefs) {
-                    let referent = *self.backrefs.get_key(p_back).unwrap();
+                    let referent = *self.backrefs.get(p_back).unwrap();
                     match referent {
                         Referent::ThisEquiv => (),
                         Referent::ThisLNode(p_lnode) => {
@@ -752,7 +749,7 @@ impl Ensemble {
                 }
                 // remove the equivalence, since everything should be forwarded and nothing
                 // depends on the identity equiv.
-                self.backrefs.remove_surject(p_ident).allow().unwrap();
+                let _ = self.backrefs.drain_surject(p_ident).unwrap();
             }
             Optimization::ConstifyEquiv(p_equiv) => {
                 if !self.backrefs.contains(p_equiv.into()) {
@@ -763,7 +760,7 @@ impl Ensemble {
                 // remove all associated LNodes
                 let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_back) = adv.advance(&self.backrefs) {
-                    match *self.backrefs.get_key(p_back).unwrap() {
+                    match *self.backrefs.get(p_back).unwrap() {
                         Referent::ThisEquiv => (),
                         Referent::ThisLNode(p_lnode) => {
                             self.remove_lnode_not_p_self(p_lnode);
@@ -795,7 +792,7 @@ impl Ensemble {
                 let mut found_use = false;
                 let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_back) = adv.advance(&self.backrefs) {
-                    let referent = *self.backrefs.get_key(p_back).unwrap();
+                    let referent = *self.backrefs.get(p_back).unwrap();
                     match referent {
                         Referent::ThisEquiv => (),
                         Referent::ThisLNode(_) => (),

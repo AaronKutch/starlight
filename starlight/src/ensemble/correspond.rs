@@ -134,7 +134,7 @@ impl Corresponder {
             let mut adv = self.c.advancer_surject(p_start).unwrap();
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
-                let p_meta = *self.c.get_key(p_correspond).unwrap();
+                let p_meta = *self.c.get(p_correspond).unwrap();
                 let p_external = *self.a.get(p_meta).unwrap().k();
                 if p_external != p
                     && let Ok(l) = LazyAwi::try_clone_from(p_external, None)
@@ -178,7 +178,7 @@ impl Corresponder {
             let mut adv = self.c.advancer_surject(p_start).unwrap();
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
-                let p_meta = *self.c.get_key(p_correspond).unwrap();
+                let p_meta = *self.c.get(p_correspond).unwrap();
                 let p_external = *self.a.get(p_meta).unwrap().k();
                 if p_external != p
                     && let Ok(l) = EvalAwi::try_clone_from(p_external)
@@ -216,7 +216,7 @@ impl Corresponder {
             let mut adv = self.c.advancer_surject(p_start).unwrap();
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
-                let p_meta = *self.c.get_key(p_correspond).unwrap();
+                let p_meta = *self.c.get(p_correspond).unwrap();
                 let p_tmp = *self.a.get(p_meta).unwrap().k();
                 if p_tmp != p_external {
                     v.push(p_tmp);

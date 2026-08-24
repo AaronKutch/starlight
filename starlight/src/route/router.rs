@@ -286,7 +286,7 @@ impl Router {
             }
             for path in hyperpath.paths() {
                 if let Some(program_sink) = path.program_sink {
-                    if let Some(referent) = self.program_ensemble().backrefs.get_key(program_sink) {
+                    if let Some(referent) = self.program_ensemble().backrefs.get(program_sink) {
                         if !matches!(referent, Referent::Input(_)) {
                             return Err(Error::OtherString(format!(
                                 "{p_embedding} {embedding:#?} path program sink does not point to \
@@ -707,7 +707,7 @@ impl Router {
                 // skip once
                 adv.advance(&corresponder.c);
                 while let Some(p_correspond) = adv.advance(&corresponder.c) {
-                    let p_meta = *corresponder.c.get_key(p_correspond).unwrap();
+                    let p_meta = *corresponder.c.get(p_correspond).unwrap();
                     let target_p_external = *corresponder.a.get(p_meta).unwrap().k();
                     if let Ok((_, target_rnode)) =
                         self.target_ensemble().notary.get_rnode(target_p_external)
@@ -749,7 +749,7 @@ impl Router {
                 // skip once
                 adv.advance(&corresponder.c);
                 while let Some(p_correspond) = adv.advance(&corresponder.c) {
-                    let p_meta = *corresponder.c.get_key(p_correspond).unwrap();
+                    let p_meta = *corresponder.c.get(p_correspond).unwrap();
                     let p_tmp = *corresponder.a.get(p_meta).unwrap().k();
                     if self.program_ensemble().notary.get_rnode(p_tmp).is_ok() {
                         program_count += 1;

@@ -57,7 +57,7 @@ pub fn surject_arena_canonical_compress_recaster<P: Ptr, K, V, B: ArenaBacking>(
     // this arena will be a recaster in which we create a mapping from the old `Ptr`
     // domain to the new one
     let mut recaster = DirectArena::<P, P>::new();
-    recaster.reallocate_min_capacity(this.len_keys()).unwrap();
+    recaster.reallocate_min_capacity(this.len()).unwrap();
     let mut replacement = SurjectArena::new();
     let generation = if reset_generation {
         <P as Ptr>::Gen::two()

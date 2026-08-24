@@ -72,7 +72,7 @@ impl Ensemble {
         // first check that equivalences aren't broken by themselves
         for p_back in self.backrefs.ptrs() {
             let equiv = self.backrefs.get_val(p_back).unwrap();
-            if let Some(Referent::ThisEquiv) = self.backrefs.get_key(equiv.p_self_equiv.into()) {
+            if let Some(Referent::ThisEquiv) = self.backrefs.get(equiv.p_self_equiv.into()) {
                 if !self
                     .backrefs
                     .in_same_set(p_back, equiv.p_self_equiv.into())
@@ -89,7 +89,7 @@ impl Ensemble {
             }
             // need to roundtrip in both directions to ensure existence and uniqueness of a
             // `ThisEquiv` for each equivalence surject
-            if let Some(Referent::ThisEquiv) = self.backrefs.get_key(p_back)
+            if let Some(Referent::ThisEquiv) = self.backrefs.get(p_back)
                 && p_back != equiv.p_self_equiv.into()
             {
                 return Err(Error::OtherString(format!(
@@ -112,7 +112,7 @@ impl Ensemble {
             for (inx, p_self_bit) in state.p_self_bits.iter().copied().enumerate() {
                 if let Some(p_self_bit) = p_self_bit {
                     if let Some(Referent::ThisStateBit(p_self, inx_self)) =
-                        self.backrefs.get_key(p_self_bit).copied()
+                        self.backrefs.get(p_self_bit).copied()
                     {
                         if (p_state != p_self) || (inx != inx_self) {
                             return Err(Error::OtherString(format!(
@@ -128,8 +128,7 @@ impl Ensemble {
             }
         }
         for (p_lnode, lnode) in &self.lnodes {
-            if let Some(Referent::ThisLNode(p_self)) = self.backrefs.get_key(lnode.p_self).copied()
-            {
+            if let Some(Referent::ThisLNode(p_self)) = self.backrefs.get(lnode.p_self).copied() {
                 if p_lnode != p_self {
                     return Err(Error::OtherString(format!(
                         "{lnode:?}.p_self roundtrip fail"
@@ -140,8 +139,7 @@ impl Ensemble {
             }
         }
         for (p_tnode, tnode) in &self.tnodes {
-            if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get_key(tnode.p_self).copied()
-            {
+            if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get(tnode.p_self).copied() {
                 if p_tnode != p_self {
                     return Err(Error::OtherString(format!(
                         "{tnode:?}.p_self roundtrip fail"
@@ -172,7 +170,7 @@ impl Ensemble {
             let lnode = self.lnodes.get(p_lnode).unwrap();
             let mut res = Ok(());
             lnode.inputs(|p_input| {
-                if let Some(referent) = self.backrefs.get_key(p_input) {
+                if let Some(referent) = self.backrefs.get(p_input) {
                     if let Referent::Input(referent) = referent {
                         if !self.lnodes.contains(*referent) {
                             res = Err(Error::OtherString(format!(
@@ -195,7 +193,7 @@ impl Ensemble {
         }
         for p_tnode in self.tnodes.ptrs() {
             let tnode = self.tnodes.get(p_tnode).unwrap();
-            if let Some(referent) = self.backrefs.get_key(tnode.p_driver).copied() {
+            if let Some(referent) = self.backrefs.get(tnode.p_driver).copied() {
                 if let Referent::Driver(p_driver) = referent {
                     if !self.tnodes.contains(p_driver) {
                         return Err(Error::OtherString(format!(
@@ -219,7 +217,7 @@ impl Ensemble {
             if let Some(bits) = rnode.bits() {
                 for p_back in bits.iter().copied() {
                     if let Some(p_back) = p_back {
-                        if let Some(referent) = self.backrefs.get_key(p_back).copied() {
+                        if let Some(referent) = self.backrefs.get(p_back).copied() {
                             if let Referent::ThisRNode(p_rnode) = referent {
                                 if !self.notary.rnodes().contains(p_rnode) {
                                     return Err(Error::OtherString(format!(
@@ -240,7 +238,7 @@ impl Ensemble {
         }
         // Other roundtrips from `backrefs` direction to ensure bijection
         for p_back in self.backrefs.ptrs() {
-            let referent = self.backrefs.get_key(p_back).unwrap();
+            let referent = self.backrefs.get(p_back).unwrap();
             let fail = match *referent {
                 // already checked
                 Referent::ThisEquiv => false,

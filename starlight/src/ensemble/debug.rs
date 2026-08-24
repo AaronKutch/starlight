@@ -227,7 +227,7 @@ impl Ensemble {
                         let mut v = vec![];
                         let mut adv = self.backrefs.advancer_surject(p_self).unwrap();
                         while let Some(p) = adv.advance(&self.backrefs) {
-                            if let Referent::ThisLNode(_) = self.backrefs.get_key(p).unwrap() {
+                            if let Referent::ThisLNode(_) = self.backrefs.get(p).unwrap() {
                                 // get every LNode that is in this equivalence
                                 v.push(p);
                             }

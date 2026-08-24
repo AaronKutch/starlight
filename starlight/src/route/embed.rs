@@ -73,7 +73,7 @@ impl Router {
                 .advancer_surject(p_start)
                 .unwrap();
             while let Some(p_ref) = adv.advance(&self.program_ensemble.backrefs) {
-                match self.program_ensemble.backrefs.get_key(p_ref) {
+                match self.program_ensemble.backrefs.get(p_ref) {
                     Some(Referent::ThisLNode(p_lnode)) => {
                         assert!(program_source.is_none());
                         program_source = Some(*p_lnode);
@@ -339,8 +339,7 @@ impl Router {
                     .advancer_surject(program_p_equiv.into())
                     .unwrap();
                 while let Some(p_ref) = adv.advance(&self.program_ensemble.backrefs) {
-                    if let Referent::Input(_) =
-                        *self.program_ensemble.backrefs.get_key(p_ref).unwrap()
+                    if let Referent::Input(_) = *self.program_ensemble.backrefs.get(p_ref).unwrap()
                     {
                         paths.push(Path::new(Some(p_ref), path_to_root.clone()));
                     }

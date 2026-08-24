@@ -699,7 +699,7 @@ impl Advancer<SurjectArena<PBack, Referent, Equiv>> for SurjectPLNodeAdvancer {
 
     fn advance(&mut self, collection: &SurjectArena<PBack, Referent, Equiv>) -> Option<Self::Item> {
         while let Some(p_ref) = self.adv.advance(collection) {
-            match collection.get_key(p_ref) {
+            match collection.get(p_ref) {
                 Some(Referent::ThisLNode(p_lnode)) => return Some(*p_lnode),
                 Some(Referent::Input(p_lnode)) => return Some(*p_lnode),
                 _ => (),

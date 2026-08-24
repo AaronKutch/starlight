@@ -19,15 +19,15 @@ fn stats_optimize_funnel() {
     epoch.assert_assertions(true).unwrap();
     epoch.ensemble(|ensemble| {
         assert_eq!(ensemble.stator.states.len(), 68);
-        assert_eq!(ensemble.backrefs.len_keys(), 2607);
-        assert_eq!(ensemble.backrefs.len_vals(), 101);
+        assert_eq!(ensemble.backrefs.len(), 2607);
+        assert_eq!(ensemble.backrefs.len_shared(), 101);
     });
     epoch.optimize(OptimizerOptions::new()).unwrap();
     epoch.assert_assertions(true).unwrap();
     epoch.ensemble(|ensemble| {
         assert_eq!(ensemble.stator.states.len(), 0);
-        assert_eq!(ensemble.backrefs.len_keys(), 1418);
-        assert_eq!(ensemble.backrefs.len_vals(), 101);
+        assert_eq!(ensemble.backrefs.len(), 1418);
+        assert_eq!(ensemble.backrefs.len_shared(), 101);
     });
 }
 
@@ -56,8 +56,8 @@ fn stats_different_prunings() {
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
             assert_eq!(ensemble.stator.states.len(), 15);
-            assert_eq!(ensemble.backrefs.len_keys(), 0);
-            assert_eq!(ensemble.backrefs.len_vals(), 0);
+            assert_eq!(ensemble.backrefs.len(), 0);
+            assert_eq!(ensemble.backrefs.len_shared(), 0);
         });
         epoch.verify_integrity().unwrap();
         epoch.lower().unwrap();
@@ -65,24 +65,24 @@ fn stats_different_prunings() {
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
             assert_eq!(ensemble.stator.states.len(), 12);
-            assert_eq!(ensemble.backrefs.len_keys(), 17);
-            assert_eq!(ensemble.backrefs.len_vals(), 5);
+            assert_eq!(ensemble.backrefs.len(), 17);
+            assert_eq!(ensemble.backrefs.len_shared(), 5);
         });
         epoch.lower_and_prune().unwrap();
         epoch.verify_integrity().unwrap();
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
             assert_eq!(ensemble.stator.states.len(), 0);
-            assert_eq!(ensemble.backrefs.len_keys(), 12);
-            assert_eq!(ensemble.backrefs.len_vals(), 5);
+            assert_eq!(ensemble.backrefs.len(), 12);
+            assert_eq!(ensemble.backrefs.len_shared(), 5);
         });
         epoch.optimize(OptimizerOptions::new()).unwrap();
         epoch.verify_integrity().unwrap();
         epoch.ensemble(|ensemble| {
             assert_eq!(ensemble.notary.rnodes().len(), 3);
             assert_eq!(ensemble.stator.states.len(), 0);
-            assert_eq!(ensemble.backrefs.len_keys(), 8);
-            assert_eq!(ensemble.backrefs.len_vals(), 3);
+            assert_eq!(ensemble.backrefs.len(), 8);
+            assert_eq!(ensemble.backrefs.len_shared(), 3);
         });
 
         for i in 0..(1 << w.get()) {
@@ -121,11 +121,11 @@ fn stats_loop_net() {
         epoch.ensemble(|ensemble| assert_eq!(ensemble.stator.states.len(), 16));
         epoch.lower().unwrap();
         epoch.ensemble(|ensemble| assert_eq!(ensemble.stator.states.len(), 12));
-        epoch.ensemble(|ensemble| assert_eq!(ensemble.backrefs.len_vals(), 8));
-        epoch.ensemble(|ensemble| assert_eq!(ensemble.backrefs.len_keys(), 34));
+        epoch.ensemble(|ensemble| assert_eq!(ensemble.backrefs.len_shared(), 8));
+        epoch.ensemble(|ensemble| assert_eq!(ensemble.backrefs.len(), 34));
         epoch.optimize(OptimizerOptions::new()).unwrap();
-        epoch.ensemble(|ensemble| assert_eq!(ensemble.backrefs.len_vals(), 5));
-        epoch.ensemble(|ensemble| assert_eq!(ensemble.backrefs.len_keys(), 15));
+        epoch.ensemble(|ensemble| assert_eq!(ensemble.backrefs.len_shared(), 5));
+        epoch.ensemble(|ensemble| assert_eq!(ensemble.backrefs.len(), 15));
         for i in 0..2 {
             let mut inx = Awi::zero(bw(2));
             inx.usize_(i);

@@ -293,7 +293,7 @@ impl Channeler {
                 let mut adv = ensemble.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                     use crate::ensemble::Referent::*;
-                    match ensemble.backrefs.get_key(p_ref).unwrap() {
+                    match ensemble.backrefs.get(p_ref).unwrap() {
                         ThisEquiv | ThisStateBit(..) | ThisRNode(_) => (),
                         Input(_) => input_count += 1,
                         ThisTNode(_) | Driver(_) => {
@@ -335,7 +335,7 @@ impl Channeler {
                 let mut adv = ensemble.backrefs.advancer_surject(p_equiv.into()).unwrap();
                 while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                     use crate::ensemble::Referent::*;
-                    match *ensemble.backrefs.get_key(p_ref).unwrap() {
+                    match *ensemble.backrefs.get(p_ref).unwrap() {
                         ThisEquiv | ThisStateBit(..) | ThisRNode(_) | Input(_) | Driver(_) => (),
                         ThisLNode(_) => {
                             driver_count += 1;
@@ -415,7 +415,7 @@ impl Channeler {
                 let mut adv = ensemble.backrefs.advancer_surject(p_back).unwrap();
                 while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                     use crate::ensemble::Referent::*;
-                    match *ensemble.backrefs.get_key(p_ref).unwrap() {
+                    match *ensemble.backrefs.get(p_ref).unwrap() {
                         ThisEquiv | ThisLNode(_) | ThisStateBit(..) | Input(_) | ThisRNode(_) => (),
                         ThisTNode(p_tnode) | Driver(p_tnode) => {
                             let tnode = ensemble.tnodes.get(p_tnode).unwrap();
@@ -568,7 +568,7 @@ impl Channeler {
                     let mut adv = ensemble.backrefs.advancer_surject(p_back).unwrap();
                     while let Some(p_ref) = adv.advance(&ensemble.backrefs) {
                         use crate::ensemble::Referent::*;
-                        match *ensemble.backrefs.get_key(p_ref).unwrap() {
+                        match *ensemble.backrefs.get(p_ref).unwrap() {
                             ThisEquiv | ThisLNode(_) | ThisStateBit(..) | Input(_)
                             | ThisRNode(_) => (),
                             Driver(_) => (),

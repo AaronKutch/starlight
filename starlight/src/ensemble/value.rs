@@ -288,7 +288,7 @@ impl Ensemble {
         // problem that this is an impossible problem to solve in general, but there
         // might be a good approximate way to detect nonhalting. In either case we need
         // a way to specify event gas.
-        let mut event_gas = self.backrefs.len_keys() * 4;
+        let mut event_gas = self.backrefs.len() * 4;
         while let Some(event) = self.evaluator.pop_event() {
             let res = self.handle_event(event);
             if res.is_err() {
@@ -352,7 +352,7 @@ impl Ensemble {
             // create any needed events
             let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
             while let Some(p_back) = adv.advance(&self.backrefs) {
-                let referent = *self.backrefs.get_key(p_back).unwrap();
+                let referent = *self.backrefs.get(p_back).unwrap();
                 match referent {
                     Referent::ThisEquiv
                     | Referent::ThisLNode(_)
