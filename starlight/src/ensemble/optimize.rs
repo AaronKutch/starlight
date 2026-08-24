@@ -676,7 +676,7 @@ impl Ensemble {
                     }
                 }
                 // remove the equivalence
-                let _ = self.backrefs.drain_surject(p_equiv.into()).unwrap();
+                self.backrefs.remove_shared(p_equiv.into()).unwrap().allow();
             }
             Optimization::ForwardEquiv(p_ident) => {
                 let p_source = if let Some(referent) = self.backrefs.get(p_ident) {
@@ -761,7 +761,7 @@ impl Ensemble {
                 }
                 // remove the equivalence, since everything should be forwarded and nothing
                 // depends on the identity equiv.
-                let _ = self.backrefs.drain_surject(p_ident).unwrap();
+                self.backrefs.remove_shared(p_ident).unwrap().allow();
             }
             Optimization::ConstifyEquiv(p_equiv) => {
                 if !self.backrefs.contains(p_equiv.into()) {
