@@ -196,12 +196,8 @@ impl Ensemble {
     pub fn make_tnode(&mut self, p_source: PBack, p_driver: PBack, delay: Delay) -> PTNode {
         let entry = self.tnodes.entry_insert();
         let p_tnode = entry.ptr();
-        let p_driver = self
-            .backrefs
-            .insert_key(p_driver, Referent::Driver(p_tnode));
-        let p_self = self
-            .backrefs
-            .insert_key(p_source, Referent::ThisTNode(p_tnode));
+        let p_driver = self.backrefs.insert(p_driver, Referent::Driver(p_tnode));
+        let p_self = self.backrefs.insert(p_source, Referent::ThisTNode(p_tnode));
         entry.insert(TNode::new(p_self, p_driver, delay));
         p_tnode
     }
@@ -231,7 +227,7 @@ impl Ensemble {
             }
             for p_tnode in events.tnode_drives.iter().copied() {
                 if let Some(tnode) = self.tnodes.get(p_tnode) {
-                    let val = self.backrefs.get_val(tnode.p_driver).unwrap().val;
+                    let val = self.backrefs.get_shared(tnode.p_driver).unwrap().val;
                     let p_equiv = self.get_p_equiv(tnode.p_self).unwrap();
                     // TODO if we don't unwrap, we need to reregister events
                     self.change_value(p_equiv, val, NonZeroU64::new(1).unwrap())

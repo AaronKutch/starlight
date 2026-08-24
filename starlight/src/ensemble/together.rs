@@ -71,11 +71,11 @@ impl Ensemble {
 
         // first check that equivalences aren't broken by themselves
         for p_back in self.backrefs.ptrs() {
-            let equiv = self.backrefs.get_val(p_back).unwrap();
+            let equiv = self.backrefs.get_shared(p_back).unwrap();
             if let Some(Referent::ThisEquiv) = self.backrefs.get(equiv.p_self_equiv.into()) {
                 if !self
                     .backrefs
-                    .in_same_set(p_back, equiv.p_self_equiv.into())
+                    .in_same_surject(p_back, equiv.p_self_equiv.into())
                     .unwrap()
                 {
                     return Err(Error::OtherString(format!(
@@ -150,7 +150,7 @@ impl Ensemble {
             }
         }
         // check other referent validities
-        for referent in self.backrefs.keys().copied() {
+        for referent in self.backrefs.vals().copied() {
             let invalid = match referent {
                 // already checked
                 Referent::ThisEquiv => false,
@@ -379,7 +379,7 @@ impl Ensemble {
         let p_lnode_recaster = compress_recaster(&mut self.lnodes, true);
         let p_rnode_recaster = self.notary.recast_p_rnode();
 
-        for referent in self.backrefs.keys_mut() {
+        for referent in self.backrefs.vals_mut() {
             match referent {
                 Referent::ThisEquiv => (),
                 Referent::ThisLNode(p_lnode) => {
@@ -447,12 +447,12 @@ impl Ensemble {
     }
 
     pub fn get_p_equiv(&self, p_back: PBack) -> Option<PEquiv> {
-        Some(self.backrefs.get_val(p_back)?.p_self_equiv)
+        Some(self.backrefs.get_shared(p_back)?.p_self_equiv)
     }
 
     /// Inserts a `LNode` with `lit` value and returns a `PBack` to it
     pub fn make_literal(&mut self, lit: Option<bool>) -> PBack {
-        let entry = self.backrefs.entry_insert_reallocating().unwrap();
+        let entry = self.backrefs.entry_insert_surject_reallocating().unwrap();
         let p_equiv = entry.ptr();
         entry.insert(
             Referent::ThisEquiv,
@@ -470,7 +470,7 @@ impl Ensemble {
     pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), Error> {
         let [equiv0, equiv1] = self
             .backrefs
-            .get_disjoint_val_mut([p_equiv0, p_equiv1])
+            .get_disjoint_shared_mut([p_equiv0, p_equiv1])
             .unwrap();
         if (equiv0.val.is_const() && equiv1.val.is_const()) && (equiv0.val != equiv1.val) {
             panic!("tried to merge two const equivalences with differing values");
@@ -489,7 +489,7 @@ impl Ensemble {
         let (removed_equiv, _) = self.backrefs.union(p_equiv0, p_equiv1).unwrap();
         // remove the extra `ThisEquiv`
         self.backrefs
-            .remove_key(removed_equiv.p_self_equiv.into())
+            .remove_element(removed_equiv.p_self_equiv.into())
             .allow()
             .unwrap();
         Ok(())

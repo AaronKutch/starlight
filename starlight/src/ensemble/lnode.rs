@@ -418,7 +418,7 @@ impl LNode {
                         DynamicValue::ConstUnknown => return None,
                         DynamicValue::Const(_) => return None,
                         DynamicValue::Dynam(p1) => {
-                            if !backrefs.in_same_set(p0, p1).unwrap() {
+                            if !backrefs.in_same_surject(p0, p1).unwrap() {
                                 return None;
                             }
                         }
@@ -472,7 +472,7 @@ impl Ensemble {
         let lnode = self.lnodes.get(p_lnode).unwrap();
         Ok(match &lnode.kind {
             LNodeKind::Copy(p_inp) => {
-                let inp_equiv = self.backrefs.get_val(*p_inp).unwrap();
+                let inp_equiv = self.backrefs.get_shared(*p_inp).unwrap();
                 let inp_partial_ord_num = inp_equiv.evaluator_partial_order;
                 let inp_val = inp_equiv.val;
                 (inp_val, inp_partial_ord_num)
@@ -483,7 +483,7 @@ impl Ensemble {
                 let mut max_partial_ord_num = NonZeroU64::new(1).unwrap();
                 for i in (0..len).rev() {
                     let p_inp = inp[i];
-                    let equiv = self.backrefs.get_val(p_inp).unwrap();
+                    let equiv = self.backrefs.get_shared(p_inp).unwrap();
                     max_partial_ord_num = max(max_partial_ord_num, equiv.evaluator_partial_order);
                     if let Some(b) = equiv.val.known_value() {
                         LNode::reduce_lut(&mut lut, i, b);
@@ -508,7 +508,7 @@ impl Ensemble {
                 let mut max_partial_ord_num = NonZeroU64::new(1).unwrap();
                 for i in 0..inp_len {
                     let p_inp = inp[i];
-                    let equiv = self.backrefs.get_val(p_inp).unwrap();
+                    let equiv = self.backrefs.get_shared(p_inp).unwrap();
                     max_partial_ord_num = max(max_partial_ord_num, equiv.evaluator_partial_order);
                     if let Some(b) = equiv.val.known_value() {
                         inp_val.set(i, b).unwrap();
@@ -526,7 +526,7 @@ impl Ensemble {
                             lut.set(i, b).unwrap()
                         }
                         DynamicValue::Dynam(p) => {
-                            let equiv = self.backrefs.get_val(p).unwrap();
+                            let equiv = self.backrefs.get_shared(p).unwrap();
                             if let Some(b) = equiv.val.known_value() {
                                 lut_known.set(i, true).unwrap();
                                 lut.set(i, b).unwrap();
@@ -587,22 +587,19 @@ impl Ensemble {
                 }
             }
         }
-        let entry = self.backrefs.entry_insert_reallocating().unwrap();
+        let entry = self.backrefs.entry_insert_surject_reallocating().unwrap();
         let p_equiv = entry.ptr();
         entry.insert(Referent::ThisEquiv, Equiv::new(p_equiv, Value::Unknown));
         let lnodes_entry = self.lnodes.entry_insert();
         let p_lnode = lnodes_entry.ptr();
-        let entry = self
-            .backrefs
-            .entry_insert_key_reallocating(p_equiv)
-            .unwrap();
+        let entry = self.backrefs.entry_insert_reallocating(p_equiv).unwrap();
         let p_self = entry.ptr();
         entry.insert(Referent::ThisLNode(p_lnode));
         let mut inp = smallvec![];
         for p_inx in p_inxs {
             let p_back = self
                 .backrefs
-                .insert_key(p_inx.unwrap(), Referent::Input(p_lnode));
+                .insert(p_inx.unwrap(), Referent::Input(p_lnode));
             inp.push(p_back);
         }
         lnodes_entry.insert(LNode::new(
@@ -615,7 +612,7 @@ impl Ensemble {
         // calculate now. This is also where partial ordering is initialized in a way
         // that should preclude initial inefficiency in most cases
         let (init_val, source_partial_ordering) = self.calculate_lnode_value(p_lnode).unwrap();
-        let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
+        let equiv = self.backrefs.get_shared_mut(p_equiv).unwrap();
         equiv.val = init_val;
         equiv.evaluator_partial_order = source_partial_ordering.checked_add(1).unwrap();
         p_equiv
@@ -640,27 +637,23 @@ impl Ensemble {
                 }
             }
         }
-        let entry = self.backrefs.entry_insert_reallocating().unwrap();
+        let entry = self.backrefs.entry_insert_surject_reallocating().unwrap();
         let p_equiv = entry.ptr();
         entry.insert(Referent::ThisEquiv, Equiv::new(p_equiv, Value::Unknown));
         let lnodes_entry = self.lnodes.entry_insert();
         let p_lnode = lnodes_entry.ptr();
-        let p_self = self
-            .backrefs
-            .insert_key(p_equiv, Referent::ThisLNode(p_lnode));
+        let p_self = self.backrefs.insert(p_equiv, Referent::ThisLNode(p_lnode));
         let mut inp = smallvec![];
         for p_inx in p_inxs {
             let p_back = self
                 .backrefs
-                .insert_key(p_inx.unwrap(), Referent::Input(p_lnode));
+                .insert(p_inx.unwrap(), Referent::Input(p_lnode));
             inp.push(p_back);
         }
         let mut lut = vec![];
         for p_lut_bit in p_lut_bits.iter().copied() {
             if let DynamicValue::Dynam(p_lut_bit) = p_lut_bit {
-                let p_back = self
-                    .backrefs
-                    .insert_key(p_lut_bit, Referent::Input(p_lnode));
+                let p_back = self.backrefs.insert(p_lut_bit, Referent::Input(p_lnode));
                 lut.push(DynamicValue::Dynam(p_back));
             } else {
                 lut.push(p_lut_bit);
@@ -673,7 +666,7 @@ impl Ensemble {
         ));
         // same as in the static LUT case
         let (init_val, source_partial_ordering) = self.calculate_lnode_value(p_lnode).unwrap();
-        let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
+        let equiv = self.backrefs.get_shared_mut(p_equiv).unwrap();
         equiv.val = init_val;
         equiv.evaluator_partial_order = source_partial_ordering.checked_add(1).unwrap();
         p_equiv

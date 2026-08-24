@@ -176,7 +176,7 @@ impl Router {
             if let Some(bits) = rnode.bits() {
                 let mut ok = false;
                 if let Some(Some(bit)) = bits.get(mapping_target.target_bit_i)
-                    && let Some(bit) = self.target_ensemble().backrefs.get_val(*bit)
+                    && let Some(bit) = self.target_ensemble().backrefs.get_shared(*bit)
                     && bit.p_self_equiv == mapping_target.target_p_equiv
                 {
                     ok = true;
@@ -220,7 +220,7 @@ impl Router {
                 if let Some(bits) = rnode.bits() {
                     let mut ok = false;
                     if let Some(Some(bit)) = bits.get(mapping.program_bit_i)
-                        && let Some(bit) = self.program_ensemble().backrefs.get_val(*bit)
+                        && let Some(bit) = self.program_ensemble().backrefs.get_shared(*bit)
                         && bit.p_self_equiv == *program_p_equiv
                     {
                         ok = true;
@@ -441,7 +441,7 @@ impl Router {
                         let bit = self
                             .target_ensemble()
                             .backrefs
-                            .get_val(bit)
+                            .get_shared(bit)
                             .unwrap()
                             .p_self_equiv;
                         if let Some(q_cnode) = self.target_channeler().translate_equiv(bit) {
@@ -602,13 +602,13 @@ impl Router {
                             let program_p_equiv = self
                                 .program_ensemble
                                 .backrefs
-                                .get_val(program_bit)
+                                .get_shared(program_bit)
                                 .unwrap()
                                 .p_self_equiv;
                             let target_p_equiv = self
                                 .target_ensemble
                                 .backrefs
-                                .get_val(target_bit)
+                                .get_shared(target_bit)
                                 .unwrap()
                                 .p_self_equiv;
 

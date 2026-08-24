@@ -164,7 +164,7 @@ impl Ensemble {
         }
         let mut bits = smallvec![];
         for i in 0..state.nzbw.get() {
-            let entry = self.backrefs.entry_insert_reallocating().unwrap();
+            let entry = self.backrefs.entry_insert_surject_reallocating().unwrap();
             let p_equiv = entry.ptr();
             entry.insert(
                 Referent::ThisEquiv,
@@ -185,7 +185,7 @@ impl Ensemble {
             );
             bits.push(Some(
                 self.backrefs
-                    .insert_key(p_equiv, Referent::ThisStateBit(p_state, i)),
+                    .insert(p_equiv, Referent::ThisStateBit(p_state, i)),
             ));
         }
         let state = self.stator.states.get_mut(p_state).unwrap();
@@ -218,7 +218,7 @@ impl Ensemble {
                 let mut state = self.stator.states.remove(p).allow().unwrap();
                 for p_self_state in state.p_self_bits.drain(..) {
                     if let Some(p_self_state) = p_self_state {
-                        self.backrefs.remove_key(p_self_state).allow().unwrap();
+                        self.backrefs.remove_element(p_self_state).allow().unwrap();
                     }
                 }
             }
@@ -233,7 +233,7 @@ impl Ensemble {
         for (_, mut state) in self.stator.states.drain().map(|x| x.allow()) {
             for p_self_state in state.p_self_bits.drain(..) {
                 if let Some(p_self_state) = p_self_state {
-                    self.backrefs.remove_key(p_self_state).allow().unwrap();
+                    self.backrefs.remove_element(p_self_state).allow().unwrap();
                 }
             }
         }
@@ -735,7 +735,7 @@ fn lower_elementary_to_lnodes_intermediate(
 
                             // however we do want the initial value to detect immediate quiescence
                             // when the driver is already `Unknown`
-                            let init_val = this.backrefs.get_val(p_driver).unwrap().val;
+                            let init_val = this.backrefs.get_shared(p_driver).unwrap().val;
                             let p_source = this.stator.states[p_state].p_self_bits[i].unwrap();
 
                             let p_tnode = this.make_tnode(p_source, p_driver, delay);
@@ -781,7 +781,7 @@ fn lower_elementary_to_lnodes_intermediate(
                                 this.stator.states[p_driver_state].p_self_bits[i].unwrap();
                             let p_initial =
                                 this.stator.states[p_initial_state].p_self_bits[i].unwrap();
-                            let init_val = this.backrefs.get_val(p_initial).unwrap().val;
+                            let init_val = this.backrefs.get_shared(p_initial).unwrap().val;
                             // the loop source is an internal `Opaque` root at this point, we
                             // initiate the initial event chain ourselves.
 
@@ -874,7 +874,7 @@ fn lower_elementary_to_lnodes_intermediate(
                                 this.stator.states[p_driver_state].p_self_bits[i].unwrap();
                             let p_initial =
                                 this.stator.states[p_initial_state].p_self_bits[i].unwrap();
-                            let init_val = this.backrefs.get_val(p_initial).unwrap().val;
+                            let init_val = this.backrefs.get_shared(p_initial).unwrap().val;
 
                             let p_tnode = this.make_tnode(p_looper, p_driver, delay);
                             if !delay.is_zero() {

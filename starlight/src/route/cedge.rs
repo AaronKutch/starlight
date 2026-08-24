@@ -265,7 +265,7 @@ impl Channeler {
                     if let Some(bit) = rnode.bits().unwrap().get(config.bit_i) {
                         let p_tmp = ensemble
                             .backrefs
-                            .get_val(bit.unwrap())
+                            .get_shared(bit.unwrap())
                             .unwrap()
                             .p_self_equiv;
                         assert_eq!(p_tmp, *p_equiv);
@@ -282,7 +282,7 @@ impl Channeler {
 
         // for each equivalence make a `CNode` with associated `EnsembleBackref`, unless
         // it is one of the configurable bits
-        for equiv in ensemble.backrefs.vals() {
+        for equiv in ensemble.backrefs.shared_vals() {
             let p_equiv = equiv.p_self_equiv;
             if let Some(p_config) = configurator.configurations.find_key(&p_equiv) {
                 let config = configurator.configurations.get(p_config).unwrap().v();
@@ -390,7 +390,7 @@ impl Channeler {
                 .unwrap();
             let node_visit = &mut ensemble
                 .backrefs
-                .get_val_mut(p_equiv.into())
+                .get_shared_mut(p_equiv.into())
                 .unwrap()
                 .alg_visit;
             if *node_visit == visit {
@@ -402,7 +402,7 @@ impl Channeler {
             // one
             nodes.push(tnode.p_driver);
             while let Some(p_back) = nodes.pop() {
-                let p_equiv = ensemble.backrefs.get_val(p_back).unwrap().p_self_equiv;
+                let p_equiv = ensemble.backrefs.get_shared(p_back).unwrap().p_self_equiv;
                 let p_cnode_old = channeler.translate_equiv(p_equiv).unwrap();
                 if p_cnode_old != p_forward {
                     // remove cnode, because of cycles we can't have the cnode generation phase
@@ -421,7 +421,7 @@ impl Channeler {
                             let tnode = ensemble.tnodes.get(p_tnode).unwrap();
                             let alg_visit = &mut ensemble
                                 .backrefs
-                                .get_val_mut(tnode.p_driver)
+                                .get_shared_mut(tnode.p_driver)
                                 .unwrap()
                                 .alg_visit;
                             if *alg_visit != visit {
@@ -430,7 +430,7 @@ impl Channeler {
                             }
                             let alg_visit = &mut ensemble
                                 .backrefs
-                                .get_val_mut(tnode.p_self)
+                                .get_shared_mut(tnode.p_self)
                                 .unwrap()
                                 .alg_visit;
                             if *alg_visit != visit {
@@ -562,7 +562,7 @@ impl Channeler {
             for (input_i, input) in inputs.iter().copied().enumerate() {
                 let mut total_delay = NonZeroU32::new(1).unwrap();
                 let visit = ensemble.next_alg_visit();
-                ensemble.backrefs.get_val_mut(input).unwrap().alg_visit = visit;
+                ensemble.backrefs.get_shared_mut(input).unwrap().alg_visit = visit;
                 let mut next_node = Some(input);
                 'outer: while let Some(p_back) = next_node.take() {
                     let mut adv = ensemble.backrefs.advancer_surject(p_back).unwrap();
@@ -587,7 +587,7 @@ impl Channeler {
                                 // unstructured, diamonds should be rare
                                 let alg_visit = &mut ensemble
                                     .backrefs
-                                    .get_val_mut(tnode.p_driver)
+                                    .get_shared_mut(tnode.p_driver)
                                     .unwrap()
                                     .alg_visit;
                                 // this is to prevent nontermination in loops

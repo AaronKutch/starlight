@@ -53,7 +53,7 @@ impl Corresponder {
             if let Some(p_meta) = self.a.find_key(&p) {
                 *self.a.get(p_meta).unwrap().v()
             } else {
-                let entry = self.c.entry_insert_reallocating().unwrap();
+                let entry = self.c.entry_insert_surject_reallocating().unwrap();
                 let p_c = entry.ptr();
                 let p_meta = self.a.insert(OrdPair::new(p, p_c)).0;
                 entry.insert(p_meta, w);
@@ -93,7 +93,7 @@ impl Corresponder {
             if let Some(p_meta) = self.a.find_key(&p) {
                 *self.a.get(p_meta).unwrap().v()
             } else {
-                let entry = self.c.entry_insert_reallocating().unwrap();
+                let entry = self.c.entry_insert_surject_reallocating().unwrap();
                 let p_c = entry.ptr();
                 let p_meta = self.a.insert(OrdPair::new(p, p_c)).0;
                 entry.insert(p_meta, w);

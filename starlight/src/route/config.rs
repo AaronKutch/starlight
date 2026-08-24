@@ -66,7 +66,7 @@ impl Configurator {
         if let Some(bits) = rnode.bits() {
             for (bit_i, bit) in bits.iter().copied().enumerate() {
                 if let Some(bit) = bit {
-                    let p_equiv = ensemble.backrefs.get_val(bit).unwrap().p_self_equiv;
+                    let p_equiv = ensemble.backrefs.get_shared(bit).unwrap().p_self_equiv;
                     let (_, replaced) = self.configurations.insert(OrdPair::new(p_equiv, Config {
                         p_external,
                         bit_i,
@@ -124,7 +124,7 @@ impl Router {
                     let bit = self
                         .target_ensemble()
                         .backrefs
-                        .get_val(bit)
+                        .get_shared(bit)
                         .unwrap()
                         .p_self_equiv;
                     if let Some(p_config) = self.configurator.find(bit) {

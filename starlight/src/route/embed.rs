@@ -58,7 +58,11 @@ impl Router {
         let visit = self.program_ensemble.next_alg_visit();
         let mut front = vec![p_init];
         while let Some(p_start) = front.pop() {
-            let node = self.program_ensemble.backrefs.get_val_mut(p_start).unwrap();
+            let node = self
+                .program_ensemble
+                .backrefs
+                .get_shared_mut(p_start)
+                .unwrap();
             if node.alg_visit == visit {
                 continue;
             }
@@ -107,7 +111,11 @@ impl Router {
                 }
             }
 
-            let node = self.program_ensemble.backrefs.get_val_mut(p_start).unwrap();
+            let node = self
+                .program_ensemble
+                .backrefs
+                .get_shared_mut(p_start)
+                .unwrap();
             if node.p_node_embed.is_none() {
                 node.p_node_embed = Some(self.node_embeddings.insert(NodeEmbed::new(
                     node.p_self_equiv,
@@ -138,7 +146,7 @@ impl Router {
         let node = self
             .program_ensemble
             .backrefs
-            .get_val_mut(program_node.into())
+            .get_shared_mut(program_node.into())
             .unwrap();
         if node.p_node_embed.is_none() {
             if let Some(common_root) = common_root {
@@ -158,7 +166,7 @@ impl Router {
         let node = self
             .program_ensemble
             .backrefs
-            .get_val(program_node.into())
+            .get_shared(program_node.into())
             .unwrap();
         // should be embedded now if it wasn't already at the beginning of the function,
         // now we make it more specific
@@ -424,7 +432,7 @@ impl Router {
         // in case of rerouting we need to clear old embeddings
         self.node_embeddings.clear().allow();
         self.edge_embeddings.clear().allow();
-        for node in self.program_ensemble.backrefs.vals_mut() {
+        for node in self.program_ensemble.backrefs.shared_vals_mut() {
             node.p_node_embed = None;
         }
         for node in self.program_ensemble.lnodes.vals_mut() {

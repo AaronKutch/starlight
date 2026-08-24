@@ -330,7 +330,7 @@ impl Ensemble {
         value: Value,
         source_partial_ord_num: NonZeroU64,
     ) -> Result<(), Error> {
-        if let Some(equiv) = self.backrefs.get_val_mut(p_equiv.into()) {
+        if let Some(equiv) = self.backrefs.get_shared_mut(p_equiv.into()) {
             if equiv.val == value {
                 // no change needed
                 return Ok(());
@@ -411,7 +411,7 @@ impl Ensemble {
         let tnode = self.tnodes.get(p_tnode).unwrap();
         if tnode.delay().is_zero() {
             let p_driver = tnode.p_driver;
-            let equiv = self.backrefs.get_val(p_driver).unwrap();
+            let equiv = self.backrefs.get_shared(p_driver).unwrap();
             let partial_ord_num = equiv.evaluator_partial_order;
             let p_equiv = self.get_p_equiv(tnode.p_self).unwrap();
             self.change_value(p_equiv, equiv.val, partial_ord_num)
@@ -423,12 +423,12 @@ impl Ensemble {
     }
 
     pub fn request_value(&mut self, p_back: PBack) -> Result<Value, Error> {
-        if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
+        if let Some(equiv) = self.backrefs.get_shared_mut(p_back) {
             if equiv.val.is_const() {
                 return Ok(equiv.val);
             }
             self.switch_to_request_phase()?;
-            Ok(self.backrefs.get_val(p_back).unwrap().val)
+            Ok(self.backrefs.get_shared(p_back).unwrap().val)
         } else {
             Err(Error::InvalidPtr)
         }

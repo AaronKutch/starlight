@@ -331,10 +331,10 @@ impl Ensemble {
                 for i in 0..len {
                     let p_bit = self.stator.states[p_state].p_self_bits[i];
                     if let Some(p_bit) = p_bit {
-                        let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
+                        let p_equiv = self.backrefs.get_shared(p_bit).unwrap().p_self_equiv;
                         let p_back_new = self
                             .backrefs
-                            .insert_key(p_equiv.into(), Referent::ThisRNode(p_rnode));
+                            .insert(p_equiv.into(), Referent::ThisRNode(p_rnode));
                         self.notary.rnodes[p_rnode]
                             .v_mut()
                             .bits
@@ -403,7 +403,7 @@ impl Ensemble {
         }
         for p_back in rnode.bits {
             if let Some(p_back) = p_back {
-                let referent = self.backrefs.remove_key(p_back).allow().unwrap().0;
+                let referent = self.backrefs.remove_element(p_back).allow().unwrap().0;
                 debug_assert!(matches!(referent, Referent::ThisRNode(_)));
             }
         }

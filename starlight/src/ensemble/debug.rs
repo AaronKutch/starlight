@@ -213,7 +213,7 @@ impl Ensemble {
     pub fn backrefs_to_chain_arena(&self) -> ChainArena<PBack, Referent> {
         let mut chain_arena = ChainArena::new();
         self.backrefs
-            .clone_keys_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode)
+            .clone_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode)
             .unwrap();
         chain_arena
     }
@@ -221,7 +221,7 @@ impl Ensemble {
     pub fn to_debug(&self) -> Arena<PBack, NodeKind> {
         let mut arena = Arena::<PBack, NodeKind>::new();
         self.backrefs
-            .clone_keys_to_arena(&mut arena, |p_self, referent| {
+            .clone_to_arena(&mut arena, |p_self, referent| {
                 match *referent {
                     Referent::ThisEquiv => {
                         let mut v = vec![];
@@ -232,12 +232,12 @@ impl Ensemble {
                                 v.push(p);
                             }
                         }
-                        NodeKind::Equiv(self.backrefs.get_val(p_self).unwrap().clone(), v)
+                        NodeKind::Equiv(self.backrefs.get_shared(p_self).unwrap().clone(), v)
                     }
                     Referent::ThisStateBit(p_state, i) => {
                         let state = self.stator.states.get(p_state).unwrap().clone();
                         if let Some(p_bit) = state.p_self_bits[i] {
-                            let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
+                            let p_equiv = self.backrefs.get_shared(p_bit).unwrap().p_self_equiv;
                             NodeKind::StateBit(StateBit {
                                 p_equiv: Some(p_equiv),
                                 p_state,
@@ -257,7 +257,7 @@ impl Ensemble {
                         // forward to the `PBack`s of LNodes
                         lnode.inputs_mut(|inp| {
                             p_inputs.push(*inp);
-                            let p_input = self.backrefs.get_val(*inp).unwrap().p_self_equiv;
+                            let p_input = self.backrefs.get_shared(*inp).unwrap().p_self_equiv;
                             *inp = p_input.into();
                         });
                         NodeKind::LNode(LNodeTmp {
@@ -269,8 +269,12 @@ impl Ensemble {
                     Referent::ThisTNode(p_tnode) => {
                         let tnode = self.tnodes.get(p_tnode).unwrap();
                         // forward to the `PBack`s
-                        let p_self = self.backrefs.get_val(tnode.p_self).unwrap().p_self_equiv;
-                        let p_driver = self.backrefs.get_val(tnode.p_driver).unwrap().p_self_equiv;
+                        let p_self = self.backrefs.get_shared(tnode.p_self).unwrap().p_self_equiv;
+                        let p_driver = self
+                            .backrefs
+                            .get_shared(tnode.p_driver)
+                            .unwrap()
+                            .p_self_equiv;
                         NodeKind::TNode(TNodeTmp {
                             p_self: p_self.into(),
                             p_driver: p_driver.into(),
@@ -287,7 +291,7 @@ impl Ensemble {
                                 }
                             }
                         }
-                        let equiv = self.backrefs.get_val(p_self).unwrap();
+                        let equiv = self.backrefs.get_shared(p_self).unwrap();
                         NodeKind::RNode(RNodeTmp {
                             p_self,
                             p_equiv: equiv.p_self_equiv,
