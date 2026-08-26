@@ -24,6 +24,7 @@
 //! ```rust
 //! use std::num::NonZeroUsize;
 //! use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi, OptimizerOptions};
+//! use crate::starlight::triple_arena::traits::ArenaTrait;
 //!
 //! // in the scope where this is glob imported, all arbitrary width types, some primitives, and
 //! // the mechanisms in the macros will use mimicking types and be lazily evaluated in general.

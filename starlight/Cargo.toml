@@ -38,8 +38,6 @@ gen_counters = []
 gen_counter_for_pstate = ["awint/gen_counter_for_pstate"]
 
 [dependencies]
-awint = { path = "../../awint/awint", default-features = false, features = ["rand_support", "dag"] }
-#awint = { version = "0.17", default-features = false, features = ["rand_support", "dag"] }
-rand = { version = "0.10", default-features = false, features = ["thread_rng"] }
-rand_xoshiro = { version = "0.8", default-features = false }
-thiserror = "2.0"
+awint = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }

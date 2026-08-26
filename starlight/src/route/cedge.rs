@@ -258,17 +258,17 @@ impl Channeler {
         // only to protect against things like accidentally using the program as the
         // target or if the configurator was used in multiple ensembles
         for pair in configurator.configurations.vals() {
-            let (p_equiv, config) = pair.k_v();
-            if let Ok((_, rnode)) = ensemble.notary.get_rnode(config.p_external) {
+            let (_p_equiv, config) = pair.k_v();
+            if let Ok((_, _rnode)) = ensemble.notary.get_rnode(config.p_external) {
                 #[cfg(debug_assertions)]
                 {
-                    if let Some(bit) = rnode.bits().unwrap().get(config.bit_i) {
+                    if let Some(bit) = _rnode.bits().unwrap().get(config.bit_i) {
                         let p_tmp = ensemble
                             .backrefs
                             .get_shared(bit.unwrap())
                             .unwrap()
                             .p_self_equiv;
-                        assert_eq!(p_tmp, *p_equiv);
+                        assert_eq!(p_tmp, *_p_equiv);
                     } else {
                         unreachable!()
                     }

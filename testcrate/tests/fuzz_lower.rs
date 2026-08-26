@@ -5,10 +5,10 @@ use std::{
     num::NonZeroUsize,
 };
 
+use star_rng::StarRng;
 use starlight::{
     Epoch, EvalAwi, LazyAwi, awi, dag,
     triple_arena::{Arena, ptr_struct, traits::*},
-    utils::StarRng,
 };
 
 // miri is just here to check that the unsized deref hacks are working
@@ -95,7 +95,7 @@ impl Mem {
             let nzbw = NonZeroUsize::new(w).unwrap();
             let lazy = LazyAwi::opaque(nzbw);
             let mut lit = awi::Awi::zero(nzbw);
-            self.rng.next_bits(&mut lit);
+            lit.star_rng_(&mut self.rng);
             let p = self.a.insert(Pair {
                 awi: lit.clone(),
                 dag: dag::Awi::from(lazy.as_ref()),

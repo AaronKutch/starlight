@@ -222,7 +222,7 @@ impl Ensemble {
         let mut arena = Arena::<PBack, NodeKind>::new();
         self.backrefs
             .clone_to_arena(&mut arena, |p_self, referent| {
-                match *referent {
+                match referent.t.t {
                     Referent::ThisEquiv => {
                         let mut v = vec![];
                         let mut adv = self.backrefs.advancer_surject(p_self).unwrap();

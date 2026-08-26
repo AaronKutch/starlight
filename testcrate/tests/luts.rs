@@ -2,6 +2,7 @@
 
 use std::num::NonZeroUsize;
 
+use star_rng::StarRng;
 use starlight::{
     Epoch, EvalAwi, LazyAwi, OptimizerOptions,
     awi::{self, *},
@@ -13,21 +14,20 @@ use starlight::{
     ensemble::LNodeKind,
     lower::meta::create_static_lut,
     triple_arena::traits::*,
-    utils::StarRng,
 };
 
 // Test static LUT simplifications, this also handles input duplication cases
 #[test]
 fn lut_optimization_with_dup() {
     use dag::*;
-    let mut rng = StarRng::new(0);
+    let rng = &mut StarRng::new(0);
     let mut inp_bits = 0;
     for input_w in 1usize..=8 {
         let lut_w = 1 << input_w;
         for _ in 0..100 {
             let epoch = Epoch::new();
             let mut test_input = awi::Awi::zero(bw(input_w));
-            rng.next_bits(&mut test_input);
+            test_input.star_rng_(rng);
             let original_input = test_input.clone();
             let input = LazyAwi::opaque(bw(input_w));
             let mut lut_input = Awi::from(input.as_ref());
@@ -53,7 +53,7 @@ fn lut_optimization_with_dup() {
                 }
             }
             let mut lut = awi::Awi::zero(bw(lut_w));
-            rng.next_bits(&mut lut);
+            lut.star_rng_(rng);
             let mut x = awi!(0);
             x.lut_(&Awi::from(&lut), &lut_input).unwrap();
 
@@ -175,11 +175,11 @@ fn lut_optimization() {
     // The first number is the base number of iterations, the others are counters to
     // make sure the rng isn't broken
     const N: (u64, u64, u64) = if cfg!(debug_assertions) {
-        (16, 193536, 14778)
+        (16, 193536, 12456)
     } else {
-        (128, 1548288, 107245)
+        (128, 1548288, 110489)
     };
-    let mut rng = StarRng::new(0);
+    let rng = &mut StarRng::new(0);
     let mut num_lut_bits = 0u64;
     let mut num_simplified_lut_bits = 0u64;
     let mut expected_output = awi!(0);
@@ -192,15 +192,14 @@ fn lut_optimization() {
         let mut lut_input = Awi::zero(w);
         let mut known_inputs = Awi::zero(w);
         let mut lut = Awi::zero(lut_w);
-        let mut pad = lut.clone();
 
         for _ in 0..n {
             num_lut_bits += lut.bw() as u64;
             // Some bits will be known in some way to the epoch
-            rng.next_bits(&mut known_inputs);
-            rng.next_bits(&mut lut_input);
-            //rng.next_bits(&mut lut);
-            rng.linear_fuzz_step(&mut lut, &mut pad);
+            known_inputs.star_rng_(rng);
+            lut_input.star_rng_(rng);
+            //lut.star_rng_(rng);
+            lut.star_rng_linear_fuzz_step_(rng);
             expected_output.lut_(&lut, &lut_input).unwrap();
             let mut expected_lut = lut.clone();
             let mut remaining_inp_len = w.get();
@@ -353,11 +352,11 @@ fn lut_dynamic_optimization() {
     // The first number is the base number of iterations, the others are counters to
     // make sure the rng isn't broken
     const N: (u64, u64, u64) = if cfg!(debug_assertions) {
-        (32, 1984, 690)
+        (32, 1984, 643)
     } else {
-        (512, 31744, 9575)
+        (512, 31744, 9586)
     };
-    let mut rng = StarRng::new(0);
+    let rng = &mut StarRng::new(0);
     let mut num_lut_bits = 0u64;
     let mut num_simplified_lut_bits = 0u64;
     let mut expected_output = awi!(0);
@@ -369,16 +368,14 @@ fn lut_dynamic_optimization() {
         let mut known_inputs = Awi::zero(w);
         let mut lut = Awi::zero(lut_w);
         let mut known_lut_bits = Awi::zero(lut_w);
-        let mut pad = lut.clone();
-        let mut lut_pad = known_lut_bits.clone();
 
         for _ in 0..n {
             num_lut_bits += lut.bw() as u64;
-            rng.next_bits(&mut known_inputs);
-            rng.next_bits(&mut lut_input);
-            rng.linear_fuzz_step(&mut lut, &mut pad);
+            known_inputs.star_rng_(rng);
+            lut_input.star_rng_(rng);
+            lut.star_rng_linear_fuzz_step_(rng);
             // now only some bits of the LUT might be known
-            rng.linear_fuzz_step(&mut known_lut_bits, &mut lut_pad);
+            known_lut_bits.star_rng_linear_fuzz_step_(rng);
             let mut known_lut_bits_reduced = known_lut_bits.clone();
             expected_output.lut_(&lut, &lut_input).unwrap();
             let mut expected_lut = lut.clone();

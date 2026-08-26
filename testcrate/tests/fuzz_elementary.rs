@@ -1,11 +1,11 @@
 use std::{cmp::min, num::NonZeroUsize};
 
+use star_rng::StarRng;
 use starlight::{
     Epoch, EvalAwi, LazyAwi, OptimizerOptions,
     awint::{awi, dag},
     delay,
     triple_arena::{Arena, ptr_struct, traits::*},
-    utils::StarRng,
 };
 
 #[cfg(debug_assertions)]
@@ -64,7 +64,7 @@ impl Mem {
         } else {
             let nzbw = NonZeroUsize::new(w).unwrap();
             let mut lit = awi::Awi::zero(nzbw);
-            self.rng.next_bits(&mut lit);
+            lit.star_rng_(&mut self.rng);
             // Randomly make some literals and some opaques
             if self.rng.next_bool() {
                 let p = self.a.insert(Pair {
