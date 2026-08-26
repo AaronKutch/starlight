@@ -1,8 +1,9 @@
 # Changelog
 
-## [0.5.0] - TODO
+## [0.5.0] - 2026-08-26
 ### Crate
 - MSRV 1.88
+- `awint` 0.19
 
 ### Changes
 - The optimization functions now take a new `OptimizerOptions`
