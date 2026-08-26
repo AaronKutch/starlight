@@ -1,10 +1,19 @@
-use awint::awint_dag::triple_arena::Ptr;
+use crate::{
+    ensemble::{PBack, PLNode},
+    route::{PCEdge, PCNode},
+};
+
+#[derive(Debug, Clone, Copy)]
+pub enum NodeOrEdge {
+    Node(PCNode),
+    Edge(PCEdge),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum EdgeKind<QCEdge: Ptr> {
+pub enum EdgeKind {
     /// Edge through a `CEdge` between `CNode`s on the same level. The `usize`
     /// indicates which source is used.
-    Transverse(QCEdge, usize),
+    Transverse(PCEdge, usize),
     /// Edge to a higher level `CNode`
     Concentrate,
     /// Edge to a lower level `CNode`
@@ -12,82 +21,83 @@ pub enum EdgeKind<QCEdge: Ptr> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Edge<QCNode: Ptr, QCEdge: Ptr> {
+pub struct Edge {
     /// The method of traversal
-    pub kind: EdgeKind<QCEdge>,
-    /// The `ThisCNode` incident the edge reaches, the concentration and
+    pub kind: EdgeKind,
+    /// The incident the edge reaches, the concentration and
     /// dilution edges can easily be derived from this.
-    pub to: QCNode,
+    pub to: PCNode,
 }
 
-impl<QCNode: Ptr, QCEdge: Ptr> Edge<QCNode, QCEdge> {
-    pub fn new(kind: EdgeKind<QCEdge>, to: QCNode) -> Self {
+impl Edge {
+    pub fn new(kind: EdgeKind, to: PCNode) -> Self {
         Self { kind, to }
     }
 }
 
 /// A single path from a source to sink across multiple `CEdge`s
 #[derive(Debug, Clone)]
-pub struct Path<QCNode: Ptr, QCEdge: Ptr> {
-    pub sink: QCNode,
-    pub edges: Vec<Edge<QCNode, QCEdge>>,
+pub struct Path {
+    /// If `None`, then this is a necessary copy-to-output embedding, otherwise
+    /// this is a `PBack` to a `Referent::Input`
+    pub program_sink: Option<PBack>,
+    // the target sink is on the last edge
+    pub edges: Vec<Edge>,
     //critical_multiplier: u64,
 }
 
-impl<QCNode: Ptr, QCEdge: Ptr> Path<QCNode, QCEdge> {
-    pub fn new(sink: QCNode) -> Self {
+impl Path {
+    pub fn new(program_sink: Option<PBack>, edges: Vec<Edge>) -> Self {
         Self {
-            sink,
-            edges: vec![],
+            program_sink,
+            edges,
         }
     }
 
-    pub fn sink(&self) -> QCNode {
-        self.sink
+    // Returns `None` if the path is empty, in which case the hyperpath
+    // target_source may also logically be the target sink
+    pub fn target_sink(&self) -> Option<PCNode> {
+        Some(self.edges().last()?.to)
     }
 
-    pub fn edges(&self) -> &[Edge<QCNode, QCEdge>] {
+    pub fn edges(&self) -> &[Edge] {
         &self.edges
     }
 
-    pub fn push(&mut self, edge: Edge<QCNode, QCEdge>) {
+    pub fn push(&mut self, edge: Edge) {
         self.edges.push(edge)
-    }
-
-    pub fn extend<I: IntoIterator<Item = Edge<QCNode, QCEdge>>>(&mut self, edges: I) {
-        self.edges.extend(edges)
     }
 }
 
 /// Represents the "hyperpath" that a logical bit will take from a `source` node
 /// to one ore more `sink` nodes. Sinks can have different priorities.
 #[derive(Debug, Clone)]
-pub struct HyperPath<QCNode: Ptr, QCEdge: Ptr> {
-    source: QCNode,
-    paths: Vec<Path<QCNode, QCEdge>>,
+pub struct HyperPath {
+    /// If `None`, then this is a necessary input embedding, otherwise this is
+    /// driven by the output of the `PLNode`
+    pub program_source: Option<PLNode>,
+    pub target_source: PCNode,
+    paths: Vec<Path>,
 }
 
-impl<QCNode: Ptr, QCEdge: Ptr> HyperPath<QCNode, QCEdge> {
-    pub fn new(source: QCNode) -> Self {
+impl HyperPath {
+    pub fn new(program_source: Option<PLNode>, target_source: PCNode, paths: Vec<Path>) -> Self {
         Self {
-            source,
-            paths: vec![],
+            program_source,
+            target_source,
+            paths,
         }
     }
 
-    pub fn source(&self) -> QCNode {
-        self.source
-    }
-
-    pub fn push(&mut self, path: Path<QCNode, QCEdge>) {
+    pub fn push(&mut self, path: Path) {
         self.paths.push(path)
     }
 
-    pub fn paths(&self) -> &[Path<QCNode, QCEdge>] {
+    pub fn paths(&self) -> &[Path] {
         &self.paths
     }
 
-    pub fn paths_mut(&mut self) -> &mut [Path<QCNode, QCEdge>] {
+    pub fn paths_mut(&mut self) -> &mut [Path] {
         &mut self.paths
     }
 }

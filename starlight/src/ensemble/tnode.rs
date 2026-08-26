@@ -1,10 +1,11 @@
 use std::num::NonZeroU64;
 
-use awint::awint_dag::triple_arena::{OrdArena, Recast, Recaster};
+use awint::awint_dag::triple_arena::{OrdInsertKind, OrdPair};
 
 use crate::{
-    ensemble::{Ensemble, PBack, PSimEvent, PTNode, Referent},
     Error,
+    ensemble::{Ensemble, PBack, PSimEvent, PTNode, Referent},
+    triple_arena::{SimpleOrdArena, traits::*},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -113,7 +114,7 @@ impl Recast<PTNode> for SimultaneousEvents {
 pub struct Delayer {
     /// Current time as measured by the delay between `Delayer` creation and now
     pub current_time: Delay,
-    pub delayed_events: OrdArena<PSimEvent, Delay, SimultaneousEvents>,
+    pub delayed_events: SimpleOrdArena<PSimEvent, OrdPair<Delay, SimultaneousEvents>>,
 }
 
 impl Recast<PTNode> for Delayer {
@@ -129,12 +130,12 @@ impl Delayer {
     pub fn new() -> Self {
         Self {
             current_time: Delay::zero(),
-            delayed_events: OrdArena::new(),
+            delayed_events: SimpleOrdArena::new(),
         }
     }
 
     pub fn compress(&mut self) {
-        self.delayed_events.compress_and_shrink();
+        self.delayed_events.compress(false).allow();
     }
 
     /// Inserts an event that will be delayed by `delay` from the current time
@@ -143,23 +144,28 @@ impl Delayer {
         if let Some((p, order)) = self.delayed_events.find_similar_key(&future_time) {
             if order.is_eq() {
                 self.delayed_events
-                    .get_val_mut(p)
+                    .get_mut(p)
                     .unwrap()
+                    .v_mut()
                     .tnode_drives
                     .push(p_tnode);
             } else {
-                let _ = self
-                    .delayed_events
-                    .insert_linear(p, 2, future_time, SimultaneousEvents {
-                        tnode_drives: vec![p_tnode],
-                    });
+                let pair = OrdPair::new(future_time, SimultaneousEvents {
+                    tnode_drives: vec![p_tnode],
+                });
+                let entry = self.delayed_events.entry_insert(OrdInsertKind::Linear {
+                    p_init: p.inx(),
+                    num: 2,
+                    k: pair.k(),
+                });
+                let _ = entry.insert(pair);
             }
         } else {
-            self.delayed_events
-                .insert_empty(future_time, SimultaneousEvents {
-                    tnode_drives: vec![p_tnode],
-                })
-                .unwrap();
+            let pair = OrdPair::new(future_time, SimultaneousEvents {
+                tnode_drives: vec![p_tnode],
+            });
+            let entry = self.delayed_events.entry_insert(OrdInsertKind::Empty);
+            entry.insert(pair);
         }
     }
 
@@ -170,13 +176,16 @@ impl Delayer {
     #[must_use]
     pub fn peek_next_event_time(&self) -> Option<Delay> {
         let p_min = self.delayed_events.first()?;
-        self.delayed_events.get_key(p_min).copied()
+        self.delayed_events.get(p_min).map(|pair| pair.k()).copied()
     }
 
     #[must_use]
     pub fn pop_next_simultaneous_events(&mut self) -> Option<(Delay, SimultaneousEvents)> {
         let p_min = self.delayed_events.first()?;
-        self.delayed_events.remove(p_min)
+        self.delayed_events
+            .remove(p_min)
+            .allow()
+            .map(|pair| pair.into_k_v())
     }
 }
 
@@ -185,17 +194,12 @@ impl Ensemble {
     /// handled by the caller. Panics if something is invalid.
     #[must_use]
     pub fn make_tnode(&mut self, p_source: PBack, p_driver: PBack, delay: Delay) -> PTNode {
-        self.tnodes.insert_with(|p_tnode| {
-            let p_driver = self
-                .backrefs
-                .insert_key(p_driver, Referent::Driver(p_tnode))
-                .unwrap();
-            let p_self = self
-                .backrefs
-                .insert_key(p_source, Referent::ThisTNode(p_tnode))
-                .unwrap();
-            TNode::new(p_self, p_driver, delay)
-        })
+        let entry = self.tnodes.entry_insert();
+        let p_tnode = entry.ptr();
+        let p_driver = self.backrefs.insert(p_driver, Referent::Driver(p_tnode));
+        let p_self = self.backrefs.insert(p_source, Referent::ThisTNode(p_tnode));
+        entry.insert(TNode::new(p_self, p_driver, delay));
+        p_tnode
     }
 
     /// Runs temporal evaluation until `delay` has passed since the current time
@@ -210,7 +214,7 @@ impl Ensemble {
         let final_time = self.delayer.current_time.checked_add(delay).unwrap();
         while let Some(next_time) = self.delayer.peek_next_event_time() {
             if next_time > final_time {
-                break
+                break;
             }
             let (time, events) = self.delayer.pop_next_simultaneous_events().unwrap();
             self.delayer.current_time = time;
@@ -223,10 +227,10 @@ impl Ensemble {
             }
             for p_tnode in events.tnode_drives.iter().copied() {
                 if let Some(tnode) = self.tnodes.get(p_tnode) {
-                    let val = self.backrefs.get_val(tnode.p_driver).unwrap().val;
-                    let p_self = tnode.p_self;
+                    let val = self.backrefs.get_shared(tnode.p_driver).unwrap().val;
+                    let p_equiv = self.get_p_equiv(tnode.p_self).unwrap();
                     // TODO if we don't unwrap, we need to reregister events
-                    self.change_value(p_self, val, NonZeroU64::new(1).unwrap())
+                    self.change_value(p_equiv, val, NonZeroU64::new(1).unwrap())
                         .unwrap();
                 }
             }

@@ -5,11 +5,10 @@ use std::{
     num::NonZeroUsize,
 };
 
+use star_rng::StarRng;
 use starlight::{
-    awi, dag,
-    triple_arena::{ptr_struct, Arena},
-    utils::StarRng,
-    Epoch, EvalAwi, LazyAwi,
+    Epoch, EvalAwi, LazyAwi, awi, dag,
+    triple_arena::{Arena, ptr_struct, traits::*},
 };
 
 // miri is just here to check that the unsized deref hacks are working
@@ -58,7 +57,7 @@ impl Mem {
     }
 
     pub fn clear(&mut self) {
-        self.a.clear();
+        self.a.clear().allow();
         self.v.clear();
         self.roots.clear();
         for _ in 0..self.v_len {
@@ -71,7 +70,7 @@ impl Mem {
         if self.rng.out_of_4(3) && (!self.v[w].is_empty()) {
             let p = *self.rng.index_slice(&self.v[w]).unwrap();
             if self.get_awi(p).to_usize() < cap {
-                return p
+                return p;
             }
         }
         let nzbw = NonZeroUsize::new(w).unwrap();
@@ -96,7 +95,7 @@ impl Mem {
             let nzbw = NonZeroUsize::new(w).unwrap();
             let lazy = LazyAwi::opaque(nzbw);
             let mut lit = awi::Awi::zero(nzbw);
-            self.rng.next_bits(&mut lit);
+            lit.star_rng_(&mut self.rng);
             let p = self.a.insert(Pair {
                 awi: lit.clone(),
                 dag: dag::Awi::from(lazy.as_ref()),
@@ -298,15 +297,18 @@ fn num_dag_duo(rng: &mut StarRng, m: &mut Mem) {
             let cout = m.next(1);
             let cin_a = m.get_awi(cin);
             let cin_b = m.get_dag(cin);
-            let out_a;
-            let out_b;
-            if rng.next_bool() {
-                out_a = m.get_mut_awi(x).inc_(cin_a.to_bool());
-                out_b = m.get_mut_dag(x).inc_(cin_b.to_bool());
+
+            let (out_a, out_b) = if rng.next_bool() {
+                (
+                    m.get_mut_awi(x).inc_(cin_a.to_bool()),
+                    m.get_mut_dag(x).inc_(cin_b.to_bool()),
+                )
             } else {
-                out_a = m.get_mut_awi(x).dec_(cin_a.to_bool());
-                out_b = m.get_mut_dag(x).dec_(cin_b.to_bool());
-            }
+                (
+                    m.get_mut_awi(x).dec_(cin_a.to_bool()),
+                    m.get_mut_dag(x).dec_(cin_b.to_bool()),
+                )
+            };
             m.get_mut_awi(cout).bool_(out_a);
             m.get_mut_dag(cout).bool_(out_b);
         }

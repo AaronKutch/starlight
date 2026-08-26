@@ -46,6 +46,27 @@ impl Ortho {
             _ => None,
         }
     }
+
+    /// Returns `false` if `self` is in the `Neg0` or `Pos0` directions, `true`
+    /// if `self` is in the `Neg1` or `Pos1` directions
+    pub fn dir(self) -> bool {
+        match self {
+            Self::Neg0 => false,
+            Self::Pos0 => false,
+            Self::Neg1 => true,
+            Self::Pos1 => true,
+        }
+    }
+
+    /// Returns if `self` is in a positive direction (`Pos0` or `Pos1`)
+    pub fn pos(self) -> bool {
+        match self {
+            Self::Neg0 => false,
+            Self::Pos0 => true,
+            Self::Neg1 => false,
+            Self::Pos1 => true,
+        }
+    }
 }
 
 impl From<Ortho> for u8 {

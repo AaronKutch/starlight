@@ -1,15 +1,14 @@
 use std::{fmt, num::NonZeroUsize, thread::panicking};
 
 use awint::{
-    awint_dag::{dag, Lineage, Location, PState},
-    awint_internals::{forward_debug_fmt, BITS},
+    awint_dag::{Lineage, Location, PState, dag, triple_arena::traits::ArenaTrait},
+    awint_internals::{BITS, forward_debug_fmt},
 };
 
 use crate::{
-    awi,
+    Error, awi,
     ensemble::{Ensemble, PExternal},
     epoch::get_current_epoch,
-    Error,
 };
 
 // Note: `mem::forget` can be used on `EvalAwi`s, but in this crate it should
@@ -170,8 +169,9 @@ impl EvalAwi {
             .ensemble
             .notary
             .rnodes()
-            .get_val(p_rnode)
+            .get(p_rnode)
             .unwrap()
+            .v()
             .nzbw();
         Ok(Self {
             p_external,
@@ -180,7 +180,7 @@ impl EvalAwi {
     }
 
     /// Clones `self`, returning a perfectly equivalent `Eval` that will have
-    /// the same `eval` effects. Returns an error if the active `Epoch` is not
+    /// the same `eval` effects. Returns an error if the current `Epoch` is not
     /// correct.
     pub fn try_clone(&self) -> Result<Self, Error> {
         EvalAwi::try_clone_from(self.p_external())
@@ -208,7 +208,7 @@ impl EvalAwi {
                 return Err(Error::OtherString(format!(
                     "could not eval bit {bit_i} to known value, the node is {}",
                     self.p_external()
-                )))
+                )));
             }
         }
         Ok(res)

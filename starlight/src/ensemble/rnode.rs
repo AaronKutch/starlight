@@ -1,23 +1,25 @@
 use std::{
     fmt,
-    num::{NonZeroU128, NonZeroU64, NonZeroUsize},
+    num::{NonZeroU64, NonZeroU128, NonZeroUsize},
 };
 
 use awint::awint_dag::{
-    smallvec::{smallvec, SmallVec},
-    triple_arena::{
-        utils::{PtrGen, PtrInx},
-        Arena, OrdArena, Ptr, Recast, Recaster,
-    },
     Location, PState,
+    smallvec::{SmallVec, smallvec},
+    triple_arena::{DirectArena, OrdPair},
 };
 
 use crate::{
+    Error,
     awi::*,
     ensemble::{CommonValue, Delay, Ensemble, PBack, PRNode, Referent, Value},
-    epoch::{get_current_epoch, EpochShared},
-    utils::{DisplayStr, HexadecimalNonZeroU128},
-    Error,
+    epoch::{EpochShared, get_current_epoch},
+    triple_arena::{
+        SimpleOrdArena,
+        traits::*,
+        utils::traits::{PtrGen, PtrInx},
+    },
+    utils::{self, DisplayStr, HexadecimalNonZeroU128},
 };
 
 // substituted because we need a custom `Debug` impl
@@ -44,7 +46,7 @@ pub struct PExternal {
     _internal_gen: (),
 }
 
-unsafe impl Ptr for PExternal {
+impl Ptr for PExternal {
     type Gen = ();
     type Inx = NonZeroU128;
 
@@ -55,7 +57,7 @@ unsafe impl Ptr for PExternal {
     #[inline]
     fn invalid() -> Self {
         Self {
-            _internal_inx: PtrInx::new(<Self::Inx as PtrInx>::max()),
+            _internal_inx: PtrInx::best_effort_invalid(),
             _internal_gen: PtrGen::one(),
         }
     }
@@ -66,7 +68,7 @@ unsafe impl Ptr for PExternal {
     }
 
     #[inline]
-    fn gen(self) -> Self::Gen {
+    fn generation(self) -> Self::Gen {
         self._internal_gen
     }
 
@@ -109,19 +111,17 @@ impl fmt::Debug for PExternal {
         if f.alternate() {
             let mut tmp = f.debug_struct("PExternal");
             tmp.field("p_external", &HexadecimalNonZeroU128(self.inx()));
-            if let Ok(epoch) = get_current_epoch() {
-                if let Ok(lock) = epoch.epoch_data.try_borrow() {
-                    if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(*self) {
-                        if let Some(ref name) = rnode.debug_name {
-                            tmp.field("debug_name", &DisplayStr(name));
-                        }
-                        /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                            tmp.field("state", &DisplayStr(&s));
-                        }
-                        tmp.field("bits", &rnode.bits());*/
-                    }
-                }
+            if let Ok(epoch) = get_current_epoch()
+                && let Ok(lock) = epoch.epoch_data.try_borrow()
+                && let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(*self)
+                && let Some(ref name) = rnode.debug_name
+            {
+                tmp.field("debug_name", &DisplayStr(name));
             }
+            /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+                tmp.field("state", &DisplayStr(&s));
+            }
+            tmp.field("bits", &rnode.bits());*/
             tmp.finish()
         } else {
             f.write_fmt(format_args!(
@@ -213,7 +213,7 @@ impl RNode {
 /// Used for managing external references
 #[derive(Debug, Clone)]
 pub struct Notary {
-    pub(crate) rnodes: OrdArena<PRNode, PExternal, RNode>,
+    pub(crate) rnodes: SimpleOrdArena<PRNode, OrdPair<PExternal, RNode>>,
     next_external: NonZeroU128,
 }
 
@@ -229,22 +229,22 @@ impl Recast<PBack> for Notary {
 impl Notary {
     pub fn new() -> Self {
         Self {
-            rnodes: OrdArena::new(),
+            rnodes: SimpleOrdArena::new(),
             next_external: rand::random(),
         }
     }
 
-    pub fn recast_p_rnode(&mut self) -> Arena<PRNode, PRNode> {
-        self.rnodes.compress_and_shrink_recaster()
+    pub fn recast_p_rnode(&mut self) -> DirectArena<PRNode, PRNode> {
+        utils::ord_arena_canonical_compress_recaster(&mut self.rnodes, false)
     }
 
-    pub fn rnodes(&self) -> &OrdArena<PRNode, PExternal, RNode> {
+    pub fn rnodes(&self) -> &SimpleOrdArena<PRNode, OrdPair<PExternal, RNode>> {
         &self.rnodes
     }
 
     pub fn insert_rnode(&mut self, rnode: RNode) -> (PRNode, PExternal) {
         let p_external = PExternal::_from_raw(self.next_external, ());
-        let (res, replaced) = self.rnodes.insert(p_external, rnode);
+        let (res, replaced) = self.rnodes.insert(OrdPair::new(p_external, rnode));
         // there is an astronomically small chance this fails naturally when
         // `PExternal`s from other `Notary`s are involved
         assert!(replaced.is_none());
@@ -262,7 +262,7 @@ impl Notary {
     /// be found
     pub fn get_rnode(&self, p_external: PExternal) -> Result<(PRNode, &RNode), Error> {
         if let Some(p_rnode) = self.rnodes.find_key(&p_external) {
-            Ok((p_rnode, self.rnodes.get_val(p_rnode).unwrap()))
+            Ok((p_rnode, self.rnodes.get(p_rnode).unwrap().v()))
         } else {
             Err(Error::InvalidPExternal(p_external))
         }
@@ -276,7 +276,7 @@ impl Notary {
     /// be found
     pub fn get_rnode_mut(&mut self, p_external: PExternal) -> Result<(PRNode, &mut RNode), Error> {
         if let Some(p_rnode) = self.rnodes.find_key(&p_external) {
-            Ok((p_rnode, self.rnodes.get_val_mut(p_rnode).unwrap()))
+            Ok((p_rnode, self.rnodes.get_mut(p_rnode).unwrap().v_mut()))
         } else {
             Err(Error::InvalidPExternal(p_external))
         }
@@ -284,7 +284,7 @@ impl Notary {
 
     #[must_use]
     pub fn get_rnode_by_p_rnode_mut(&mut self, p_rnode: PRNode) -> Option<&mut RNode> {
-        self.rnodes.get_val_mut(p_rnode)
+        Some(self.rnodes.get_mut(p_rnode)?.v_mut())
     }
 }
 
@@ -322,7 +322,8 @@ impl Ensemble {
         p_rnode: PRNode,
         allow_pruned: bool,
     ) -> Result<bool, Error> {
-        let rnode = &self.notary.rnodes()[p_rnode];
+        let pair = &self.notary.rnodes()[p_rnode];
+        let rnode = pair.v();
         if rnode.bits.is_empty() {
             if let Some(p_state) = rnode.associated_state {
                 self.initialize_state_bits_if_needed(p_state)?;
@@ -330,14 +331,16 @@ impl Ensemble {
                 for i in 0..len {
                     let p_bit = self.stator.states[p_state].p_self_bits[i];
                     if let Some(p_bit) = p_bit {
-                        let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
+                        let p_equiv = self.backrefs.get_shared(p_bit).unwrap().p_self_equiv;
                         let p_back_new = self
                             .backrefs
-                            .insert_key(p_equiv, Referent::ThisRNode(p_rnode))
-                            .unwrap();
-                        self.notary.rnodes[p_rnode].bits.push(Some(p_back_new));
+                            .insert(p_equiv.into(), Referent::ThisRNode(p_rnode));
+                        self.notary.rnodes[p_rnode]
+                            .v_mut()
+                            .bits
+                            .push(Some(p_back_new));
                     } else {
-                        self.notary.rnodes[p_rnode].bits.push(None);
+                        self.notary.rnodes[p_rnode].v_mut().bits.push(None);
                     }
                 }
                 Ok(true)
@@ -360,7 +363,13 @@ impl Ensemble {
         allow_pruned: bool,
     ) -> Result<bool, Error> {
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        let rnode = lock.ensemble.notary.rnodes.get_val_mut(p_rnode).unwrap();
+        let rnode = lock
+            .ensemble
+            .notary
+            .rnodes
+            .get_mut(p_rnode)
+            .unwrap()
+            .v_mut();
         if rnode.lower_before_pruning {
             rnode.lower_before_pruning = false;
             let p_state = rnode.associated_state.unwrap();
@@ -381,13 +390,20 @@ impl Ensemble {
     /// This unconditionally removes the `RNode`, you may want `rnode_dec_rc`
     /// instead
     pub fn remove_rnode(&mut self, p_rnode: PRNode) {
-        let rnode = self.notary.rnodes.remove(p_rnode).unwrap().1;
+        let rnode = self
+            .notary
+            .rnodes
+            .remove(p_rnode)
+            .allow()
+            .unwrap()
+            .into_k_v()
+            .1;
         if let Some(p_state) = rnode.associated_state {
             self.state_dec_extern_rc(p_state).unwrap();
         }
         for p_back in rnode.bits {
             if let Some(p_back) = p_back {
-                let referent = self.backrefs.remove_key(p_back).unwrap().0;
+                let referent = self.backrefs.remove_element(p_back).allow().unwrap().0;
                 debug_assert!(matches!(referent, Referent::ThisRNode(_)));
             }
         }
@@ -414,7 +430,8 @@ impl Ensemble {
     /// Sets all `associated_state`s to `None`
     pub fn remove_all_rnode_associated_states(&mut self) {
         let mut states_to_dec_rc = vec![];
-        for rnode in self.notary.rnodes.vals_mut() {
+        for pair in self.notary.rnodes.vals_mut() {
+            let rnode = pair.v_mut();
             if let Some(p_state) = rnode.associated_state {
                 states_to_dec_rc.push(p_state);
                 rnode.associated_state = None;
@@ -450,14 +467,14 @@ impl Ensemble {
         Ensemble::initialize_rnode_if_needed(&epoch_shared, p_rnode, true)?;
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         let ensemble = &mut lock.ensemble;
-        if !ensemble.notary.rnodes[p_rnode].bits.is_empty() {
-            let lhs_w = ensemble.notary.rnodes[p_rnode].bits.len();
+        if !ensemble.notary.rnodes[p_rnode].v().bits.is_empty() {
+            let lhs_w = ensemble.notary.rnodes[p_rnode].v().bits.len();
             let rhs_w = common_value.bw();
             if lhs_w != rhs_w {
                 return Err(Error::BitwidthMismatch(lhs_w, rhs_w));
             }
             for bit_i in 0..common_value.bw() {
-                let p_back = ensemble.notary.rnodes[p_rnode].bits[bit_i];
+                let p_back = ensemble.notary.rnodes[p_rnode].v().bits[bit_i];
                 if let Some(p_back) = p_back {
                     let bit = common_value.get(bit_i).unwrap();
                     let bit = if make_const {
@@ -473,7 +490,8 @@ impl Ensemble {
                     };
                     // if an error occurs, no event is inserted and we do not insert anything
                     // here, the change is treated as having never occured
-                    ensemble.change_value(p_back, bit, NonZeroU64::new(1).unwrap())?;
+                    let p_equiv = ensemble.get_p_equiv(p_back).unwrap();
+                    ensemble.change_value(p_equiv, bit, NonZeroU64::new(1).unwrap())?;
                 }
             }
         }
@@ -558,7 +576,7 @@ impl Ensemble {
         } else {
             return Err(Error::OtherStr(
                 "something went wrong, found `RNode` for `TNode` driving but a bit was pruned",
-            ))
+            ));
         };
         let (_, driver_rnode) = lock.ensemble.notary.get_rnode(p_driver)?;
         if driver_bit_i >= driver_rnode.bits.len() {
@@ -571,7 +589,7 @@ impl Ensemble {
         } else {
             return Err(Error::OtherStr(
                 "something went wrong, found `RNode` for `TNode` driving but a bit was pruned",
-            ))
+            ));
         };
 
         // now connect with `TNode`
@@ -594,8 +612,9 @@ impl Ensemble {
         ensemble
             .notary
             .rnodes
-            .get_val_mut(p_rnode)
+            .get_mut(p_rnode)
             .unwrap()
+            .v_mut()
             .debug_name = debug_name.map(|s| s.to_owned());
         Ok(())
     }

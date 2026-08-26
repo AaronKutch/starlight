@@ -1,27 +1,22 @@
 use std::fmt::Write;
 
-use awint::{
-    awint_dag::triple_arena::{Advancer, OrdArena},
-    Awi,
-};
+use awint::awint_dag::triple_arena::OrdPair;
 
-use super::{route, Configurator};
 use crate::{
-    ensemble::{Ensemble, PBack, PExternal},
-    epoch::get_current_epoch,
+    Corresponder, Error, OptimizerOptions, SuspendedEpoch,
+    ensemble::{Ensemble, PEquiv, PExternal, Referent},
     route::{
-        Channeler, EdgeKind, Embedding, EmbeddingKind, PCEdge, PCNode, PEmbedding, PMapping,
-        QCEdge, QCNode,
+        Channeler, Configurator, EdgeEmbed, EdgeKind, NodeEmbed, NodeOrEdge, PEdgeEmbed, PMapping,
+        PNodeEmbed, route,
     },
-    triple_arena::Arena,
-    Corresponder, Error, LazyAwi, SuspendedEpoch,
+    triple_arena::{Arena, SimpleOrdArena, traits::*},
 };
 
 #[derive(Debug, Clone)]
 pub struct MappingTarget {
     pub target_p_external: PExternal,
     pub target_bit_i: usize,
-    pub target_p_equiv: PBack,
+    pub target_p_equiv: PEquiv,
 }
 
 /// The corresponding program `PBack` is in the key that this `Mapping` should
@@ -40,15 +35,18 @@ pub struct Mapping {
 
 #[derive(Debug, Clone)]
 pub struct Router {
-    target_ensemble: Ensemble,
-    pub(crate) target_channeler: Channeler<QCNode, QCEdge>,
+    pub(crate) target_ensemble: Ensemble,
+    pub(crate) target_channeler: Channeler,
     pub(crate) configurator: Configurator,
-    program_ensemble: Ensemble,
-    pub(crate) program_channeler: Channeler<PCNode, PCEdge>,
-    // `ThisEquiv` `PBack` mapping from program to target
-    pub(crate) mappings: OrdArena<PMapping, PBack, Mapping>,
+    pub(crate) program_ensemble: Ensemble,
+    // `PEquiv` mapping from program to target
+    pub(crate) mappings: SimpleOrdArena<PMapping, OrdPair<PEquiv, Mapping>>,
     // routing embedding of part of the program in the target
-    pub(crate) embeddings: Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>>,
+    pub(crate) node_embeddings: Arena<PNodeEmbed, NodeEmbed>,
+    pub(crate) edge_embeddings: Arena<PEdgeEmbed, EdgeEmbed>,
+    // this should only be set after a successful routing, and be unset the moment any mappings,
+    // embeddings, or configurations are changed.
+    pub(crate) is_valid_routing: bool,
 }
 
 impl Router {
@@ -95,85 +93,50 @@ impl Router {
     ///
     /// 7. Now `transpose*` functions can be used with the configurator to
     ///    transpose any desired program operations onto the target.
+    ///
+    /// Note that the program is optimized internally with
+    /// `union_remove_all_tnodes` (so that external post-simulation will not run
+    /// into instant infinite loop problems), however it should be optimized
+    /// before use with a higher optimization level.
     pub fn new(
         target_epoch: &SuspendedEpoch,
         configurator: &Configurator,
         program_epoch: &SuspendedEpoch,
-        corresponder: &Corresponder,
     ) -> Result<Self, Error> {
         let target_channeler = Channeler::from_target(target_epoch, configurator)?;
-        let program_channeler = Channeler::from_program(program_epoch)?;
-        let mut router = Self::new_from_channelers(
+        Ok(Self::new_from_channelers(
             target_epoch,
             target_channeler,
             configurator,
             program_epoch,
-            program_channeler,
-        );
-        // use the corresponder to find `map_rnodes` points, coordinating from the
-        // program side since it should be one-to-many at most from that direction
-        let mut adv = router.program_ensemble().notary.rnodes().advancer();
-        while let Some(p_rnode) = adv.advance(router.program_ensemble().notary.rnodes()) {
-            let (program_p_external, program_rnode) = router
-                .program_ensemble()
-                .notary
-                .rnodes()
-                .get(p_rnode)
-                .unwrap();
-            let program_p_external = *program_p_external;
-            let is_driver = !program_rnode.read_only();
-            if let Ok(correspondences) = corresponder.correspondences(program_p_external) {
-                for target_p_external in correspondences {
-                    if let Some(target_p_rnode) = router
-                        .target_ensemble()
-                        .notary
-                        .rnodes()
-                        .find_key(&target_p_external)
-                    {
-                        let target_rnode = router
-                            .target_ensemble()
-                            .notary
-                            .rnodes()
-                            .get_val(target_p_rnode)
-                            .unwrap();
-                        if (!is_driver) != target_rnode.read_only() {
-                            return Err(Error::OtherString(format!(
-                                "in `Router::new()`, it appears that a correspondence is between \
-                                 a `LazyAwi` and a `EvalAwi` which shouldn't be possible, the two \
-                                 sides were {program_p_external:#?} and {target_p_external:#?}"
-                            )));
-                        }
-                        router.map_rnodes(program_p_external, target_p_external, is_driver)?;
-                    } else {
-                        return Err(Error::OtherString(format!(
-                            "in `Router::new()`, found a correspondence with program `RNode` \
-                             {program_p_external:#?} that is not contained in the target, the \
-                             correspondence was {target_p_external:#?}"
-                        )))
-                    }
-                }
-            }
-        }
-        Ok(router)
+        ))
     }
 
     /// Create the router from externally created `Channeler`s and no automatic
-    /// mappings
+    /// mappings, automatically runs basic optimization with
+    /// `union_remove_all_tnodes`
     pub fn new_from_channelers(
         target_epoch: &SuspendedEpoch,
-        target_channeler: Channeler<QCNode, QCEdge>,
+        target_channeler: Channeler,
         configurator: &Configurator,
         program_epoch: &SuspendedEpoch,
-        program_channeler: Channeler<PCNode, PCEdge>,
     ) -> Self {
+        let mut program_ensemble = program_epoch.ensemble(|ensemble| ensemble.clone());
+        if !program_ensemble.tnodes.is_empty() {
+            // remove all `TNode`s
+            program_ensemble
+                .optimize(OptimizerOptions::new().union_remove_all_tnodes(true))
+                .unwrap();
+        }
         Self {
             target_ensemble: target_epoch.ensemble(|ensemble| ensemble.clone()),
             target_channeler,
             configurator: configurator.clone(),
-            program_ensemble: program_epoch.ensemble(|ensemble| ensemble.clone()),
-            program_channeler,
-            mappings: OrdArena::new(),
-            embeddings: Arena::new(),
+            program_ensemble,
+            mappings: SimpleOrdArena::new(),
+            node_embeddings: Arena::new(),
+            edge_embeddings: Arena::new(),
+            is_valid_routing: false,
         }
     }
 
@@ -185,20 +148,20 @@ impl Router {
         &self.program_ensemble
     }
 
-    pub fn target_channeler(&self) -> &Channeler<QCNode, QCEdge> {
+    pub fn target_channeler(&self) -> &Channeler {
         &self.target_channeler
     }
 
-    pub fn program_channeler(&self) -> &Channeler<PCNode, PCEdge> {
-        &self.program_channeler
-    }
-
-    pub fn mappings(&self) -> &OrdArena<PMapping, PBack, Mapping> {
+    pub fn mappings(&self) -> &SimpleOrdArena<PMapping, OrdPair<PEquiv, Mapping>> {
         &self.mappings
     }
 
-    pub fn embeddings(&self) -> &Arena<PEmbedding, Embedding<PCNode, PCEdge, QCNode, QCEdge>> {
-        &self.embeddings
+    pub fn node_embeddings(&self) -> &Arena<PNodeEmbed, NodeEmbed> {
+        &self.node_embeddings
+    }
+
+    pub fn edge_embeddings(&self) -> &Arena<PEdgeEmbed, EdgeEmbed> {
+        &self.edge_embeddings
     }
 
     fn verify_integrity_of_mapping_target(
@@ -212,12 +175,11 @@ impl Router {
         {
             if let Some(bits) = rnode.bits() {
                 let mut ok = false;
-                if let Some(Some(bit)) = bits.get(mapping_target.target_bit_i) {
-                    if let Some(bit) = self.target_ensemble().backrefs.get_val(*bit) {
-                        if bit.p_self_equiv == mapping_target.target_p_equiv {
-                            ok = true;
-                        }
-                    }
+                if let Some(Some(bit)) = bits.get(mapping_target.target_bit_i)
+                    && let Some(bit) = self.target_ensemble().backrefs.get_shared(*bit)
+                    && bit.p_self_equiv == mapping_target.target_p_equiv
+                {
+                    ok = true;
                 }
                 if !ok {
                     return Err(Error::OtherString(format!(
@@ -232,7 +194,7 @@ impl Router {
         } else {
             return Err(Error::OtherString(format!(
                 "{mapping_target:#?}.target_p_external is invalid"
-            )))
+            )));
         }
         Ok(())
     }
@@ -242,9 +204,14 @@ impl Router {
         self.target_ensemble.verify_integrity()?;
         self.target_channeler.verify_integrity()?;
         self.program_ensemble.verify_integrity()?;
-        self.program_channeler.verify_integrity()?;
+        if !self.program_ensemble().tnodes.is_empty() {
+            return Err(Error::OtherStr(
+                "there are tnodes in the program ensemble after `Router` creation",
+            ));
+        }
         // mapping validities
-        for (p_mapping, program_p_equiv, mapping) in self.mappings() {
+        for (p_mapping, pair) in self.mappings().iter() {
+            let (program_p_equiv, mapping) = pair.k_v();
             if let Ok((_, rnode)) = self
                 .program_ensemble
                 .notary
@@ -252,12 +219,11 @@ impl Router {
             {
                 if let Some(bits) = rnode.bits() {
                     let mut ok = false;
-                    if let Some(Some(bit)) = bits.get(mapping.program_bit_i) {
-                        if let Some(bit) = self.program_ensemble().backrefs.get_val(*bit) {
-                            if bit.p_self_equiv == *program_p_equiv {
-                                ok = true;
-                            }
-                        }
+                    if let Some(Some(bit)) = bits.get(mapping.program_bit_i)
+                        && let Some(bit) = self.program_ensemble().backrefs.get_shared(*bit)
+                        && bit.p_self_equiv == *program_p_equiv
+                    {
+                        ok = true;
                     }
                     if !ok {
                         return Err(Error::OtherString(format!(
@@ -272,7 +238,7 @@ impl Router {
             } else {
                 return Err(Error::OtherString(format!(
                     "{p_mapping} {mapping:#?}.program_p_external is invalid"
-                )))
+                )));
             }
 
             if let Some(ref mapping_target) = mapping.target_source {
@@ -282,41 +248,79 @@ impl Router {
                 self.verify_integrity_of_mapping_target(mapping_target)?;
             }
         }
-        // embedding validities
-        for (p_embedding, embedding) in self.embeddings() {
-            match embedding.program {
-                EmbeddingKind::Edge(p_cedge) => {
-                    if !self.program_channeler().cedges.contains(p_cedge) {
-                        return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.program is invalid"
-                        )))
-                    }
-                }
-                EmbeddingKind::Node(p_cnode) => {
-                    if !self.program_channeler().cnodes.contains(p_cnode) {
-                        return Err(Error::OtherString(format!(
-                            "{p_embedding} {embedding:#?}.program is invalid"
-                        )))
-                    }
-                }
-            }
-            let hyperpath = &embedding.target_hyperpath;
-            if !self.target_channeler().cnodes.contains(hyperpath.source()) {
+        // node embedding validities
+        for (p_embedding, embedding) in self.node_embeddings() {
+            if !self
+                .program_ensemble()
+                .backrefs
+                .contains(embedding.program_node.into())
+            {
                 return Err(Error::OtherString(format!(
-                    "{p_embedding} {embedding:#?}.target_hyperpath.source is invalid"
-                )))
+                    "{p_embedding} {embedding:#?}.program_node is invalid"
+                )));
+            }
+            let hyperpath = &embedding.hyperpath;
+            if !self
+                .target_channeler()
+                .cnodes
+                .contains(hyperpath.target_source)
+            {
+                return Err(Error::OtherString(format!(
+                    "{p_embedding} {embedding:#?}.hyperpath.target_source is invalid"
+                )));
+            }
+            if let Some(program_source) = hyperpath.program_source {
+                if !self.program_ensemble().lnodes.contains(program_source) {
+                    return Err(Error::OtherString(format!(
+                        "{p_embedding} {embedding:#?}.hyperpath.program_source is invalid"
+                    )));
+                }
+            } else {
+                let p_source = hyperpath.target_source;
+                if self.target_channeler().cnodes.get(p_source).unwrap().lvl != 0 {
+                    return Err(Error::OtherString(format!(
+                        "{p_embedding} {embedding:#?} with `program_source == None` has a target \
+                         source that is not on the base level"
+                    )));
+                }
             }
             for path in hyperpath.paths() {
-                if !self.target_channeler().cnodes.contains(path.sink()) {
+                if let Some(program_sink) = path.program_sink {
+                    if let Some(referent) = self.program_ensemble().backrefs.get(program_sink) {
+                        if !matches!(referent, Referent::Input(_)) {
+                            return Err(Error::OtherString(format!(
+                                "{p_embedding} {embedding:#?} path program sink does not point to \
+                                 `Referent::Input`"
+                            )));
+                        }
+                    } else {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?} path program sink is invalid"
+                        )));
+                    }
+                } else {
+                    let p_sink = path.target_sink().unwrap_or(hyperpath.target_source);
+                    if self.target_channeler().cnodes.get(p_sink).unwrap().lvl != 0 {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?} path with `program_sink == None` has a \
+                             target sink that is not on the base level"
+                        )));
+                    }
+                }
+                if !self
+                    .target_channeler()
+                    .cnodes
+                    .contains(path.target_sink().unwrap())
+                {
                     return Err(Error::OtherString(format!(
-                        "{p_embedding} {embedding:#?} path sink is invalid"
-                    )))
+                        "{p_embedding} {embedding:#?} path target sink is invalid"
+                    )));
                 }
                 for edge in path.edges() {
                     if !self.target_channeler().cnodes.contains(edge.to) {
                         return Err(Error::OtherString(format!(
                             "{p_embedding} {embedding:#?} path edge.to is invalid"
-                        )))
+                        )));
                     }
                     match edge.kind {
                         EdgeKind::Transverse(q_cedge, source_i) => {
@@ -325,12 +329,12 @@ impl Router {
                                     return Err(Error::OtherString(format!(
                                         "{p_embedding} {embedding:#?} path sink source_i is out \
                                          of range"
-                                    )))
+                                    )));
                                 }
                             } else {
                                 return Err(Error::OtherString(format!(
                                     "{p_embedding} {embedding:#?} path edge.kind is invalid"
-                                )))
+                                )));
                             }
                         }
                         EdgeKind::Concentrate => (),
@@ -340,18 +344,19 @@ impl Router {
             }
             // check path continuity
             for (i, path) in hyperpath.paths().iter().enumerate() {
-                let mut q = hyperpath.source();
+                let mut q = hyperpath.target_source;
                 for (j, edge) in path.edges().iter().enumerate() {
                     match edge.kind {
                         EdgeKind::Transverse(q_cedge, source_i) => {
                             let cedge = self.target_channeler().cedges.get(q_cedge).unwrap();
-                            q = cedge.sources()[source_i];
-                            if q != edge.to {
+                            let source = cedge.sources()[source_i].p_cnode;
+                            if q != source {
                                 return Err(Error::OtherString(format!(
-                                    "{p_embedding} {embedding:#?} path {i} is broken at traversal \
-                                     edge {j}"
-                                )))
+                                    "{p_embedding} {embedding:#?} path {i} source is broken at \
+                                     traversal edge {j} {cedge:#?}"
+                                )));
                             }
+                            q = edge.to;
                         }
                         EdgeKind::Concentrate => {
                             q = self.target_channeler().get_supernode(q).unwrap();
@@ -359,7 +364,7 @@ impl Router {
                                 return Err(Error::OtherString(format!(
                                     "{p_embedding} {embedding:#?} path {i} is broken at \
                                      concentration edge {j}"
-                                )))
+                                )));
                             }
                         }
                         EdgeKind::Dilute => {
@@ -368,16 +373,44 @@ impl Router {
                                 return Err(Error::OtherString(format!(
                                     "{p_embedding} {embedding:#?} path {i} is broken at dilution \
                                      edge {j}"
-                                )))
+                                )));
                             }
                             q = edge.to;
                         }
                     }
                 }
-                if q != path.sink() {
+                if q != path.target_sink().unwrap() {
                     return Err(Error::OtherString(format!(
                         "{p_embedding} {embedding:#?} path {i} ending does not match sink"
-                    )))
+                    )));
+                }
+            }
+        }
+        // edge embedding validities
+        for (p_embedding, embedding) in self.edge_embeddings() {
+            if !self
+                .program_ensemble()
+                .lnodes
+                .contains(embedding.program_edge)
+            {
+                return Err(Error::OtherString(format!(
+                    "{p_embedding} {embedding:#?}.program_edge is invalid"
+                )));
+            }
+            match embedding.target {
+                NodeOrEdge::Node(q_cnode) => {
+                    if !self.target_channeler().cnodes.contains(q_cnode) {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?}.target is invalid"
+                        )));
+                    }
+                }
+                NodeOrEdge::Edge(q_cedge) => {
+                    if !self.target_channeler().cedges.contains(q_cedge) {
+                        return Err(Error::OtherString(format!(
+                            "{p_embedding} {embedding:#?}.target is invalid"
+                        )));
+                    }
                 }
             }
         }
@@ -388,7 +421,8 @@ impl Router {
     /// corresponding channeling nodes
     pub fn debug_potential_map_points(&self, locations: bool, skip_invalid: bool) -> String {
         let mut s = String::new();
-        for (p_rnode, p_external, rnode) in self.target_ensemble().notary.rnodes() {
+        for (p_rnode, pair) in self.target_ensemble().notary.rnodes().iter() {
+            let (p_external, rnode) = pair.k_v();
             let mut init = false;
             if !skip_invalid {
                 writeln!(
@@ -407,10 +441,10 @@ impl Router {
                         let bit = self
                             .target_ensemble()
                             .backrefs
-                            .get_val(bit)
+                            .get_shared(bit)
                             .unwrap()
                             .p_self_equiv;
-                        if let Some(q_cnode) = self.target_channeler().find_channeler_cnode(bit) {
+                        if let Some(q_cnode) = self.target_channeler().translate_equiv(bit) {
                             if skip_invalid && !init {
                                 writeln!(
                                     s,
@@ -439,9 +473,9 @@ impl Router {
     }
 
     pub fn debug_mapping(&self, p_mapping: PMapping) -> String {
-        let (p_back, mapping) = self.mappings().get(p_mapping).unwrap();
+        let (p_equiv, mapping) = self.mappings().get(p_mapping).unwrap().k_v();
         let mut s = format!(
-            "{p_mapping:?} {p_back:#?} Mapping {{\nprogram: {} bit {}\n",
+            "{p_mapping:?} {p_equiv:#?} Mapping {{\nprogram: {} bit {}\n",
             mapping.program_p_external, mapping.program_bit_i
         );
         let rnode = self
@@ -456,7 +490,7 @@ impl Router {
         if let Some(location) = rnode.location {
             writeln!(s, "{location:#?}").unwrap();
         }
-        if let Some(q_cnode) = self.target_channeler().find_channeler_cnode(*p_back) {
+        if let Some(q_cnode) = self.target_channeler().translate_equiv(*p_equiv) {
             writeln!(s, "{q_cnode:?}").unwrap();
         }
         if let Some(ref source) = mapping.target_source {
@@ -480,7 +514,7 @@ impl Router {
             }
             if let Some(q_cnode) = self
                 .target_channeler()
-                .find_channeler_cnode(source.target_p_equiv)
+                .translate_equiv(source.target_p_equiv)
             {
                 writeln!(s, "{q_cnode:?}").unwrap();
             }
@@ -504,10 +538,7 @@ impl Router {
             if let Some(location) = rnode.location {
                 writeln!(s, "{location:#?}").unwrap();
             }
-            if let Some(q_cnode) = self
-                .target_channeler()
-                .find_channeler_cnode(sink.target_p_equiv)
-            {
+            if let Some(q_cnode) = self.target_channeler().translate_equiv(sink.target_p_equiv) {
                 writeln!(s, "{q_cnode:?}").unwrap();
             }
         }
@@ -524,13 +555,14 @@ impl Router {
     }
 
     /// Tell the router what program input bits we want to map to what target
-    /// input bits. This is automatically handled by `Router::new`
+    /// input bits. This is automatically handled by `Router::route()`.
     pub fn map_rnodes(
         &mut self,
         program: PExternal,
         target: PExternal,
         is_driver: bool,
     ) -> Result<(), Error> {
+        self.is_valid_routing = false;
         if let Ok((_, program_rnode)) = self.program_ensemble.notary.get_rnode(program) {
             let program_rnode_bits = if let Some(bits) = program_rnode.bits() {
                 bits
@@ -570,13 +602,13 @@ impl Router {
                             let program_p_equiv = self
                                 .program_ensemble
                                 .backrefs
-                                .get_val(program_bit)
+                                .get_shared(program_bit)
                                 .unwrap()
                                 .p_self_equiv;
                             let target_p_equiv = self
                                 .target_ensemble
                                 .backrefs
-                                .get_val(target_bit)
+                                .get_shared(target_bit)
                                 .unwrap()
                                 .p_self_equiv;
 
@@ -587,7 +619,7 @@ impl Router {
                                 target_p_equiv,
                             };
                             if let Some(p_map) = self.mappings.find_key(&program_p_equiv) {
-                                let mapping = self.mappings.get_val_mut(p_map).unwrap();
+                                let mapping = self.mappings.get_mut(p_map).unwrap().v_mut();
                                 if is_driver {
                                     if mapping.target_source.is_some() {
                                         return Err(Error::OtherString(format!(
@@ -630,7 +662,8 @@ impl Router {
                                         target_sinks: vec![mapping_target],
                                     }
                                 };
-                                let _ = self.mappings.insert(program_p_equiv, mapping);
+                                let _ =
+                                    self.mappings.insert(OrdPair::new(program_p_equiv, mapping));
                             }
                         }
                         (None, None) => (),
@@ -656,6 +689,103 @@ impl Router {
         }
     }
 
+    /// Uses the corresponder to find `map_rnodes` points. This is automatically
+    /// handled by `Router::route()`.
+    pub fn map_rnodes_from_corresponder(
+        &mut self,
+        corresponder: &Corresponder,
+    ) -> Result<(), Error> {
+        for (_, pair) in corresponder.a.iter() {
+            let (p_external, p_correspond) = pair.k_v();
+            if let Ok((_, program_rnode)) = self.program_ensemble().notary.get_rnode(*p_external) {
+                // we are oriented around the program side of the correspondence because there
+                // should be at most one per correspondence
+                let program_p_external = *p_external;
+                let is_driver = !program_rnode.read_only();
+                let mut target_count = 0;
+                let mut adv = corresponder.c.advancer_surject(*p_correspond).unwrap();
+                // skip once
+                adv.advance(&corresponder.c);
+                while let Some(p_correspond) = adv.advance(&corresponder.c) {
+                    let p_meta = *corresponder.c.get(p_correspond).unwrap();
+                    let target_p_external = *corresponder.a.get(p_meta).unwrap().k();
+                    if let Ok((_, target_rnode)) =
+                        self.target_ensemble().notary.get_rnode(target_p_external)
+                    {
+                        if is_driver == target_rnode.read_only() {
+                            return Err(Error::OtherString(format!(
+                                "in `Router::map_rnodes_from_corresponder()`, it appears that a \
+                                 correspondence is between a `LazyAwi` and a `EvalAwi` which \
+                                 shouldn't be possible, the two sides were \
+                                 {program_p_external:#?} and {target_p_external:#?}"
+                            )));
+                        }
+                        self.map_rnodes(program_p_external, target_p_external, is_driver)?;
+                        target_count += 1;
+                    } else if self
+                        .program_ensemble()
+                        .notary
+                        .rnodes()
+                        .find_key(&target_p_external)
+                        .is_some()
+                    {
+                        // probably a common mistake we should handle specially
+                        return Err(Error::CorrespondenceDoubleProgram(
+                            program_p_external,
+                            target_p_external,
+                        ));
+                    } else {
+                        return Err(Error::CorrespondenceNotFoundInEpoch(target_p_external));
+                    }
+                }
+                if target_count == 0 {
+                    return Err(Error::CorrespondenceWithoutTarget(program_p_external));
+                }
+            } else if self.target_ensemble().notary.get_rnode(*p_external).is_ok() {
+                // check that there is at least one program corresponded with this, the other
+                // branch will do the other kinds of checks
+                let mut program_count = 0;
+                let mut adv = corresponder.c.advancer_surject(*p_correspond).unwrap();
+                // skip once
+                adv.advance(&corresponder.c);
+                while let Some(p_correspond) = adv.advance(&corresponder.c) {
+                    let p_meta = *corresponder.c.get(p_correspond).unwrap();
+                    let p_tmp = *corresponder.a.get(p_meta).unwrap().k();
+                    if self.program_ensemble().notary.get_rnode(p_tmp).is_ok() {
+                        program_count += 1;
+                    }
+                }
+                if program_count == 0 {
+                    return Err(Error::CorrespondenceWithoutProgram(*p_external));
+                }
+            } else {
+                return Err(Error::CorrespondenceNotFoundInEpoch(*p_external));
+            }
+        }
+        Ok(())
+    }
+
+    /// Clears any mappings currently registered for this `Router`
+    pub fn clear_mappings(&mut self) {
+        self.is_valid_routing = false;
+        self.mappings.clear().allow();
+    }
+
+    /// The same as [Router::route] except that this uses any preexisting manual
+    /// mappings.
+    pub fn route_without_remapping(&mut self) -> Result<(), Error> {
+        self.initialize_embeddings()?;
+        route(self)?;
+        self.set_configurations()?;
+        self.is_valid_routing = true;
+        Ok(())
+    }
+
+    /// Routes the program on the target, finding the configuration needed to
+    /// match the functionality of target to the program. This resets any
+    /// mappings and configurations from previous calls and creates mappings
+    /// from the program to the target based on the `corresponder`.
+    ///
     /// This function should be called to perform the routing algorithms and
     /// determine how the target can be configured to match the
     /// functionality of the program.
@@ -663,65 +793,9 @@ impl Router {
     /// # Errors
     ///
     /// If the routing is infeasible an error is returned.
-    pub fn route(&mut self) -> Result<(), Error> {
-        self.initialize_embeddings()?;
-        route(self)?;
-        self.set_configurations()?;
-        Ok(())
-    }
-
-    /// After routing is done, this function can be called to find the
-    /// configuration that the router determined. Note that if a bit is not
-    /// necessarily set to anything, it will show as zero.
-    ///
-    /// # Errors
-    ///
-    /// - If the target epoch is not active or `config` is from the wrong
-    ///   `Epoch`
-    /// - If `config` was not registered in the `Configurator` used for the
-    ///   router
-    #[allow(unused)]
-    pub fn get_config<L: std::borrow::Borrow<LazyAwi>>(&self, config: &L) -> Result<Awi, Error> {
-        let config = config.borrow();
-        let epoch_shared = get_current_epoch()?;
-        let lock = epoch_shared.epoch_data.borrow();
-        let ensemble = &lock.ensemble;
-
-        let p_external = config.p_external();
-        let (_, rnode) = ensemble.notary.get_rnode(p_external)?;
-        let mut res = Awi::zero(rnode.nzbw());
-        if let Some(bits) = rnode.bits() {
-            for (bit_i, bit) in bits.iter().copied().enumerate() {
-                if let Some(bit) = bit {
-                    let bit = self
-                        .target_ensemble()
-                        .backrefs
-                        .get_val(bit)
-                        .unwrap()
-                        .p_self_equiv;
-                    if let Some(p_config) = self.configurator.find(bit) {
-                        let value = self
-                            .configurator
-                            .configurations
-                            .get_val(p_config)
-                            .unwrap()
-                            .value;
-                        let value = value.unwrap_or(false);
-                        res.set(bit_i, value).unwrap();
-                    } else {
-                        return Err(Error::OtherStr(
-                            "`get_config({config:#?})`: `config` is not registered as \
-                             configurable in the configurator",
-                        ));
-                    }
-                }
-            }
-        } else {
-            return Err(Error::OtherStr(
-                "`get_config({config:#?})`: the config is in the target epoch, but either routing \
-                 has not been done or the target was improperly mutated",
-            ));
-        }
-        Ok(res)
+    pub fn route(&mut self, corresponder: &Corresponder) -> Result<(), Error> {
+        self.clear_mappings();
+        self.map_rnodes_from_corresponder(corresponder)?;
+        self.route_without_remapping()
     }
 }

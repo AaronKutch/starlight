@@ -4,22 +4,21 @@ use std::{
 };
 
 use awint::{
+    Awi,
     awint_dag::{
-        smallvec::{smallvec, SmallVec},
-        triple_arena::{Advancer, Arena},
         EAwi, EvalResult, Location,
         Op::{self, *},
         PState,
+        smallvec::{SmallVec, smallvec},
     },
-    Awi,
 };
 
 use crate::{
-    awi,
+    Error, awi,
     awi_structs::{DELAY, DELAYED_LOOP_SOURCE, LOOP_SOURCE, UNDRIVEN_LOOP_SOURCE},
     ensemble::{ChangeKind, Delay, DynamicValue, Ensemble, Equiv, Event, PBack, Referent, Value},
     epoch::EpochShared,
-    Error,
+    triple_arena::{Arena, traits::*},
 };
 
 /// Represents a single state that `awint_dag::mimick::Bits` is in at one point
@@ -96,7 +95,8 @@ impl Stator {
         if !self.states.is_empty() {
             return Err(Error::OtherStr("states need to be empty"));
         }
-        self.states.clear_and_shrink();
+        self.states.clear().allow();
+        // FIXME do we shrink?
         self.states_to_lower.clear();
         self.states_to_lower.shrink_to_fit();
         Ok(())
@@ -138,7 +138,7 @@ impl Ensemble {
             return Err(Error::InvalidPtr);
         };
         if !state.p_self_bits.is_empty() {
-            return Ok(())
+            return Ok(());
         }
         let w = state.nzbw;
         // the corresponding bit values
@@ -156,39 +156,36 @@ impl Ensemble {
             Op::Argument(_) => {
                 return Ok(());
             }
-            Op::Opaque(ref v, name) => {
-                if name.is_none() {
-                    assert!(v.is_empty());
-                    is_const = true;
-                }
+            Op::Opaque(ref v, name) if name.is_none() => {
+                assert!(v.is_empty());
+                is_const = true;
             }
             _ => (),
         }
         let mut bits = smallvec![];
         for i in 0..state.nzbw.get() {
-            let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
-                (
-                    Referent::ThisEquiv,
-                    Equiv::new(
-                        p_self_equiv,
-                        if is_const {
-                            if known {
-                                Value::Const(vals.get(i).unwrap())
-                            } else {
-                                Value::ConstUnknown
-                            }
-                        } else if known {
-                            Value::Dynam(vals.get(i).unwrap())
+            let entry = self.backrefs.entry_insert_surject_reallocating().unwrap();
+            let p_equiv = entry.ptr();
+            entry.insert(
+                Referent::ThisEquiv,
+                Equiv::new(
+                    p_equiv,
+                    if is_const {
+                        if known {
+                            Value::Const(vals.get(i).unwrap())
                         } else {
-                            Value::Unknown
-                        },
-                    ),
-                )
-            });
+                            Value::ConstUnknown
+                        }
+                    } else if known {
+                        Value::Dynam(vals.get(i).unwrap())
+                    } else {
+                        Value::Unknown
+                    },
+                ),
+            );
             bits.push(Some(
                 self.backrefs
-                    .insert_key(p_equiv, Referent::ThisStateBit(p_state, i))
-                    .unwrap(),
+                    .insert(p_equiv, Referent::ThisStateBit(p_state, i)),
             ));
         }
         let state = self.stator.states.get_mut(p_state).unwrap();
@@ -205,23 +202,23 @@ impl Ensemble {
         let mut pstate_stack = vec![p_state];
         while let Some(p) = pstate_stack.pop() {
             let mut delete = false;
-            if let Some(state) = self.stator.states.get(p) {
-                if state.pruning_allowed() {
-                    delete = true;
-                }
+            if let Some(state) = self.stator.states.get(p)
+                && state.pruning_allowed()
+            {
+                delete = true;
             }
             if delete {
                 for i in 0..self.stator.states[p].op.operands_len() {
                     let op = self.stator.states[p].op.operands()[i];
                     if self.stator.states[op].dec_rc().is_none() {
-                        return Err(Error::OtherStr("tried to subtract a 0 reference count"))
+                        return Err(Error::OtherStr("tried to subtract a 0 reference count"));
                     };
                     pstate_stack.push(op);
                 }
-                let mut state = self.stator.states.remove(p).unwrap();
+                let mut state = self.stator.states.remove(p).allow().unwrap();
                 for p_self_state in state.p_self_bits.drain(..) {
                     if let Some(p_self_state) = p_self_state {
-                        self.backrefs.remove_key(p_self_state).unwrap();
+                        self.backrefs.remove_element(p_self_state).allow().unwrap();
                     }
                 }
             }
@@ -233,10 +230,10 @@ impl Ensemble {
         // set associated states to none to help prevent issues when there are no
         // generation counters
         self.remove_all_rnode_associated_states();
-        for (_, mut state) in self.stator.states.drain() {
+        for (_, mut state) in self.stator.states.drain().map(|x| x.allow()) {
             for p_self_state in state.p_self_bits.drain(..) {
                 if let Some(p_self_state) = p_self_state {
-                    self.backrefs.remove_key(p_self_state).unwrap();
+                    self.backrefs.remove_element(p_self_state).allow().unwrap();
                 }
             }
         }
@@ -256,7 +253,7 @@ impl Ensemble {
             state.extern_rc = if let Some(x) = state.extern_rc.checked_sub(1) {
                 x
             } else {
-                return Err(Error::OtherStr("tried to subtract a 0 reference count"))
+                return Err(Error::OtherStr("tried to subtract a 0 reference count"));
             };
             self.remove_state_if_pruning_allowed(p_state)?;
             Ok(())
@@ -270,7 +267,7 @@ impl Ensemble {
             state.rc = if let Some(x) = state.rc.checked_sub(1) {
                 x
             } else {
-                return Err(Error::OtherStr("tried to subtract a 0 reference count"))
+                return Err(Error::OtherStr("tried to subtract a 0 reference count"));
             };
             self.remove_state_if_pruning_allowed(p_state)?;
             Ok(())
@@ -315,9 +312,9 @@ impl Ensemble {
                     debug_assert_eq!(self.stator.states[p_state].p_self_bits.len(), x.bw());
                     for i in 0..x.bw() {
                         if let Some(p_bit) = self.stator.states[p_state].p_self_bits[i] {
-                            let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
                             // unwrap because this should never fail, events would process
                             // incorrectly
+                            let p_equiv = self.get_p_equiv(p_bit).unwrap();
                             self.change_value(
                                 p_equiv,
                                 Value::Const(x.get(i).unwrap()),
@@ -378,10 +375,10 @@ impl Ensemble {
     pub fn dfs_lower_elementary_to_lnodes(&mut self, p_state: PState) -> Result<(), Error> {
         if let Some(state) = self.stator.states.get(p_state) {
             if state.lowered_to_lnodes {
-                return Ok(())
+                return Ok(());
             }
         } else {
-            return Err(Error::InvalidPtr)
+            return Err(Error::InvalidPtr);
         }
         self.stator.states[p_state].lowered_to_lnodes = true;
         let mut path: Vec<(usize, PState)> = vec![(0, p_state)];
@@ -408,18 +405,18 @@ impl Ensemble {
                                     return Err(Error::OtherStr(
                                         "cannot lower delay opaque with no `Op` inputs, some \
                                          variant was violated",
-                                    ))
+                                    ));
                                 }
                                 "UndrivenLoopSource" | "LoopSource" | "DelayedLoopSource" => {
                                     return Err(Error::OtherStr(
                                         "cannot lower loop source opaque with no initial value, \
                                          some variant was violated",
-                                    ))
+                                    ));
                                 }
                                 name => {
                                     return Err(Error::OtherString(format!(
                                         "cannot lower root opaque with name {name}"
-                                    )))
+                                    )));
                                 }
                             }
                         }
@@ -429,7 +426,7 @@ impl Ensemble {
                 }
                 path.pop().unwrap();
                 if path.is_empty() {
-                    break
+                    break;
                 }
                 path.last_mut().unwrap().0 += 1;
             } else if i >= ops.len() {
@@ -437,7 +434,7 @@ impl Ensemble {
                 lower_elementary_to_lnodes_intermediate(self, p_state)?;
                 path.pop().unwrap();
                 if path.is_empty() {
-                    break
+                    break;
                 }
             } else {
                 let p_next = ops[i];
@@ -478,7 +475,13 @@ impl Ensemble {
             let mut lock = epoch_shared.epoch_data.borrow_mut();
             if let Some(p_rnode) = adv.advance(lock.ensemble.notary.rnodes()) {
                 // only lower state trees attached to rnodes that need lowering
-                let rnode = lock.ensemble.notary.rnodes.get_val_mut(p_rnode).unwrap();
+                let rnode = lock
+                    .ensemble
+                    .notary
+                    .rnodes
+                    .get_mut(p_rnode)
+                    .unwrap()
+                    .v_mut();
                 if rnode.lower_before_pruning {
                     drop(lock);
                     Ensemble::initialize_rnode_if_needed(epoch_shared, p_rnode, true)?;
@@ -488,7 +491,7 @@ impl Ensemble {
                     drop(lock);
                 }
             } else {
-                break
+                break;
             }
         }
 
@@ -500,15 +503,15 @@ impl Ensemble {
         loop {
             let mut lock = epoch_shared.epoch_data.borrow_mut();
             if let Some(p_state) = lock.ensemble.stator.states_to_lower.pop() {
-                if let Some(state) = lock.ensemble.stator.states.get(p_state) {
-                    // first check that it has not already been lowered
-                    if !state.lowered_to_lnodes {
-                        drop(lock);
-                        Ensemble::dfs_lower(epoch_shared, p_state)?;
-                    }
+                // first check that it has not already been lowered
+                if let Some(state) = lock.ensemble.stator.states.get(p_state)
+                    && !state.lowered_to_lnodes
+                {
+                    drop(lock);
+                    Ensemble::dfs_lower(epoch_shared, p_state)?;
                 }
             } else {
-                break
+                break;
             }
         }
         Ok(())
@@ -618,7 +621,7 @@ fn lower_elementary_to_lnodes_intermediate(
                     unreachable!()
                 };
                 let bits = &this.stator.states[c].p_self_bits;
-                inx_bits.extend(bits.iter().cloned());
+                inx_bits.extend(bits.iter().copied());
             }
 
             let inx_len = inx_bits.len();
@@ -696,7 +699,7 @@ fn lower_elementary_to_lnodes_intermediate(
                         if v.len() != 2 {
                             return Err(Error::OtherStr(
                                 "`Delay` has an unexpected number of arguments",
-                            ))
+                            ));
                         }
                         let w = this.stator.states[p_state].p_self_bits.len();
                         let p_driver_state = v[0];
@@ -707,18 +710,18 @@ fn lower_elementary_to_lnodes_intermediate(
                                 if delay.bw() > 128 {
                                     return Err(Error::OtherStr(
                                         "`Delay` delay amount is unexpectedly large",
-                                    ))
+                                    ));
                                 }
                                 if delay.is_zero() {
                                     // the function that creates `Delay` is supposed to do a no-op
                                     // or copy instead
-                                    return Err(Error::OtherStr("`Delay` delay amount is zero"))
+                                    return Err(Error::OtherStr("`Delay` delay amount is zero"));
                                 }
                                 Delay::from_amount(delay.to_u128())
                             } else {
                                 return Err(Error::OtherStr(
                                     "`Delay` does not use the correct `Op::Argument`",
-                                ))
+                                ));
                             };
                         for i in 0..w {
                             let p_driver =
@@ -732,7 +735,7 @@ fn lower_elementary_to_lnodes_intermediate(
 
                             // however we do want the initial value to detect immediate quiescence
                             // when the driver is already `Unknown`
-                            let init_val = this.backrefs.get_val(p_driver).unwrap().val;
+                            let init_val = this.backrefs.get_shared(p_driver).unwrap().val;
                             let p_source = this.stator.states[p_state].p_self_bits[i].unwrap();
 
                             let p_tnode = this.make_tnode(p_source, p_driver, delay);
@@ -746,18 +749,18 @@ fn lower_elementary_to_lnodes_intermediate(
                         if v.len() != 1 {
                             return Err(Error::OtherStr(
                                 "undriven loop source has an unexpected number of arguments",
-                            ))
+                            ));
                         }
                         return Err(Error::OtherString(format!(
                             "cannot lower an undriven `Loop` or `Net`, some `drive_*` function \
                              has not been called on a loop source with state {p_state}"
-                        )))
+                        )));
                     }
                     LOOP_SOURCE => {
                         if v.len() != 2 {
                             return Err(Error::OtherStr(
                                 "loop source has an unexpected number of arguments",
-                            ))
+                            ));
                         }
                         let w = this.stator.states[p_state].p_self_bits.len();
                         let p_initial_state = v[0];
@@ -765,12 +768,12 @@ fn lower_elementary_to_lnodes_intermediate(
                         if w != this.stator.states[p_initial_state].p_self_bits.len() {
                             return Err(Error::OtherStr(
                                 "`Loop` has a bitwidth mismatch of looper and initial state",
-                            ))
+                            ));
                         }
                         if w != this.stator.states[p_driver_state].p_self_bits.len() {
                             return Err(Error::OtherStr(
                                 "`Loop` has a bitwidth mismatch of looper and driver",
-                            ))
+                            ));
                         }
                         for i in 0..w {
                             let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
@@ -778,7 +781,7 @@ fn lower_elementary_to_lnodes_intermediate(
                                 this.stator.states[p_driver_state].p_self_bits[i].unwrap();
                             let p_initial =
                                 this.stator.states[p_initial_state].p_self_bits[i].unwrap();
-                            let init_val = this.backrefs.get_val(p_initial).unwrap().val;
+                            let init_val = this.backrefs.get_shared(p_initial).unwrap().val;
                             // the loop source is an internal `Opaque` root at this point, we
                             // initiate the initial event chain ourselves.
 
@@ -812,10 +815,10 @@ fn lower_elementary_to_lnodes_intermediate(
                             // initial event for the initial value, need to do this in general
                             // because the state bit can get optimized away before we actually use
                             // it
-                            let p_back = this.backrefs.get_val(p_looper).unwrap().p_self_equiv;
+                            let p_equiv = this.get_p_equiv(p_looper).unwrap();
                             this.evaluator.push_event(Event {
                                 partial_ord_num: NonZeroU64::new(1).unwrap(),
-                                change_kind: ChangeKind::Manual(p_back, init_val),
+                                change_kind: ChangeKind::Manual(p_equiv, init_val),
                             });
                         }
                     }
@@ -823,7 +826,7 @@ fn lower_elementary_to_lnodes_intermediate(
                         if v.len() != 3 {
                             return Err(Error::OtherStr(
                                 "delayed loop source has an unexpected number of arguments",
-                            ))
+                            ));
                         }
                         let w = this.stator.states[p_state].p_self_bits.len();
                         let p_initial_state = v[0];
@@ -832,12 +835,12 @@ fn lower_elementary_to_lnodes_intermediate(
                         if w != this.stator.states[p_initial_state].p_self_bits.len() {
                             return Err(Error::OtherStr(
                                 "`Loop` has a bitwidth mismatch of looper and initial state",
-                            ))
+                            ));
                         }
                         if w != this.stator.states[p_driver_state].p_self_bits.len() {
                             return Err(Error::OtherStr(
                                 "`Loop` has a bitwidth mismatch of looper and driver",
-                            ))
+                            ));
                         }
                         let delay =
                             if let Op::Argument(ref delay) = this.stator.states[p_delay_state].op {
@@ -845,23 +848,25 @@ fn lower_elementary_to_lnodes_intermediate(
                                 if delay.bw() > 128 {
                                     return Err(Error::OtherStr(
                                         "`Delay` delay amount is unexpectedly large",
-                                    ))
+                                    ));
                                 }
                                 if delay.is_zero() {
                                     // the function that creates `Delay` is supposed to do a no-op
                                     // or copy instead
-                                    return Err(Error::OtherStr("`Delay` delay amount is zero"))
+                                    return Err(Error::OtherStr("`Delay` delay amount is zero"));
                                 }
                                 Delay::from_amount(delay.to_u128())
                             } else {
                                 return Err(Error::OtherStr(
                                     "`Delay` does not use the correct `Op::Argument`",
-                                ))
+                                ));
                             };
                         if delay.is_zero() {
                             // the function that creates DELAYED_LOOP_SOURCE is supposed to do a
                             // LOOP_SOURCE instead
-                            return Err(Error::OtherStr("delayed loop source delay amount is zero"))
+                            return Err(Error::OtherStr(
+                                "delayed loop source delay amount is zero",
+                            ));
                         }
                         for i in 0..w {
                             let p_looper = this.stator.states[p_state].p_self_bits[i].unwrap();
@@ -869,7 +874,7 @@ fn lower_elementary_to_lnodes_intermediate(
                                 this.stator.states[p_driver_state].p_self_bits[i].unwrap();
                             let p_initial =
                                 this.stator.states[p_initial_state].p_self_bits[i].unwrap();
-                            let init_val = this.backrefs.get_val(p_initial).unwrap().val;
+                            let init_val = this.backrefs.get_shared(p_initial).unwrap().val;
 
                             let p_tnode = this.make_tnode(p_looper, p_driver, delay);
                             if !delay.is_zero() {
@@ -896,17 +901,17 @@ fn lower_elementary_to_lnodes_intermediate(
                                     ));
                                 }
                             };
-                            let p_back = this.backrefs.get_val(p_looper).unwrap().p_self_equiv;
+                            let p_equiv = this.get_p_equiv(p_looper).unwrap();
                             this.evaluator.push_event(Event {
                                 partial_ord_num: NonZeroU64::new(1).unwrap(),
-                                change_kind: ChangeKind::Manual(p_back, init_val),
+                                change_kind: ChangeKind::Manual(p_equiv, init_val),
                             });
                         }
                     }
                     _ => {
                         return Err(Error::OtherString(format!(
                             "cannot lower opaque with name {name:?}"
-                        )))
+                        )));
                     }
                 }
             }

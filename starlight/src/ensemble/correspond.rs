@@ -1,18 +1,19 @@
 use core::fmt;
 use std::num::NonZeroUsize;
 
-use awint::awint_dag::triple_arena::{Advancer, OrdArena, SurjectArena};
+use awint::awint_dag::triple_arena::OrdPair;
 
 use crate::{
-    ensemble::{PCorrespond, PExternal, PMeta},
     Error, EvalAwi, LazyAwi,
+    ensemble::{PCorrespond, PExternal, PMeta},
+    triple_arena::{SimpleOrdArena, SurjectArena, traits::*},
 };
 
 /// Provides a controlled way to correspond `LazyAwi`s and `EvalAwi`s in and
 /// between different `Epoch`s.
 pub struct Corresponder {
-    a: OrdArena<PMeta, PExternal, PCorrespond>,
-    c: SurjectArena<PCorrespond, PMeta, NonZeroUsize>,
+    pub(crate) a: SimpleOrdArena<PMeta, OrdPair<PExternal, PCorrespond>>,
+    pub(crate) c: SurjectArena<PCorrespond, PMeta, NonZeroUsize>,
 }
 
 impl Clone for Corresponder {
@@ -36,7 +37,7 @@ impl fmt::Debug for Corresponder {
 impl Corresponder {
     pub fn new() -> Self {
         Self {
-            a: OrdArena::new(),
+            a: SimpleOrdArena::new(),
             c: SurjectArena::new(),
         }
     }
@@ -50,9 +51,13 @@ impl Corresponder {
         let w = l.nzbw();
         (
             if let Some(p_meta) = self.a.find_key(&p) {
-                *self.a.get_val(p_meta).unwrap()
+                *self.a.get(p_meta).unwrap().v()
             } else {
-                self.c.insert_with(|p_c| (self.a.insert(p, p_c).0, w))
+                let entry = self.c.entry_insert_surject_reallocating().unwrap();
+                let p_c = entry.ptr();
+                let p_meta = self.a.insert(OrdPair::new(p, p_c)).0;
+                entry.insert(p_meta, w);
+                p_c
             },
             w,
         )
@@ -86,9 +91,13 @@ impl Corresponder {
         let w = e.nzbw();
         (
             if let Some(p_meta) = self.a.find_key(&p) {
-                *self.a.get_val(p_meta).unwrap()
+                *self.a.get(p_meta).unwrap().v()
             } else {
-                self.c.insert_with(|p_c| (self.a.insert(p, p_c).0, w))
+                let entry = self.c.entry_insert_surject_reallocating().unwrap();
+                let p_c = entry.ptr();
+                let p_meta = self.a.insert(OrdPair::new(p, p_c)).0;
+                entry.insert(p_meta, w);
+                p_c
             },
             w,
         )
@@ -113,7 +122,7 @@ impl Corresponder {
     }
 
     /// Returns a vector of `LazyAwi`s for everything that was
-    /// corresponded with `l` and is usable with the currently active `Epoch`.
+    /// corresponded with `l` and is usable with the current `Epoch`.
     pub fn correspondences_lazy<L: std::borrow::Borrow<LazyAwi>>(
         &self,
         l: &L,
@@ -121,16 +130,16 @@ impl Corresponder {
         let l = l.borrow();
         let p = l.p_external();
         if let Some(p_meta) = self.a.find_key(&p) {
-            let p_start = *self.a.get_val(p_meta).unwrap();
-            let mut adv = self.c.advancer_surject(p_start);
+            let p_start = *self.a.get(p_meta).unwrap().v();
+            let mut adv = self.c.advancer_surject(p_start).unwrap();
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
-                let p_meta = *self.c.get_key(p_correspond).unwrap();
-                let p_external = *self.a.get_key(p_meta).unwrap();
-                if p_external != p {
-                    if let Ok(l) = LazyAwi::try_clone_from(p_external, None) {
-                        v.push(l);
-                    }
+                let p_meta = *self.c.get(p_correspond).unwrap();
+                let p_external = *self.a.get(p_meta).unwrap().k();
+                if p_external != p
+                    && let Ok(l) = LazyAwi::try_clone_from(p_external, None)
+                {
+                    v.push(l);
                 }
             }
             Ok(v)
@@ -140,14 +149,14 @@ impl Corresponder {
     }
 
     /// If `l` has been corresponded with exactly one other `LazyAwi` valid in
-    /// the currently active `Epoch`, this will return a reference the
+    /// the current `Epoch`, this will return a reference the
     /// corresponding `LazyAwi`.
     pub fn transpose_lazy<L: std::borrow::Borrow<LazyAwi>>(&self, l: &L) -> Result<LazyAwi, Error> {
         let tmp = l.borrow();
         let p = tmp.p_external();
         let mut v = self.correspondences_lazy(&tmp)?;
         if v.is_empty() {
-            return Err(Error::CorrespondenceEmpty(p))
+            return Err(Error::CorrespondenceEmpty(p));
         }
         if v.len() == 1 {
             Ok(v.pop().unwrap())
@@ -157,7 +166,7 @@ impl Corresponder {
     }
 
     /// Returns a vector of `EvalAwi`s for everything that was
-    /// corresponded with `l` and is usable with the currently active `Epoch`.
+    /// corresponded with `l` and is usable with the current `Epoch`.
     pub fn correspondences_eval<E: std::borrow::Borrow<EvalAwi>>(
         &self,
         e: &E,
@@ -165,16 +174,16 @@ impl Corresponder {
         let e = e.borrow();
         let p = e.p_external();
         if let Some(p_meta) = self.a.find_key(&p) {
-            let p_start = *self.a.get_val(p_meta).unwrap();
-            let mut adv = self.c.advancer_surject(p_start);
+            let p_start = *self.a.get(p_meta).unwrap().v();
+            let mut adv = self.c.advancer_surject(p_start).unwrap();
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
-                let p_meta = *self.c.get_key(p_correspond).unwrap();
-                let p_external = *self.a.get_key(p_meta).unwrap();
-                if p_external != p {
-                    if let Ok(l) = EvalAwi::try_clone_from(p_external) {
-                        v.push(l);
-                    }
+                let p_meta = *self.c.get(p_correspond).unwrap();
+                let p_external = *self.a.get(p_meta).unwrap().k();
+                if p_external != p
+                    && let Ok(l) = EvalAwi::try_clone_from(p_external)
+                {
+                    v.push(l);
                 }
             }
             Ok(v)
@@ -184,14 +193,14 @@ impl Corresponder {
     }
 
     /// If `l` has been corresponded with exactly one other `EvalAwi` valid in
-    /// the currently active `Epoch`, this will return a reference the
+    /// the current `Epoch`, this will return a reference the
     /// corresponding `EvalAwi`.
     pub fn transpose_eval<E: std::borrow::Borrow<EvalAwi>>(&self, e: &E) -> Result<EvalAwi, Error> {
         let tmp = e.borrow();
         let p = tmp.p_external();
         let mut v = self.correspondences_eval(&tmp)?;
         if v.is_empty() {
-            return Err(Error::CorrespondenceEmpty(p))
+            return Err(Error::CorrespondenceEmpty(p));
         }
         if v.len() == 1 {
             Ok(v.pop().unwrap())
@@ -203,12 +212,12 @@ impl Corresponder {
     /// Returns all correspondences with `p_external`
     pub fn correspondences(&self, p_external: PExternal) -> Result<Vec<PExternal>, Error> {
         if let Some(p_meta) = self.a.find_key(&p_external) {
-            let p_start = *self.a.get_val(p_meta).unwrap();
-            let mut adv = self.c.advancer_surject(p_start);
+            let p_start = *self.a.get(p_meta).unwrap().v();
+            let mut adv = self.c.advancer_surject(p_start).unwrap();
             let mut v = vec![];
             while let Some(p_correspond) = adv.advance(&self.c) {
-                let p_meta = *self.c.get_key(p_correspond).unwrap();
-                let p_tmp = *self.a.get_key(p_meta).unwrap();
+                let p_meta = *self.c.get(p_correspond).unwrap();
+                let p_tmp = *self.a.get(p_meta).unwrap().k();
                 if p_tmp != p_external {
                     v.push(p_tmp);
                 }

@@ -4,11 +4,12 @@ use std::{
     num::{NonZeroU64, NonZeroUsize},
 };
 
-use awint::{awi::*, awint_dag::triple_arena::Advancer};
+use awint::awi::*;
 
 use crate::{
-    ensemble::{Ensemble, PBack, PLNode, PTNode, Referent},
     Error,
+    ensemble::{Ensemble, PBack, PEquiv, PLNode, PTNode, Referent},
+    triple_arena::traits::*,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -143,11 +144,11 @@ pub enum DynamicValue {
 
 // Here are some of the reasons why we have chosen this somewhat convoluted
 // evaluator strategy. We want to prevent a situation where we receive a command
-// to change an equivalence value, then propogate changes as far as they will go
+// to change an equivalence value, then propagate changes as far as they will go
 // down potentially most of the DAG, then do that whole cascade for every change
 // made. Changes made to equivalences can stay in place until the point where a
 // request for a downstream value is made. A secondary goal is to avoid
-// unneccessary calculations from change propogations if they don't actually
+// unneccessary calculations from change propagations if they don't actually
 // lead to a request.
 
 // What we most want to avoid is globally requesting `TNode` drivers when most
@@ -161,12 +162,12 @@ pub enum DynamicValue {
 // zero. However, if the region source tree is large and only one small part has
 // been changed, there is a lot of wasted computation. Instead of the front
 // strategy or an intermediate change-request strategy that had issues of still
-// needing to request the whole thing, we have a modified event propogation
+// needing to request the whole thing, we have a modified event propagation
 // strategy that avoids the overwriting waste problem. Now that we have the
 // extra surjection level with known DAGs, what we do is assign partially
 // ordered integers over the DAG, such that an equivalence's number must be
 // greater than the maximum number of any of its dependencies. The event
-// propogation is calculated in order from least to greatest numbered. So, an
+// propagation is calculated in order from least to greatest numbered. So, an
 // equivalence will not be calculated until its dependencies are.
 
 // However, to allow any changes to the equivalence graph we need more referents
@@ -197,8 +198,8 @@ pub enum ChangeKind {
     // initializations rather than events, but the problem is that the DFS lowering can loop
     // around due to the other requirement to avoid handles and start from anywhere, which leads
     // to downstream values getting initialized as unknown rather than the correct initial value
-    // getting propogated.
-    Manual(PBack, Value),
+    // getting propagated.
+    Manual(PEquiv, Value),
 }
 
 /// Note that the `Eq`, `Ord`, etc traits are implemented to only order on
@@ -217,15 +218,15 @@ impl PartialEq for Event {
 
 impl Eq for Event {}
 
-impl PartialOrd for Event {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.partial_ord_num.cmp(&other.partial_ord_num))
-    }
-}
-
 impl Ord for Event {
     fn cmp(&self, other: &Self) -> Ordering {
         self.partial_ord_num.cmp(&other.partial_ord_num)
+    }
+}
+
+impl PartialOrd for Event {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -287,7 +288,7 @@ impl Ensemble {
         // problem that this is an impossible problem to solve in general, but there
         // might be a good approximate way to detect nonhalting. In either case we need
         // a way to specify event gas.
-        let mut event_gas = self.backrefs.len_keys() * 4;
+        let mut event_gas = self.backrefs.len() * 4;
         while let Some(event) = self.evaluator.pop_event() {
             let res = self.handle_event(event);
             if res.is_err() {
@@ -325,20 +326,20 @@ impl Ensemble {
     /// caused `change_value` need to be reinserted
     pub fn change_value(
         &mut self,
-        p_back: PBack,
+        p_equiv: PEquiv,
         value: Value,
         source_partial_ord_num: NonZeroU64,
     ) -> Result<(), Error> {
-        if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
+        if let Some(equiv) = self.backrefs.get_shared_mut(p_equiv.into()) {
             if equiv.val == value {
                 // no change needed
-                return Ok(())
+                return Ok(());
             }
             if equiv.val.is_const() && (equiv.val != value) {
                 return Err(Error::OtherStr(
                     "tried to change a constant (probably, `retro_const_*` was used followed by a \
                      contradicting `retro_*`, or some invariant was broken)",
-                ))
+                ));
             }
             equiv.val = value;
             if equiv.evaluator_partial_order <= source_partial_ord_num {
@@ -349,9 +350,9 @@ impl Ensemble {
             self.switch_to_change_phase();
 
             // create any needed events
-            let mut adv = self.backrefs.advancer_surject(p_back);
+            let mut adv = self.backrefs.advancer_surject(p_equiv.into()).unwrap();
             while let Some(p_back) = adv.advance(&self.backrefs) {
-                let referent = *self.backrefs.get_key(p_back).unwrap();
+                let referent = *self.backrefs.get(p_back).unwrap();
                 match referent {
                     Referent::ThisEquiv
                     | Referent::ThisLNode(_)
@@ -383,12 +384,15 @@ impl Ensemble {
         match event.change_kind {
             ChangeKind::LNode(p_lnode) => self.eval_lnode(p_lnode),
             ChangeKind::TNode(p_tnode) => self.eval_tnode(p_tnode),
-            ChangeKind::Manual(p_back, val) => self.manual_change(p_back, val),
+            ChangeKind::Manual(p_equiv, val) => {
+                self.manual_change(p_equiv, val).unwrap();
+                Ok(())
+            }
         }
     }
 
-    pub fn manual_change(&mut self, p_back: PBack, val: Value) -> Result<(), Error> {
-        self.change_value(p_back, val, NonZeroU64::new(1).unwrap())
+    pub fn manual_change(&mut self, p_equiv: PEquiv, val: Value) -> Result<(), Error> {
+        self.change_value(p_equiv, val, NonZeroU64::new(1).unwrap())
     }
 
     /// Evaluates the `LNode` and pushes new events as needed. Note that any
@@ -396,7 +400,8 @@ impl Ensemble {
     pub fn eval_lnode(&mut self, p_lnode: PLNode) -> Result<(), Error> {
         let p_back = self.lnodes.get(p_lnode).unwrap().p_self;
         let (val, partial_ord_num) = self.calculate_lnode_value(p_lnode)?;
-        self.change_value(p_back, val, partial_ord_num)
+        let p_equiv = self.get_p_equiv(p_back).unwrap();
+        self.change_value(p_equiv, val, partial_ord_num)
     }
 
     /// Evaluates the `TNode` and pushes new events or delayed events as needed.
@@ -406,9 +411,10 @@ impl Ensemble {
         let tnode = self.tnodes.get(p_tnode).unwrap();
         if tnode.delay().is_zero() {
             let p_driver = tnode.p_driver;
-            let equiv = self.backrefs.get_val(p_driver).unwrap();
+            let equiv = self.backrefs.get_shared(p_driver).unwrap();
             let partial_ord_num = equiv.evaluator_partial_order;
-            self.change_value(tnode.p_self, equiv.val, partial_ord_num)
+            let p_equiv = self.get_p_equiv(tnode.p_self).unwrap();
+            self.change_value(p_equiv, equiv.val, partial_ord_num)
         } else {
             self.delayer
                 .insert_delayed_tnode_event(p_tnode, tnode.delay());
@@ -417,12 +423,12 @@ impl Ensemble {
     }
 
     pub fn request_value(&mut self, p_back: PBack) -> Result<Value, Error> {
-        if let Some(equiv) = self.backrefs.get_val_mut(p_back) {
+        if let Some(equiv) = self.backrefs.get_shared_mut(p_back) {
             if equiv.val.is_const() {
-                return Ok(equiv.val)
+                return Ok(equiv.val);
             }
             self.switch_to_request_phase()?;
-            Ok(self.backrefs.get_val(p_back).unwrap().val)
+            Ok(self.backrefs.get_shared(p_back).unwrap().val)
         } else {
             Err(Error::InvalidPtr)
         }

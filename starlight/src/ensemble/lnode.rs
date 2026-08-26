@@ -5,19 +5,16 @@ use std::{
 };
 
 use awint::{
-    awi,
-    awint_dag::{
-        smallvec,
-        triple_arena::{Recast, Recaster, SurjectArena},
-        PState,
-    },
-    Awi, Bits,
+    Awi, Bits, awi,
+    awint_dag::{PState, smallvec},
 };
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use crate::{
-    ensemble::{DynamicValue, Ensemble, Equiv, PBack, PLNode, Referent, Value},
     Error,
+    ensemble::{DynamicValue, Ensemble, Equiv, PBack, PLNode, Referent, Value},
+    route::PEdgeEmbed,
+    triple_arena::{SurjectArena, surject_iterators::SurjectPtrAdvancer, traits::*},
 };
 
 #[derive(Debug, Clone)]
@@ -29,6 +26,17 @@ pub enum LNodeKind {
     Lut(SmallVec<[PBack; 4]>, Awi),
     /// A Dynamic Lookup Table with the inputs and then the `Vec` is the table
     DynamicLut(SmallVec<[PBack; 4]>, Vec<DynamicValue>),
+    // TODO I hypothesize but need to verify that an optimizer on a lookup table based system can
+    // do everything that a classical CNF form can do but more efficiently and more
+    // straightforwardly, we just need one more kind. This would be a `SparseLut` that is
+    // virtually a table of all ones or zeros, and only a few entries are specified with static or
+    // dynamic (?) inputs. Making the other types work with this case will allow for optimizations
+    // around cases where a large number of inputs together have a well structured LUT such as a
+    // comparison to zero gate (all zeros except for one one entry) that can have a practically
+    // arbitrarily large number of inputs in contrast to the other LUTs that have the exponential
+    // blowup drawback. `SparseLut` is only used by certain meta constructions and by higher
+    // degree optimizers to do the most complicated optimizations, and gets lowered into the other
+    // types before being used by the router.
 }
 
 /// A lookup table node
@@ -37,6 +45,7 @@ pub struct LNode {
     pub p_self: PBack,
     pub kind: LNodeKind,
     pub lowered_from: Option<PState>,
+    pub p_edge_embed: Option<PEdgeEmbed>,
 }
 
 impl Recast<PBack> for LNode {
@@ -240,6 +249,7 @@ impl LNode {
             p_self,
             kind,
             lowered_from,
+            p_edge_embed: None,
         }
     }
 
@@ -281,6 +291,29 @@ impl LNode {
                 for inp in lut.iter_mut() {
                     if let DynamicValue::Dynam(inp) = inp {
                         f(inp);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Returns all incidents to the `LNode` including inputs and the output
+    pub fn incidents<F: FnMut(PBack)>(&self, mut f: F) {
+        f(self.p_self);
+        match &self.kind {
+            LNodeKind::Copy(inp) => f(*inp),
+            LNodeKind::Lut(inp, _) => {
+                for inp in inp.iter() {
+                    f(*inp);
+                }
+            }
+            LNodeKind::DynamicLut(inp, lut) => {
+                for inp in inp.iter() {
+                    f(*inp);
+                }
+                for inp in lut.iter() {
+                    if let DynamicValue::Dynam(inp) = inp {
+                        f(*inp);
                     }
                 }
             }
@@ -376,7 +409,7 @@ impl LNode {
                         DynamicValue::ConstUnknown => return None,
                         DynamicValue::Const(b1) => {
                             if b0 != b1 {
-                                return None
+                                return None;
                             }
                         }
                         DynamicValue::Dynam(_) => return None,
@@ -385,8 +418,8 @@ impl LNode {
                         DynamicValue::ConstUnknown => return None,
                         DynamicValue::Const(_) => return None,
                         DynamicValue::Dynam(p1) => {
-                            if !backrefs.in_same_set(p0, p1).unwrap() {
-                                return None
+                            if !backrefs.in_same_surject(p0, p1).unwrap() {
+                                return None;
                             }
                         }
                     },
@@ -439,7 +472,7 @@ impl Ensemble {
         let lnode = self.lnodes.get(p_lnode).unwrap();
         Ok(match &lnode.kind {
             LNodeKind::Copy(p_inp) => {
-                let inp_equiv = self.backrefs.get_val(*p_inp).unwrap();
+                let inp_equiv = self.backrefs.get_shared(*p_inp).unwrap();
                 let inp_partial_ord_num = inp_equiv.evaluator_partial_order;
                 let inp_val = inp_equiv.val;
                 (inp_val, inp_partial_ord_num)
@@ -450,7 +483,7 @@ impl Ensemble {
                 let mut max_partial_ord_num = NonZeroU64::new(1).unwrap();
                 for i in (0..len).rev() {
                     let p_inp = inp[i];
-                    let equiv = self.backrefs.get_val(p_inp).unwrap();
+                    let equiv = self.backrefs.get_shared(p_inp).unwrap();
                     max_partial_ord_num = max(max_partial_ord_num, equiv.evaluator_partial_order);
                     if let Some(b) = equiv.val.known_value() {
                         LNode::reduce_lut(&mut lut, i, b);
@@ -475,7 +508,7 @@ impl Ensemble {
                 let mut max_partial_ord_num = NonZeroU64::new(1).unwrap();
                 for i in 0..inp_len {
                     let p_inp = inp[i];
-                    let equiv = self.backrefs.get_val(p_inp).unwrap();
+                    let equiv = self.backrefs.get_shared(p_inp).unwrap();
                     max_partial_ord_num = max(max_partial_ord_num, equiv.evaluator_partial_order);
                     if let Some(b) = equiv.val.known_value() {
                         inp_val.set(i, b).unwrap();
@@ -493,7 +526,7 @@ impl Ensemble {
                             lut.set(i, b).unwrap()
                         }
                         DynamicValue::Dynam(p) => {
-                            let equiv = self.backrefs.get_val(p).unwrap();
+                            let equiv = self.backrefs.get_shared(p).unwrap();
                             if let Some(b) = equiv.val.known_value() {
                                 lut_known.set(i, true).unwrap();
                                 lut.set(i, b).unwrap();
@@ -517,16 +550,16 @@ impl Ensemble {
                 if inp_len == 0 {
                     // only one LUT bit left, no inputs
                     if lut_known.get(0).unwrap() {
-                        return Ok((Value::Dynam(lut.get(0).unwrap()), max_partial_ord_num))
+                        return Ok((Value::Dynam(lut.get(0).unwrap()), max_partial_ord_num));
                     } else {
-                        return Ok((Value::Unknown, max_partial_ord_num))
+                        return Ok((Value::Unknown, max_partial_ord_num));
                     }
                 }
                 if lut_known.is_umax() {
                     if lut.is_zero() {
-                        return Ok((Value::Dynam(false), max_partial_ord_num))
+                        return Ok((Value::Dynam(false), max_partial_ord_num));
                     } else if lut.is_umax() {
-                        return Ok((Value::Dynam(true), max_partial_ord_num))
+                        return Ok((Value::Dynam(true), max_partial_ord_num));
                     }
                 }
                 (Value::Unknown, max_partial_ord_num)
@@ -554,33 +587,32 @@ impl Ensemble {
                 }
             }
         }
-        let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
-            (
-                Referent::ThisEquiv,
-                Equiv::new(p_self_equiv, Value::Unknown),
-            )
-        });
-        let p_lnode = self.lnodes.insert_with(|p_lnode| {
-            let p_self = self
+        let entry = self.backrefs.entry_insert_surject_reallocating().unwrap();
+        let p_equiv = entry.ptr();
+        entry.insert(Referent::ThisEquiv, Equiv::new(p_equiv, Value::Unknown));
+        let lnodes_entry = self.lnodes.entry_insert();
+        let p_lnode = lnodes_entry.ptr();
+        let entry = self.backrefs.entry_insert_reallocating(p_equiv).unwrap();
+        let p_self = entry.ptr();
+        entry.insert(Referent::ThisLNode(p_lnode));
+        let mut inp = smallvec![];
+        for p_inx in p_inxs {
+            let p_back = self
                 .backrefs
-                .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
-                .unwrap();
-            let mut inp = smallvec![];
-            for p_inx in p_inxs {
-                let p_back = self
-                    .backrefs
-                    .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
-                    .unwrap();
-                inp.push(p_back);
-            }
-            LNode::new(p_self, LNodeKind::Lut(inp, Awi::from(lut)), lowered_from)
-        });
+                .insert(p_inx.unwrap(), Referent::Input(p_lnode));
+            inp.push(p_back);
+        }
+        lnodes_entry.insert(LNode::new(
+            p_self,
+            LNodeKind::Lut(inp, Awi::from(lut)),
+            lowered_from,
+        ));
         // For DFS lowering, we want to calculate the current `Lut` value and set it to
         // prevent issues about change events that would happen if we didn't simply
         // calculate now. This is also where partial ordering is initialized in a way
         // that should preclude initial inefficiency in most cases
         let (init_val, source_partial_ordering) = self.calculate_lnode_value(p_lnode).unwrap();
-        let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
+        let equiv = self.backrefs.get_shared_mut(p_equiv).unwrap();
         equiv.val = init_val;
         equiv.evaluator_partial_order = source_partial_ordering.checked_add(1).unwrap();
         p_equiv
@@ -605,44 +637,73 @@ impl Ensemble {
                 }
             }
         }
-        let p_equiv = self.backrefs.insert_with(|p_self_equiv| {
-            (
-                Referent::ThisEquiv,
-                Equiv::new(p_self_equiv, Value::Unknown),
-            )
-        });
-        let p_lnode = self.lnodes.insert_with(|p_lnode| {
-            let p_self = self
+        let entry = self.backrefs.entry_insert_surject_reallocating().unwrap();
+        let p_equiv = entry.ptr();
+        entry.insert(Referent::ThisEquiv, Equiv::new(p_equiv, Value::Unknown));
+        let lnodes_entry = self.lnodes.entry_insert();
+        let p_lnode = lnodes_entry.ptr();
+        let p_self = self.backrefs.insert(p_equiv, Referent::ThisLNode(p_lnode));
+        let mut inp = smallvec![];
+        for p_inx in p_inxs {
+            let p_back = self
                 .backrefs
-                .insert_key(p_equiv, Referent::ThisLNode(p_lnode))
-                .unwrap();
-            let mut inp = smallvec![];
-            for p_inx in p_inxs {
-                let p_back = self
-                    .backrefs
-                    .insert_key(p_inx.unwrap(), Referent::Input(p_lnode))
-                    .unwrap();
-                inp.push(p_back);
+                .insert(p_inx.unwrap(), Referent::Input(p_lnode));
+            inp.push(p_back);
+        }
+        let mut lut = vec![];
+        for p_lut_bit in p_lut_bits.iter().copied() {
+            if let DynamicValue::Dynam(p_lut_bit) = p_lut_bit {
+                let p_back = self.backrefs.insert(p_lut_bit, Referent::Input(p_lnode));
+                lut.push(DynamicValue::Dynam(p_back));
+            } else {
+                lut.push(p_lut_bit);
             }
-            let mut lut = vec![];
-            for p_lut_bit in p_lut_bits.iter().copied() {
-                if let DynamicValue::Dynam(p_lut_bit) = p_lut_bit {
-                    let p_back = self
-                        .backrefs
-                        .insert_key(p_lut_bit, Referent::Input(p_lnode))
-                        .unwrap();
-                    lut.push(DynamicValue::Dynam(p_back));
-                } else {
-                    lut.push(p_lut_bit);
-                }
-            }
-            LNode::new(p_self, LNodeKind::DynamicLut(inp, lut), lowered_from)
-        });
+        }
+        lnodes_entry.insert(LNode::new(
+            p_self,
+            LNodeKind::DynamicLut(inp, lut),
+            lowered_from,
+        ));
         // same as in the static LUT case
         let (init_val, source_partial_ordering) = self.calculate_lnode_value(p_lnode).unwrap();
-        let equiv = self.backrefs.get_val_mut(p_equiv).unwrap();
+        let equiv = self.backrefs.get_shared_mut(p_equiv).unwrap();
         equiv.val = init_val;
         equiv.evaluator_partial_order = source_partial_ordering.checked_add(1).unwrap();
         p_equiv
+    }
+
+    /// Returns all `LNode`s with inputs or outputs connected to the surject of
+    /// `p_init`
+    pub fn advancer_lnode_surject(&self, p_init: PBack) -> SurjectPLNodeAdvancer {
+        SurjectPLNodeAdvancer {
+            adv: self.backrefs.advancer_surject(p_init).unwrap(),
+        }
+    }
+}
+
+pub struct SurjectPLNodeAdvancer {
+    adv: SurjectPtrAdvancer<PBack>,
+}
+
+type Internal = SurjectArena<PBack, Referent, Equiv>;
+
+impl Advancer<SurjectArena<PBack, Referent, Equiv>> for SurjectPLNodeAdvancer {
+    type Item = PLNode;
+
+    fn advance(&mut self, collection: &SurjectArena<PBack, Referent, Equiv>) -> Option<Self::Item> {
+        while let Some(p_ref) = self.adv.advance(collection) {
+            match collection.get(p_ref) {
+                Some(Referent::ThisLNode(p_lnode)) => return Some(*p_lnode),
+                Some(Referent::Input(p_lnode)) => return Some(*p_lnode),
+                _ => (),
+            }
+        }
+        None
+    }
+
+    fn empty() -> Self {
+        Self {
+            adv: <SurjectPtrAdvancer<PBack> as Advancer<Internal>>::empty(),
+        }
     }
 }

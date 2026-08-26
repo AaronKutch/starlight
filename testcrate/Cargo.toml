@@ -1,11 +1,11 @@
 [package]
 name = "testcrate"
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
 publish = false
 
 [dependencies]
-starlight = { path = "../starlight", features = ["debug", "u32_ptrs"] }
+starlight = { workspace = true, features = ["debug", "u32_ptrs"] }
 
 [dev-dependencies]
-rand_xoshiro = { version = "0.6", default-features = false }
+star_rng = { workspace = true }

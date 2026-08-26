@@ -1,4 +1,4 @@
+mod errors;
 mod pure;
-mod targets;
 
-pub use targets::*;
+// TODO need more advanced tests for the delay reduction code

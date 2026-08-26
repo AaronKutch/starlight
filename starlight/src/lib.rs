@@ -23,7 +23,8 @@
 //!
 //! ```rust
 //! use std::num::NonZeroUsize;
-//! use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi};
+//! use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi, OptimizerOptions};
+//! use crate::starlight::triple_arena::traits::ArenaTrait;
 //!
 //! // in the scope where this is glob imported, all arbitrary width types, some primitives, and
 //! // the mechanisms in the macros will use mimicking types and be lazily evaluated in general.
@@ -100,7 +101,7 @@
 //!         .unwrap();
 //!
 //!     // lower into purely static bit movements and lookup tables and optimize
-//!     epoch.optimize().unwrap();
+//!     epoch.optimize(OptimizerOptions::new()).unwrap();
 //!
 //!     // Now the combinational logic is described in a DAG of lookup tables that we
 //!     // could use for various purposes
@@ -171,7 +172,7 @@
 //! drop(epoch);
 //! ```
 
-#![allow(clippy::thread_local_initializer_can_be_made_const)]
+#![allow(clippy::missing_const_for_thread_local)]
 #![allow(clippy::needless_range_loop)]
 #![allow(clippy::manual_flatten)]
 #![allow(clippy::comparison_chain)]
@@ -186,12 +187,12 @@ pub mod route;
 /// Miscellanious utilities
 pub mod utils;
 pub use awi_structs::{
-    delay, epoch, Assertions, Drive, Epoch, EvalAwi, In, LazyAwi, Loop, Net, Out, SuspendedEpoch,
+    Assertions, Drive, Epoch, EvalAwi, In, LazyAwi, Loop, Net, Out, SuspendedEpoch, delay, epoch,
 };
 #[cfg(feature = "debug")]
 pub use awint::awint_dag::triple_arena_render;
 pub use awint::{self, awint_dag, awint_dag::triple_arena};
-pub use ensemble::{Corresponder, Delay};
+pub use ensemble::{Corresponder, Delay, OptimizerOptions};
 pub use utils::Error;
 
 /// Reexports all the regular arbitrary width integer structs, macros, common
@@ -199,9 +200,9 @@ pub use utils::Error;
 /// everything or for when using the regular items in a context with structs
 /// imported from `awint_dag`.
 pub mod awi {
-    pub use awint::awi::*;
     pub use Option::{None, Some};
     pub use Result::{Err, Ok};
+    pub use awint::awi::*;
 }
 
 /// Reexports all the mimicking versions of `awi` items

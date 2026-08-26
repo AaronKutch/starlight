@@ -1,3 +1,5 @@
+pub mod targets;
+
 use std::path::PathBuf;
 
 use starlight::{Epoch, Error};

@@ -14,16 +14,16 @@ use std::{
 
 use awint::{
     awint_dag::{
-        epoch::{EpochCallback, EpochKey, _get_epoch_stack},
-        triple_arena::{ptr_struct, Arena},
         Lineage, Location, Op, PState,
+        epoch::{_get_epoch_stack, EpochCallback, EpochKey},
+        triple_arena::{Arena, ptr_struct, traits::*},
     },
     bw, dag,
 };
 
 use crate::{
-    ensemble::{Delay, Ensemble, Value},
     Error, EvalAwi,
+    ensemble::{Delay, Ensemble, OptimizerOptions, Value},
 };
 
 /// A list of single bit `EvalAwi`s for assertions
@@ -83,7 +83,7 @@ pub struct EpochData {
 
 impl Drop for EpochData {
     fn drop(&mut self) {
-        for (_, mut shared) in self.responsible_for.drain() {
+        for (_, mut shared) in self.responsible_for.drain().map(|x| x.allow()) {
             for eval_awi in shared.assertions.bits.drain(..) {
                 // avoid the `EvalAwi` drop code
                 mem::forget(eval_awi);
@@ -242,7 +242,7 @@ impl EpochShared {
     /// This function should not be called more than once per `self.p_self`.
     pub fn drop_associated(&self) -> Result<(), Error> {
         let mut lock = self.epoch_data.borrow_mut();
-        if let Some(mut ours) = lock.responsible_for.remove(self.p_self) {
+        if let Some(mut ours) = lock.responsible_for.remove(self.p_self).allow() {
             let assertion_bits = mem::take(&mut ours.assertions.bits);
             drop(lock);
             // drop the `EvalAwi`s
@@ -267,6 +267,12 @@ impl EpochShared {
     /// Access to the `Ensemble`
     pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, mut f: F) -> O {
         f(&self.epoch_data.borrow().ensemble)
+    }
+
+    /// Mutable access to the `Ensemble`. Warning: you can break invariants
+    /// through this.
+    pub fn ensemble_mut<O, F: FnMut(&mut Ensemble) -> O>(&self, mut f: F) -> O {
+        f(&mut self.epoch_data.borrow_mut().ensemble)
     }
 
     /// Takes the `Vec<PState>` corresponding to just states added when the
@@ -322,7 +328,7 @@ impl EpochShared {
         let mut i = 0;
         loop {
             if i >= len {
-                break
+                break;
             }
             let epoch_data = self.epoch_data.borrow();
             let eval_awi = &epoch_data
@@ -338,7 +344,7 @@ impl EpochShared {
                 if !val {
                     return Err(Error::OtherString(format!(
                         "an assertion bit evaluated to false, failed on {p_external:#?}"
-                    )))
+                    )));
                 }
             } else if unknown.is_none() {
                 // get the earliest failure to evaluate, should be closest to the root cause.
@@ -365,13 +371,11 @@ impl EpochShared {
                 i += 1;
             }
         }
-        if strict {
-            if let Some(p_external) = unknown {
-                return Err(Error::OtherString(format!(
-                    "an assertion bit could not be evaluated to a known value, failed on \
-                     {p_external:#?}"
-                )))
-            }
+        if strict && let Some(p_external) = unknown {
+            return Err(Error::OtherString(format!(
+                "an assertion bit could not be evaluated to a known value, failed on \
+                 {p_external:#?}"
+            )));
         }
         Ok(())
     }
@@ -473,7 +477,7 @@ pub fn _callback() -> EpochCallback {
     fn register_assertion_bit(bit: dag::bool, location: Location) {
         let need_register = if let Some(awi) = bit.state().try_get_as_awi() {
             assert_eq!(awi.bw(), 1);
-            // only need to register false bits so the location can get propogated
+            // only need to register false bits so the location can get propagated
             awi.is_zero()
         } else {
             true
@@ -536,6 +540,7 @@ pub fn _callback() -> EpochCallback {
         })
     }
     EpochCallback {
+        name: "starlight_callback",
         new_pstate,
         register_assertion_bit,
         get_nzbw,
@@ -559,10 +564,10 @@ impl Drop for EpochInnerDrop {
             if let Err(e) = self.epoch_shared.drop_associated() {
                 panic!("{e}");
             }
-            if !self.is_suspended {
-                if let Err(e) = self.epoch_shared.remove_as_current() {
-                    panic!("panicked upon dropping an `Epoch`: {e}");
-                }
+            if !self.is_suspended
+                && let Err(e) = self.epoch_shared.remove_as_current()
+            {
+                panic!("panicked upon dropping an `Epoch`: {e}");
             }
         }
     }
@@ -689,8 +694,15 @@ impl SuspendedEpoch {
         &self.inner.epoch_shared
     }
 
+    /// Access to the `Ensemble`
     pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, f: F) -> O {
         self.shared().ensemble(f)
+    }
+
+    /// Mutable access to the `Ensemble`. Warning: you can break invariants
+    /// through this.
+    pub fn ensemble_mut<O, F: FnMut(&mut Ensemble) -> O>(&self, f: F) -> O {
+        self.shared().ensemble_mut(f)
     }
 }
 
@@ -756,10 +768,18 @@ impl Epoch {
         SuspendedEpoch { inner: self.inner }
     }
 
+    /// Access to the `Ensemble`
     pub fn ensemble<O, F: FnMut(&Ensemble) -> O>(&self, f: F) -> O {
         self.shared().ensemble(f)
     }
 
+    /// Mutable access to the `Ensemble`. Warning: you can break invariants
+    /// through this.
+    pub fn ensemble_mut<O, F: FnMut(&mut Ensemble) -> O>(&self, f: F) -> O {
+        self.shared().ensemble_mut(f)
+    }
+
+    /// Clones the `Ensemble`
     pub fn clone_ensemble(&self) -> Ensemble {
         self.ensemble(|ensemble| ensemble.clone())
     }
@@ -822,12 +842,12 @@ impl Epoch {
 
     /// Runs optimization including lowering then pruning all states. Requires
     /// that `self` be the current `Epoch`.
-    pub fn optimize(&self) -> Result<(), Error> {
+    pub fn optimize(&self, options: OptimizerOptions) -> Result<(), Error> {
         let epoch_shared = self.check_current()?;
         Ensemble::handle_states_to_lower(&epoch_shared)?;
         Ensemble::lower_for_rnodes(&epoch_shared).unwrap();
         let mut lock = epoch_shared.epoch_data.borrow_mut();
-        lock.ensemble.optimize_all().unwrap();
+        lock.ensemble.optimize(options).unwrap();
         drop(lock);
         let _ = epoch_shared.assert_assertions(false);
         Ok(())

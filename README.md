@@ -23,7 +23,7 @@
 
  ```rust
  use std::num::NonZeroUsize;
- use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi};
+ use starlight::{awi, dag, Epoch, EvalAwi, LazyAwi, OptimizerOptions};
 
  // in the scope where this is glob imported, all arbitrary width types, some primitives, and
  // the mechanisms in the macros will use mimicking types and be lazily evaluated in general.
@@ -100,7 +100,7 @@
          .unwrap();
 
      // lower into purely static bit movements and lookup tables and optimize
-     epoch.optimize().unwrap();
+     epoch.optimize(OptimizerOptions::new()).unwrap();
 
      // Now the combinational logic is described in a DAG of lookup tables that we
      // could use for various purposes
@@ -170,3 +170,18 @@
  }
  drop(epoch);
  ```
+
+#### License
+
+<sup>
+Licensed under either of <a href="LICENSE-APACHE">Apache License, Version
+2.0</a> or <a href="LICENSE-MIT">MIT license</a> at your option.
+</sup>
+
+<br>
+
+<sub>
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this crate by you, as defined in the Apache-2.0 license, shall
+be dual licensed as above, without any additional terms or conditions.
+</sub>

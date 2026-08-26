@@ -1,8 +1,8 @@
 use starlight::{
-    awi,
-    awi::*,
-    awint_dag::{epoch::register_assertion_bit_for_current_epoch, Location},
-    dag, Epoch, EvalAwi, LazyAwi,
+    Epoch, EvalAwi, LazyAwi, OptimizerOptions,
+    awi::{self, *},
+    awint_dag::{Location, epoch::register_assertion_bit_for_current_epoch},
+    dag,
 };
 
 #[test]
@@ -77,7 +77,7 @@ fn multiplier() {
         input_b.retro_u16_(77u16).unwrap();
         assert_eq!(output.eval_u32().unwrap(), 9471u32);
 
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
 
         input_a.retro_u16_(10u16).unwrap();
         assert_eq!(output.eval_u32().unwrap(), 770u32);
@@ -111,7 +111,7 @@ fn unknown_masking() {
     {
         use awi::*;
         assert_eq!(eval.eval().unwrap(), awi!(1u3));
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         assert_eq!(eval.eval().unwrap(), awi!(1u3));
     }
     drop(epoch);

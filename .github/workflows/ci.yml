@@ -3,16 +3,15 @@ name: Starlight CI
 on: [pull_request]
 
 env:
+  RUSTFLAGS: -D warnings
   RUST_BACKTRACE: 1
 
 jobs:
   test_suite:
     name: Test suite
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
       - name: Install Rust components
         run: |
           rustup set profile minimal
@@ -24,25 +23,25 @@ jobs:
           cargo test --release --all-features
           cargo bench
 
-  msrv_test_suite:
+  msrv_build:
+    name: MSRV build
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@v2
-      - name: Install Rust components
+      - uses: actions/checkout@v7
+      # reads the `rust-version` of starlight/Cargo.toml
+      - name: Install MSRV
         run: |
           rustup set profile minimal
-          rustup install nightly-2023-04-14
-      - name: Run test suite
+          rustup default "$(sed -n 's/^rust-version = "\(.*\)"/\1/p' starlight/Cargo.toml)"
+      - name: Check that the crate builds on its MSRV
         run: |
-          cd ./starlight && cargo build --no-default-features
+          cargo build -p starlight --no-default-features
 
   rustfmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
       # Acquire the most recent nightly with a rustfmt component
       - name: Install most recent Rustfmt
         run: |
@@ -57,7 +56,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
       # Acquire the most recent nightly with a clippy component
       - name: Install most recent Clippy
         run: |

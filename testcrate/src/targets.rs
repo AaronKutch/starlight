@@ -1,15 +1,17 @@
+//! This is here as a library so that local test binaries can use it
+
 use std::{array, collections::HashMap};
 
 use starlight::{
+    Drive, Epoch, In, LazyAwi, Net, OptimizerOptions, Out, SuspendedEpoch,
     awi::*,
     ensemble::{
-        render::{RenderArena, RenderNodeKind},
         PExternal,
+        render::{RenderArena, RenderNodeKind},
     },
-    route::{Channeler, Configurator},
-    triple_arena::{ptr_struct, OrdArena, Ptr},
+    route::{Channeler, Configurator, PCNode},
+    triple_arena::{OrdPair, SimpleOrdArena, ptr_struct, traits::*},
     utils::{Grid, Ortho::*, OrthoArray, Render},
-    Drive, Epoch, In, LazyAwi, Net, Out, SuspendedEpoch,
 };
 
 // TODO in another file test routing an example state machine over an island
@@ -114,7 +116,7 @@ impl FabricTargetInterface {
     pub fn target(len: (usize, usize)) -> (Self, Configurator, SuspendedEpoch) {
         let epoch = Epoch::new();
         let res = Self::definition(len);
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         let mut target_configurator = Configurator::new();
         res.switch_grid.for_each(|switch, _| {
             for config in &switch.configs {
@@ -171,12 +173,12 @@ impl FabricTargetInterface {
         }
 
         let web = epoch.ensemble(|ensemble| ensemble.debug_web(fixed.clone()));
-        for node in web.vals() {
+        for node in web.vals().map(|pair| pair.v()) {
             r.circles
                 .push((node.position, 8, Render::COLORS[1].to_owned()));
             for edge in &node.incidents {
                 let p_other = web.find_key(edge).unwrap();
-                let edge = web.get_val(p_other).unwrap().position;
+                let edge = web.get(p_other).unwrap().v().position;
                 r.lines
                     .push((node.position, edge, 4, Render::COLORS[1].to_owned()));
             }
@@ -187,65 +189,63 @@ impl FabricTargetInterface {
 }
 
 #[allow(unused)]
-pub fn render_cnode_hierarchy<PBack: Ptr, PCEdge: Ptr>(
-    r: &mut Render,
-    web: &RenderArena,
-    channeler: &Channeler<PBack, PCEdge>,
-) {
+pub fn render_cnode_hierarchy(r: &mut Render, web: &RenderArena, channeler: &Channeler) {
     ptr_struct!(P0);
-    struct HierarchyNode<PBack: Ptr> {
+    struct HierarchyNode {
         position: (i32, i32),
         subnodes: usize,
-        incidents: Vec<PBack>,
+        incidents: Vec<PCNode>,
     }
     let mut levels = vec![];
     // get the first level of nodes
-    let mut level = OrdArena::<P0, PBack, HierarchyNode<PBack>>::new();
+    let mut level = SimpleOrdArena::<P0, OrdPair<PCNode, HierarchyNode>>::new();
     let cnodes = &channeler.cnodes;
-    for (_, kind, node) in web {
-        if let RenderNodeKind::Equiv(p_back) = kind {
-            // remember that configurable bits are not included
-            if let Some(p_cnode) = channeler.find_channeler_cnode(*p_back) {
-                let cnode = cnodes.get_val(p_cnode).unwrap();
-                assert_eq!(cnode.lvl, 0);
-                let replaced = level
-                    .insert(p_cnode, HierarchyNode {
-                        position: node.position,
-                        subnodes: 0,
-                        incidents: vec![],
-                    })
-                    .1;
-                assert!(replaced.is_none());
-            }
+    for (_, pair) in web {
+        let (kind, node) = pair.k_v();
+        // remember that configurable bits are not included
+        if let RenderNodeKind::Equiv(p_equiv) = kind
+            && let Some(p_cnode) = channeler.translate_equiv(*p_equiv)
+        {
+            let cnode = cnodes.get(p_cnode).unwrap();
+            assert_eq!(cnode.lvl, 0);
+            let replaced = level
+                .insert(OrdPair::new(p_cnode, HierarchyNode {
+                    position: node.position,
+                    subnodes: 0,
+                    incidents: vec![],
+                }))
+                .1;
+            assert!(replaced.is_none());
         }
     }
     levels.push(level);
     // get the remaining levels
     loop {
-        let mut level = OrdArena::<P0, PBack, HierarchyNode<PBack>>::new();
+        let mut level = SimpleOrdArena::<P0, OrdPair<PCNode, HierarchyNode>>::new();
         let last_level = levels.last().unwrap();
-        for (_, p_cnode, subnode) in last_level {
+        for (_, pair) in last_level {
+            let (p_cnode, subnode) = pair.k_v();
             if let Some(p_super) = channeler.get_supernode(*p_cnode) {
                 if let Some(p0) = level.find_key(&p_super) {
-                    let node = level.get_val_mut(p0).unwrap();
+                    let node = level.get_mut(p0).unwrap().v_mut();
                     node.subnodes += 1;
                     // this will be divided by the subnode count later
                     node.position.0 += subnode.position.0;
                     node.position.1 += subnode.position.1;
                 } else {
-                    let _ = level.insert(p_super, HierarchyNode {
+                    let _ = level.insert(OrdPair::new(p_super, HierarchyNode {
                         position: subnode.position,
                         subnodes: 1,
                         incidents: vec![],
-                    });
+                    }));
                 }
             }
         }
         if level.is_empty() {
-            break
+            break;
         }
         // normalized so next level uses the right positions
-        for node in level.vals_mut() {
+        for node in level.vals_mut().map(|pair| pair.v_mut()) {
             if node.subnodes > 0 {
                 node.position.0 /= i32::try_from(node.subnodes).unwrap();
                 node.position.1 /= i32::try_from(node.subnodes).unwrap();
@@ -256,14 +256,14 @@ pub fn render_cnode_hierarchy<PBack: Ptr, PCEdge: Ptr>(
     // add on all edges
     for edge in channeler.cedges.vals() {
         let mut v = vec![];
-        edge.incidents(|p| v.push(cnodes.get_val(p).unwrap().p_this_cnode));
-        let lvl = cnodes.get_val(v[0]).unwrap().lvl;
+        edge.incidents(|p| v.push(p));
+        let lvl = cnodes.get(v[0]).unwrap().lvl;
         if let Some(level) = levels.get_mut(lvl as usize) {
             for i in 0..v.len() {
                 // note we are using unidirectional edges and the incidences are not complete
                 for j in (i + 1)..v.len() {
                     if let (Some(a), Some(_)) = (level.find_key(&v[i]), level.find_key(&v[j])) {
-                        level.get_val_mut(a).unwrap().incidents.push(v[j]);
+                        level.get_mut(a).unwrap().v_mut().incidents.push(v[j]);
                     }
                 }
             }
@@ -272,11 +272,11 @@ pub fn render_cnode_hierarchy<PBack: Ptr, PCEdge: Ptr>(
     // render the levels
     for (i, level) in levels.iter().enumerate() {
         let color = Render::COLORS[(i + 2) % Render::COLORS.len()];
-        for node in level.vals() {
+        for node in level.vals().map(|pair| pair.v()) {
             r.circles.push((node.position, 8, color.to_owned()));
             for incident in &node.incidents {
                 let p_other = level.find_key(incident).unwrap();
-                let position = level.get_val(p_other).unwrap().position;
+                let position = level.get(p_other).unwrap().v().position;
                 r.lines.push((node.position, position, 4, color.to_owned()));
             }
         }

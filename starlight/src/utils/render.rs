@@ -122,7 +122,7 @@ fn gen_svg(g: &Render) -> String {
         writeln!(
             s,
             "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#{}\" stroke-width=\"{}\" />",
-            line.0 .0, line.0 .1, line.1 .0, line.1 .1, line.3, line.2
+            line.0.0, line.0.1, line.1.0, line.1.1, line.3, line.2
         )
         .unwrap();
     }
@@ -132,7 +132,7 @@ fn gen_svg(g: &Render) -> String {
         writeln!(
             s,
             "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#{}\" />",
-            circle.0 .0, circle.0 .1, circle.1, circle.2
+            circle.0.0, circle.0.1, circle.1, circle.2
         )
         .unwrap();
     }
@@ -155,8 +155,8 @@ fn gen_svg(g: &Render) -> String {
             Render::TEXT_COLOR,
             size,
             Render::FONT_FAMILY,
-            tmp.0 .0,
-            tmp.0 .1,
+            tmp.0.0,
+            tmp.0.1,
             tmp.2,
             final_text
         )

@@ -1,15 +1,15 @@
 use std::{
-    cmp::max,
     collections::BinaryHeap,
     num::{NonZeroU32, NonZeroU64},
 };
 
-use awint::awint_dag::triple_arena::{Advancer, Ptr};
+use awint::awint_dag::triple_arena::OrdPair;
 
 use crate::{
-    route::{ChannelWidths, Channeler, PEmbedding, Programmability, Referent},
-    utils::SmallSet,
     Error,
+    ensemble::PEquiv,
+    route::{ChannelWidths, Channeler, PCEdge, PCNode, Programmability, Source},
+    triple_arena::traits::*,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -33,72 +33,92 @@ impl InternalBehavior {
 
 /// A channel node
 #[derive(Debug, Clone)]
-pub struct CNode<PCNode: Ptr, PCEdge: Ptr> {
-    pub p_this_cnode: PCNode,
+pub struct CNode {
+    pub base_p_equiv: Option<PEquiv>,
     pub lvl: u16,
     pub p_supernode: Option<PCNode>,
+    pub p_subnodes: Vec<PCNode>,
+    pub sink_incident: Option<PCEdge>,
+    pub source_incidents: Vec<(PCEdge, usize)>,
     pub internal_behavior: InternalBehavior,
-    pub embeddings: SmallSet<PEmbedding>,
     pub alg_visit: NonZeroU64,
     pub alg_entry_width: usize,
     // this is used in Dijkstras' and points backwards
     pub alg_edge: (Option<PCEdge>, usize),
 }
 
-impl<PCNode: Ptr, PCEdge: Ptr> CNode<PCNode, PCEdge> {
+impl Recast<PCNode> for CNode {
+    fn recast<R: Recaster<Item = PCNode>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.p_supernode.recast(recaster)?;
+        self.p_subnodes.recast(recaster)
+    }
+}
+
+impl Recast<PCEdge> for CNode {
+    fn recast<R: Recaster<Item = PCEdge>>(
+        &mut self,
+        recaster: &R,
+    ) -> Result<(), <R as Recaster>::Item> {
+        self.sink_incident.recast(recaster)?;
+        for (p_cedge, _) in &mut self.source_incidents {
+            p_cedge.recast(recaster)?;
+        }
+        self.alg_edge.0.recast(recaster)
+    }
+}
+
+impl CNode {
     pub fn internal_behavior(&self) -> &InternalBehavior {
         &self.internal_behavior
     }
 }
 
-impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
+impl Channeler {
     /// Given the `subnodes` (which should point to unique `ThisCNode`s) for a
-    /// new top level `CNode`, this will manage the backrefs
-    pub fn make_top_level_cnode<I>(
+    /// new top level `CNode`, this will manage the backrefs. Note that
+    /// `top_level_cnodes` is not set correctly by this.
+    pub fn make_cnode(
         &mut self,
-        subnodes: I,
+        base_p_equiv: Option<PEquiv>,
+        mut p_subnodes: Vec<PCNode>,
         lvl: u16,
         internal_behavior: InternalBehavior,
-    ) -> PCNode
-    where
-        I: IntoIterator<Item = PCNode>,
-    {
-        let p_cnode = self.cnodes.insert_with(|p_this_cnode| {
-            (Referent::ThisCNode, CNode {
-                p_this_cnode,
-                lvl,
-                p_supernode: None,
-                internal_behavior,
-                embeddings: SmallSet::new(),
-                alg_visit: NonZeroU64::new(1).unwrap(),
-                alg_entry_width: 0,
-                alg_edge: (None, 0),
-            })
+    ) -> PCNode {
+        p_subnodes.sort();
+        let p_supernode = self.cnodes.insert(CNode {
+            base_p_equiv,
+            lvl,
+            p_supernode: None,
+            p_subnodes: vec![],
+            sink_incident: None,
+            source_incidents: vec![],
+            internal_behavior,
+            alg_visit: NonZeroU64::new(1).unwrap(),
+            alg_entry_width: 0,
+            alg_edge: (None, 0),
         });
-        for p_subnode in subnodes {
-            if let Some(p) = self.top_level_cnodes.find_key(&p_subnode) {
-                self.top_level_cnodes.remove(p).unwrap();
-            }
-            let p_supernode = self
-                .cnodes
-                .insert_key(p_cnode, Referent::SubNode(p_subnode))
-                .unwrap();
-            let cnode = self.cnodes.get_val_mut(p_subnode).unwrap();
+        for p_subnode in p_subnodes.iter().copied() {
+            let cnode = self.cnodes.get_mut(p_subnode).unwrap();
+            debug_assert!(cnode.p_supernode.is_none());
             cnode.p_supernode = Some(p_supernode);
         }
-        let _ = self.top_level_cnodes.insert(p_cnode, ());
-        p_cnode
-    }
-
-    #[must_use]
-    pub fn get_supernode_referent(&self, p: PCNode) -> Option<PCNode> {
-        self.cnodes.get_val(p)?.p_supernode
+        self.cnodes.get_mut(p_supernode).unwrap().p_subnodes = p_subnodes;
+        if let Some(base_p_equiv) = base_p_equiv {
+            let replaced = self
+                .p_back_to_cnode
+                .insert(OrdPair::new(base_p_equiv.into(), p_supernode))
+                .1;
+            assert!(replaced.is_none());
+        }
+        p_supernode
     }
 
     #[must_use]
     pub fn get_supernode(&self, p: PCNode) -> Option<PCNode> {
-        let p_supernode_ref = self.cnodes.get_val(p)?.p_supernode?;
-        Some(self.cnodes.get_val(p_supernode_ref)?.p_this_cnode)
+        self.cnodes.get(p)?.p_supernode
     }
 
     /// Given two `CNode`s, this will find their lowest level common supernode
@@ -107,122 +127,105 @@ impl<PCNode: Ptr, PCEdge: Ptr> Channeler<PCNode, PCEdge> {
     /// are disjoint `CNode` hiearchies. If this function is used in a loop with
     /// a common accumulator, this will find the common supernode of all the
     /// nodes.
-    pub fn find_common_supernode(&self, p_back0: PCNode, p_back1: PCNode) -> Option<PCNode> {
-        let cnode0 = self.cnodes.get_val(p_back0).unwrap();
+    pub fn find_common_supernode(
+        &self,
+        mut p_cnode0: PCNode,
+        mut p_cnode1: PCNode,
+    ) -> Option<PCNode> {
+        let cnode0 = self.cnodes.get(p_cnode0).unwrap();
         let mut lvl0 = cnode0.lvl;
-        let mut p_cnode0 = cnode0.p_this_cnode;
-        let cnode1 = self.cnodes.get_val(p_back1).unwrap();
+        let cnode1 = self.cnodes.get(p_cnode1).unwrap();
         let mut lvl1 = cnode1.lvl;
-        let mut p_cnode1 = cnode1.p_this_cnode;
         // first get on same level
         loop {
             // have this run first for all cases
             if p_cnode0 == p_cnode1 {
                 // case where one is the supernode of the other
-                return Some(p_cnode0)
+                return Some(p_cnode0);
             }
             if lvl0 < lvl1 {
-                if let Some(p_super_cnode) = self.get_supernode(p_cnode0) {
-                    p_cnode0 = p_super_cnode;
-                } else {
-                    return None
-                }
+                p_cnode0 = self.get_supernode(p_cnode0)?;
                 lvl0 += 1;
             } else if lvl0 > lvl1 {
-                if let Some(p_super_cnode) = self.get_supernode(p_cnode1) {
-                    p_cnode1 = p_super_cnode;
-                } else {
-                    return None
-                }
+                p_cnode1 = self.get_supernode(p_cnode1)?;
                 lvl1 += 1;
             } else {
-                break
+                break;
             }
         }
         // find common supernode
         loop {
-            if let Some(p_super_cnode) = self.get_supernode(p_cnode0) {
-                p_cnode0 = p_super_cnode;
-            } else {
-                return None
-            }
-            if let Some(p_super_cnode) = self.get_supernode(p_cnode1) {
-                p_cnode1 = p_super_cnode;
-            } else {
-                return None
-            }
+            p_cnode0 = self.get_supernode(p_cnode0)?;
+            p_cnode1 = self.get_supernode(p_cnode1)?;
             if p_cnode0 == p_cnode1 {
-                return Some(p_cnode0)
+                return Some(p_cnode0);
             }
         }
     }
 }
 
 /*
-here are the current ideas on the channeling hierarchy
+see embed.rs for other details
 
-We know we want a hierarchy for the target and a hierarchy for the program.
-The routing starts by having an embedding of the single top level program cnode
-into the single top level target cnode (modulo handling how we see fit for if
-the target and/or program has disconnections). There are different kinds of steps:
+We have a hierarchy for the target, which we could refer to as a synthesis-desynthesis tree or a
+summarization tree. The routing starts by embedding program nodes and edges into the root nodes
+of the target. The main idea is that for generalized routing it can be difficult to guage where
+bulk parts of the program need to be shifted around. The routing starts at a high level that
+approximates what parts of the target look like, and proceeds to dilute until it reaches the
+base level.
 
-(1.) Program dilution
-In one kind of step, a program's embeddings
-are "diluted" (as opposed to concentrating when looking from the bottom to the top
-of the hierarchy) with a embedding of one program cnode into a target cnode being
-broken into an embedding of that program cnode's subnodes into the same target cnode.
+There are different kinds of steps:
 
-(2.) Target dilution
+(1.) Target Dilution
 A program embedding is diluted with respect to the target channeler side, such that an
-embedding of a program cnode into a target cnode is broken into an embedding of a program
-cnode into a subnode of one of the target cnodes.
-There is one step of embedding movement implicit in this, where we choose which
-subnode to embed.
+embedding of a program node into a target cnode is broken into an embedding of a program
+node into a subnode of one of the target cnodes. There are hyperpaths in case a value
+needs to make its way through `SelectorLut`s to bridge a gap.
 
 (3.) Embedding movement
 As dilution proceeds and we get a higher resolution picture of the final embedding, we
-will have to transverse move the embeddings to neighboring target cnodes
+will have to transverse move the embeddings to neighboring target cnodes. In fact this is where
+the bulk of the channel width constraint violations get resolved and critical paths are minimized,
+since it is difficult for the target dilution step to get things correct on the first try.
 
-(4.) Concentration
+(4.) Target Concentration
 Equivalent to the "rip-up and reroute" process where we find inaccuracies in the
 bulk predictions and need to concentrate before retrying dilution.
 
-The routing process progresses from the initial single top level embedding by first
-diluting the program, and then diluting both while maintaining a more dilution
-for the program than the target. There are usually multiple program cnodes embedded
-into a single target cnode, until the lowest level.
+One of the critical things we do with hyperpaths is allow them to path between concentration
+levels and not just on the same level. To initially represent a bit being copied from side
+of an FPGA to another, the initial embedding can be a path from the base source target cnode
+that goes in the `EdgeKind::Concentrate` direction to a common root and then `EdgeKind::Dilute`
+to go to the target sink on the base level (or we detect a disconnection if there isn't a
+common root). This allows the Lagrangian routing algorithm to start with completed paths between
+program-target mappings, so that we do not constantly have to use maps to look up where we need
+to be moving loose endpoints. The Lagrangians could potentially do advanced things by themselves
+like promoting concentration or dilution of paths to different cedges when necessary. At the end,
+a routing is completed when all embeddings have been diluted to the base level and there
+are no violations.
 
-There are distinct levels with no `CEdge`s between them
-
-This allows the Lagrangian routing algorithm to start with completed paths between program-target
-mappings, so that we do not constantly have to use maps to look up where we need to be moving loose
-endpoints. The Lagrangians can do advanced things by themselves like promoting concentration or
-dilution of paths to different cedges when necessary.
+We want the hierarchy to be logarithmic. `generate_hierarchy` is what I found I had to do.
 */
 
 /// Starting from unit `CNode`s and `CEdge`s describing all known low level
 /// progam methods, this generates a logarithmic tree of higher level
-/// `CNode`s and `CEdge`s that results in a single top level `CNode` from which
+/// `CNode`s and `CEdge`s that results in a single top level `CNode`s from which
 /// routing can start
 ///
 /// We are currently assuming that `generate_hierarchy` is being run once on
 /// a graph of unit channel nodes and edges
-pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
-    channeler: &mut Channeler<PCNode, PCEdge>,
-) -> Result<(), Error> {
-    // when a `CNode` ends up with no edges to anything
-    let mut final_top_level_cnodes = Vec::<PCNode>::new();
+pub fn generate_hierarchy(channeler: &mut Channeler) -> Result<(), Error> {
     let mut possibly_single_subnode = Vec::<PCNode>::new();
     let mut next_level_cnodes = Vec::<PCNode>::new();
     let mut priority = BinaryHeap::<(usize, PCNode)>::new();
 
-    for cnode in channeler.cnodes.vals() {
+    for (p_cnode, cnode) in &channeler.cnodes {
         if cnode.lvl != 0 {
             return Err(Error::OtherStr(
                 "hierarchy appears to have been generated before",
-            ))
+            ));
         }
-        priority.push((0, cnode.p_this_cnode));
+        priority.push((0, p_cnode));
     }
 
     let mut current_lvl = 0u16;
@@ -231,7 +234,7 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
             p_consider
         } else {
             if next_level_cnodes.is_empty() {
-                break
+                break;
             }
             current_lvl = current_lvl.checked_add(1).unwrap();
             // before going to the next level, need to handle this
@@ -244,10 +247,10 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
             )?;
             continue;
         };
-        let cnode = channeler.cnodes.get_val(p_consider).unwrap();
+        let cnode = channeler.cnodes.get(p_consider).unwrap();
         if cnode.p_supernode.is_some() {
             // has already been concentrated
-            continue
+            continue;
         }
 
         // For each cnode on a given level, we will attempt to concentrate it and all
@@ -256,14 +259,13 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
         let related = channeler.related_nodes(p_consider);
         if related.len() == 1 {
             // the node is disconnected
-            final_top_level_cnodes.push(p_consider);
-            continue
+            continue;
         }
         let mut subnodes_in_tree = 0usize;
         let mut lut_bits = 0usize;
         // check if any related nodes have supernodes
         for p_related in related.iter().copied() {
-            let related_cnode = channeler.cnodes.get_val(p_related).unwrap();
+            let related_cnode = channeler.cnodes.get(p_related).unwrap();
             subnodes_in_tree = subnodes_in_tree
                 .checked_add(related_cnode.internal_behavior.subnodes_in_tree)
                 .unwrap();
@@ -276,12 +278,13 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
                 // because it may end up in a solution where it can't concentrate with any other
                 // nodes because of overlap.
                 possibly_single_subnode.push(p_consider);
-                continue 'outer
+                continue 'outer;
             }
         }
         // concentrate
-        let p_next_lvl = channeler.make_top_level_cnode(
-            related.iter().copied(),
+        let p_next_lvl = channeler.make_cnode(
+            None,
+            related,
             current_lvl.checked_add(1).unwrap(),
             InternalBehavior {
                 subnodes_in_tree,
@@ -291,38 +294,12 @@ pub fn generate_hierarchy<PCNode: Ptr, PCEdge: Ptr>(
         next_level_cnodes.push(p_next_lvl);
     }
 
-    // TODO optimize to just use `final_top_level_cnodes` in this final step,
-    // avoiding all other uses of `top_level_cnodes` in the middle
-
-    // if there are multiple cnodes are left in an anticlique, concentrate them into
-    // a single top level node
-    if channeler.top_level_cnodes.len() > 1 {
-        let mut set = vec![];
-        let mut max_lvl = 0;
-        let mut subnodes_in_tree = 0usize;
-        let mut lut_bits = 0usize;
-        for p_cnode in channeler.top_level_cnodes.keys().copied() {
-            set.push(p_cnode);
-            let cnode = channeler.cnodes.get_val(p_cnode).unwrap();
-            subnodes_in_tree = subnodes_in_tree
-                .checked_add(cnode.internal_behavior.subnodes_in_tree)
-                .unwrap();
-            lut_bits = lut_bits
-                .checked_add(cnode.internal_behavior().lut_bits)
-                .unwrap();
-            max_lvl = max(max_lvl, cnode.lvl);
-        }
-        channeler.make_top_level_cnode(set, max_lvl.checked_add(1).unwrap(), InternalBehavior {
-            subnodes_in_tree,
-            lut_bits,
-        });
-    }
     Ok(())
 }
 
-pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
+pub fn generate_hierarchy_level(
     current_lvl: u16,
-    channeler: &mut Channeler<PCNode, PCEdge>,
+    channeler: &mut Channeler,
     priority: &mut BinaryHeap<(usize, PCNode)>,
     possibly_single_subnode: &mut Vec<PCNode>,
     next_level_cnodes: &mut Vec<PCNode>,
@@ -330,13 +307,17 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
     // for nodes that couldn't be concentrated, create single subnode supernodes for
     // them, so that edges are only between nodes at the same level
     for p in possibly_single_subnode.drain(..) {
-        let cnode = channeler.cnodes.get_val(p).unwrap();
+        let cnode = channeler.cnodes.get(p).unwrap();
         if cnode.p_supernode.is_some() {
-            continue
+            continue;
         }
         // need to also forward the internal behavior
-        let p_next_lvl =
-            channeler.make_top_level_cnode([p], current_lvl, cnode.internal_behavior().clone());
+        let p_next_lvl = channeler.make_cnode(
+            None,
+            vec![p],
+            current_lvl,
+            cnode.internal_behavior().clone(),
+        );
         next_level_cnodes.push(p_next_lvl);
     }
 
@@ -344,11 +325,9 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
     for p_consider in next_level_cnodes.drain(..) {
         // first get the set of subnodes
         let direct_subnode_visit = channeler.next_alg_visit();
-        let mut subnode_set = vec![];
-        let mut subnode_adv = channeler.advancer_subnodes_of_node(p_consider);
-        while let Some(p_subnode) = subnode_adv.advance(channeler) {
-            channeler.cnodes.get_val_mut(p_subnode).unwrap().alg_visit = direct_subnode_visit;
-            subnode_set.push(p_subnode);
+        let p_subnodes = channeler.cnodes.get(p_consider).unwrap().p_subnodes.clone();
+        for p_subnode in p_subnodes.iter().copied() {
+            channeler.cnodes.get_mut(p_subnode).unwrap().alg_visit = direct_subnode_visit;
         }
         // The current plan is that we just create one big edge that has its sink
         // incident in `p_consider`, with source incidents to all supernodes of subnodes
@@ -365,71 +344,64 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
         let mut source_set = vec![];
         let mut channel_widths = ChannelWidths::empty();
         let mut lut_bits = 0usize;
-        for p_subnode in subnode_set.iter().copied() {
-            // go over all neighbors through the edges
-            let mut adv = channeler.cnodes.advancer_surject(p_subnode);
-            while let Some(p_referent) = adv.advance(&channeler.cnodes) {
-                if let Referent::CEdgeIncidence(p_cedge, i) =
-                    *channeler.cnodes.get_key(p_referent).unwrap()
-                {
-                    // avoid duplication, if this is a sink incidence we automatically have
-                    // a one time iter of the edge we need to handle
-                    if i.is_none() {
-                        let cedge = channeler.cedges.get_mut(p_cedge).unwrap();
+        for p_subnode in p_subnodes.iter().copied() {
+            // just go over the sink incident to avoid duplication
+            if let Some(p_cedge) = channeler.cnodes.get(p_subnode).unwrap().sink_incident {
+                let cedge = channeler.cedges.get_mut(p_cedge).unwrap();
 
-                        let w = match cedge.programmability() {
-                            Programmability::TNode => 1,
-                            Programmability::StaticLut(lut) => {
-                                lut_bits = lut_bits.checked_add(lut.bw()).unwrap();
-                                1
-                            }
-                            Programmability::ArbitraryLut(arbitrary_lut) => {
-                                lut_bits = lut_bits
-                                    .checked_add(arbitrary_lut.lut_config().len())
-                                    .unwrap();
-                                1
-                            }
-                            Programmability::SelectorLut(_) => 1,
-                            Programmability::Bulk(bulk) => bulk.channel_exit_width,
-                        };
-                        channel_widths.channel_exit_width =
-                            channel_widths.channel_exit_width.checked_add(w).unwrap();
-
-                        for (i, p_incident) in cedge.sources().iter().copied().enumerate() {
-                            let cnode = channeler.cnodes.get_val_mut(p_incident).unwrap();
-                            // make sure the `CNode` is outside the direct subnode set
-                            if cnode.alg_visit != direct_subnode_visit {
-                                // avoid an `OrdArena` by accumulating the entry width on the
-                                // related supernode
-                                let p_supernode = cnode.p_supernode.unwrap();
-                                let supernode = channeler.cnodes.get_val_mut(p_supernode).unwrap();
-                                if supernode.alg_visit != related_visit {
-                                    supernode.alg_visit = related_visit;
-                                    supernode.alg_entry_width = 0;
-                                    source_set.push(supernode.p_this_cnode);
-                                }
-                                let w = match cedge.programmability() {
-                                    Programmability::TNode
-                                    | Programmability::StaticLut(_)
-                                    | Programmability::ArbitraryLut(_)
-                                    | Programmability::SelectorLut(_) => 1,
-                                    Programmability::Bulk(bulk) => bulk.channel_entry_widths[i],
-                                };
-                                supernode.alg_entry_width =
-                                    supernode.alg_entry_width.checked_add(w).unwrap();
-                            }
-                            // else the connections are internal, TODO are there
-                            // any internal connection statistics we should want
-                            // to track?
-                        }
+                let w = match cedge.programmability() {
+                    Programmability::StaticLut(lut) => {
+                        lut_bits = lut_bits.checked_add(lut.bw()).unwrap();
+                        1
                     }
+                    Programmability::ArbitraryLut(arbitrary_lut) => {
+                        lut_bits = lut_bits
+                            .checked_add(arbitrary_lut.lut_config().len())
+                            .unwrap();
+                        1
+                    }
+                    Programmability::SelectorLut(_) => 1,
+                    Programmability::Bulk(bulk) => bulk.channel_exit_width,
+                };
+                channel_widths.channel_exit_width =
+                    channel_widths.channel_exit_width.checked_add(w).unwrap();
+
+                for (i, source) in cedge.sources().iter().copied().enumerate() {
+                    let cnode = channeler.cnodes.get_mut(source.p_cnode).unwrap();
+                    // make sure the `CNode` is outside the direct subnode set
+                    if cnode.alg_visit != direct_subnode_visit {
+                        // avoid an `OrdArena` by accumulating the entry width on the
+                        // related supernode
+                        let p_supernode = cnode.p_supernode.unwrap();
+                        let supernode = channeler.cnodes.get_mut(p_supernode).unwrap();
+                        if supernode.alg_visit != related_visit {
+                            supernode.alg_visit = related_visit;
+                            supernode.alg_entry_width = 0;
+                            // TODO fix the delay here
+                            source_set.push(Source {
+                                p_cnode: p_supernode,
+                                delay_weight: NonZeroU32::new(1).unwrap(),
+                            });
+                        }
+                        let w = match cedge.programmability() {
+                            Programmability::StaticLut(_)
+                            | Programmability::ArbitraryLut(_)
+                            | Programmability::SelectorLut(_) => 1,
+                            Programmability::Bulk(bulk) => bulk.channel_entry_widths[i],
+                        };
+                        supernode.alg_entry_width =
+                            supernode.alg_entry_width.checked_add(w).unwrap();
+                    }
+                    // else the connections are internal, TODO are there
+                    // any internal connection statistics we should want
+                    // to track?
                 }
             }
         }
         // add on the bits from edges with sinks in `p_consider`
         let internal_behavior = &mut channeler
             .cnodes
-            .get_val_mut(p_consider)
+            .get_mut(p_consider)
             .unwrap()
             .internal_behavior;
         internal_behavior.lut_bits = internal_behavior.lut_bits.checked_add(lut_bits).unwrap();
@@ -441,8 +413,8 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
         priority.push((channel_exit_width, p_consider));
         // create the edge
         if !source_set.is_empty() {
-            for source in source_set.iter().cloned() {
-                let cnode = channeler.cnodes.get_val(source).unwrap();
+            for source in source_set.iter().copied() {
+                let cnode = channeler.cnodes.get(source.p_cnode).unwrap();
                 channel_widths
                     .channel_entry_widths
                     .push(cnode.alg_entry_width);
@@ -451,14 +423,9 @@ pub fn generate_hierarchy_level<PCNode: Ptr, PCEdge: Ptr>(
             // where we can add more than one edge per concentrated node if the weights vary
             // wildly, e.g. for an island FPGA with some long range connections
             channeler.make_cedge(
-                &source_set,
+                source_set,
                 p_consider,
                 Programmability::Bulk(channel_widths),
-                // gross approximation for now
-                NonZeroU32::new(
-                    u32::try_from(channel_exit_width.clamp(1, u32::MAX as usize)).unwrap(),
-                )
-                .unwrap(),
             );
         }
     }

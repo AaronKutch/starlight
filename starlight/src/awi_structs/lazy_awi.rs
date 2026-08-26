@@ -6,17 +6,16 @@ use std::{
 };
 
 use awint::{
-    awint_dag::{dag, Lineage, Location, PState},
+    awint_dag::{Lineage, Location, PState, dag, triple_arena::traits::ArenaTrait},
     awint_internals::forward_debug_fmt,
     dag::Awi,
 };
 
 use crate::{
-    awi,
+    Delay, Error, EvalAwi, awi,
     ensemble::{BasicValue, BasicValueKind, CommonValue, Ensemble, PExternal},
     epoch::get_current_epoch,
     utils::DisplayStr,
-    Delay, Error, EvalAwi,
 };
 
 // Note: `mem::forget` can be used on `LazyAwi`s, but in this crate it should
@@ -154,7 +153,7 @@ impl LazyAwi {
         self.p_external
     }
 
-    /// Gets the associated `PState`, returns an error if the active `Epoch` is
+    /// Gets the associated `PState`, returns an error if the current `Epoch` is
     /// not correct or the `Epoch` was pruned.
     pub fn try_get_p_state(&self) -> Result<PState, Error> {
         let epoch = get_current_epoch()?;
@@ -178,8 +177,9 @@ impl LazyAwi {
             .ensemble
             .notary
             .rnodes()
-            .get_val(p_rnode)
+            .get(p_rnode)
             .unwrap()
+            .v()
             .nzbw();
         Ok(Self {
             p_external,
@@ -297,7 +297,7 @@ impl LazyAwi {
         let lhs_w = self.bw();
         let rhs_w = rhs.bw();
         if lhs_w != rhs_w {
-            return Err(Error::BitwidthMismatch(lhs_w, rhs_w))
+            return Err(Error::BitwidthMismatch(lhs_w, rhs_w));
         }
         let delay = delay.into();
         for i in 0..lhs_w {
@@ -351,6 +351,7 @@ impl AsRef<dag::Bits> for LazyAwi {
     }
 }
 
+#[allow(clippy::collapsible_if)]
 pub(crate) fn format_auto_awi(
     name: &str,
     p_external: PExternal,
@@ -360,18 +361,17 @@ pub(crate) fn format_auto_awi(
     let mut tmp = f.debug_struct(name);
     tmp.field("p_external", &p_external);
     tmp.field("nzbw", &nzbw);
-    if let Ok(epoch) = get_current_epoch() {
-        if let Ok(lock) = epoch.epoch_data.try_borrow() {
-            if let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(p_external) {
-                if let Some(ref debug_name) = rnode.debug_name {
-                    tmp.field("debug_name", &DisplayStr(debug_name));
-                }
-                /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
-                    tmp.field("state", &DisplayStr(&s));
-                }*/
-                //tmp.field("bits", &rnode.bits());
-            }
+    if let Ok(epoch) = get_current_epoch()
+        && let Ok(lock) = epoch.epoch_data.try_borrow()
+        && let Ok((_, rnode)) = lock.ensemble.notary.get_rnode(p_external)
+    {
+        if let Some(ref debug_name) = rnode.debug_name {
+            tmp.field("debug_name", &DisplayStr(debug_name));
         }
+        /*if let Some(s) = lock.ensemble.get_state_debug(self.state()) {
+            tmp.field("state", &DisplayStr(&s));
+        }*/
+        //tmp.field("bits", &rnode.bits());
     }
     tmp.finish()
 }

@@ -1,49 +1,16 @@
 use std::num::NonZeroU64;
 
-use awint::awint_dag::{
-    triple_arena::{Recast, Recaster},
-    PState,
-};
+use awint::awint_dag::PState;
 
-use super::Delayer;
 use crate::{
-    ensemble::{
-        value::Evaluator, LNode, LNodeKind, Notary, Optimizer, PBack, PLNode, PRNode, PTNode,
-        Stator, TNode, Value,
-    },
-    triple_arena::{Arena, SurjectArena},
     Error,
+    ensemble::{
+        Delayer, Equiv, LNode, LNodeKind, Notary, Optimizer, PBack, PEquiv, PLNode, PRNode, PTNode,
+        Stator, TNode, Value, value::Evaluator,
+    },
+    triple_arena::{Arena, SurjectArena, traits::*},
+    utils::{self, compress_recaster},
 };
-
-#[derive(Debug, Clone)]
-pub struct Equiv {
-    /// `Ptr` back to this equivalence through a `Referent::ThisEquiv` in the
-    /// backref surject associated with this `Equiv`
-    pub p_self_equiv: PBack,
-    /// Output of the equivalence surject
-    pub val: Value,
-    /// Used by the evaluator
-    pub evaluator_partial_order: NonZeroU64,
-}
-
-impl Recast<PBack> for Equiv {
-    fn recast<R: Recaster<Item = PBack>>(
-        &mut self,
-        recaster: &R,
-    ) -> Result<(), <R as Recaster>::Item> {
-        self.p_self_equiv.recast(recaster)
-    }
-}
-
-impl Equiv {
-    pub fn new(p_self_equiv: PBack, val: Value) -> Self {
-        Self {
-            p_self_equiv,
-            val,
-            evaluator_partial_order: NonZeroU64::new(1).unwrap(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 pub enum Referent {
@@ -79,6 +46,7 @@ pub struct Ensemble {
     pub evaluator: Evaluator,
     pub delayer: Delayer,
     pub optimizer: Optimizer,
+    pub alg_visit: NonZeroU64,
     pub debug_counter: u64,
 }
 
@@ -92,7 +60,8 @@ impl Ensemble {
             tnodes: Arena::new(),
             evaluator: Evaluator::new(),
             delayer: Delayer::new(),
-            optimizer: Optimizer::new(),
+            optimizer: Optimizer::default(),
+            alg_visit: NonZeroU64::new(2).unwrap(),
             debug_counter: 0,
         }
     }
@@ -102,30 +71,30 @@ impl Ensemble {
 
         // first check that equivalences aren't broken by themselves
         for p_back in self.backrefs.ptrs() {
-            let equiv = self.backrefs.get_val(p_back).unwrap();
-            if let Some(Referent::ThisEquiv) = self.backrefs.get_key(equiv.p_self_equiv) {
+            let equiv = self.backrefs.get_shared(p_back).unwrap();
+            if let Some(Referent::ThisEquiv) = self.backrefs.get(equiv.p_self_equiv.into()) {
                 if !self
                     .backrefs
-                    .in_same_set(p_back, equiv.p_self_equiv)
+                    .in_same_surject(p_back, equiv.p_self_equiv.into())
                     .unwrap()
                 {
                     return Err(Error::OtherString(format!(
                         "{equiv:?}.p_self_equiv roundtrip fail"
-                    )))
+                    )));
                 }
             } else {
                 return Err(Error::OtherString(format!(
                     "{equiv:?}.p_self_equiv is invalid"
-                )))
+                )));
             }
             // need to roundtrip in both directions to ensure existence and uniqueness of a
             // `ThisEquiv` for each equivalence surject
-            if let Some(Referent::ThisEquiv) = self.backrefs.get_key(p_back) {
-                if p_back != equiv.p_self_equiv {
-                    return Err(Error::OtherString(format!(
-                        "{equiv:?}.p_self_equiv roundtrip fail"
-                    )))
-                }
+            if let Some(Referent::ThisEquiv) = self.backrefs.get(p_back)
+                && p_back != equiv.p_self_equiv.into()
+            {
+                return Err(Error::OtherString(format!(
+                    "{equiv:?}.p_self_equiv roundtrip fail"
+                )));
             }
         }
         // check other kinds of self refs
@@ -133,57 +102,55 @@ impl Ensemble {
             if (!state.p_self_bits.is_empty()) && (state.nzbw.get() != state.p_self_bits.len()) {
                 return Err(Error::OtherString(format!(
                     "{state:?}.nzbw mismatch with p_self_bits.len"
-                )))
+                )));
             }
             for operand in state.op.operands() {
                 if !self.stator.states.contains(*operand) {
-                    return Err(Error::OtherString(format!("{state:?} operand is missing")))
+                    return Err(Error::OtherString(format!("{state:?} operand is missing")));
                 }
             }
             for (inx, p_self_bit) in state.p_self_bits.iter().copied().enumerate() {
                 if let Some(p_self_bit) = p_self_bit {
                     if let Some(Referent::ThisStateBit(p_self, inx_self)) =
-                        self.backrefs.get_key(p_self_bit).copied()
+                        self.backrefs.get(p_self_bit).copied()
                     {
                         if (p_state != p_self) || (inx != inx_self) {
                             return Err(Error::OtherString(format!(
                                 "{state:?}.p_self_bits roundtrip fail"
-                            )))
+                            )));
                         }
                     } else {
                         return Err(Error::OtherString(format!(
                             "{state:?}.p_self_bits is invalid"
-                        )))
+                        )));
                     }
                 }
             }
         }
         for (p_lnode, lnode) in &self.lnodes {
-            if let Some(Referent::ThisLNode(p_self)) = self.backrefs.get_key(lnode.p_self).copied()
-            {
+            if let Some(Referent::ThisLNode(p_self)) = self.backrefs.get(lnode.p_self).copied() {
                 if p_lnode != p_self {
                     return Err(Error::OtherString(format!(
                         "{lnode:?}.p_self roundtrip fail"
-                    )))
+                    )));
                 }
             } else {
-                return Err(Error::OtherString(format!("{lnode:?}.p_self is invalid")))
+                return Err(Error::OtherString(format!("{lnode:?}.p_self is invalid")));
             }
         }
         for (p_tnode, tnode) in &self.tnodes {
-            if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get_key(tnode.p_self).copied()
-            {
+            if let Some(Referent::ThisTNode(p_self)) = self.backrefs.get(tnode.p_self).copied() {
                 if p_tnode != p_self {
                     return Err(Error::OtherString(format!(
                         "{tnode:?}.p_self roundtrip fail"
-                    )))
+                    )));
                 }
             } else {
-                return Err(Error::OtherString(format!("{tnode:?}.p_self is invalid")))
+                return Err(Error::OtherString(format!("{tnode:?}.p_self is invalid")));
             }
         }
         // check other referent validities
-        for referent in self.backrefs.keys().copied() {
+        for referent in self.backrefs.vals().copied() {
             let invalid = match referent {
                 // already checked
                 Referent::ThisEquiv => false,
@@ -195,7 +162,7 @@ impl Ensemble {
                 Referent::ThisRNode(p_rnode) => !self.notary.rnodes().contains(p_rnode),
             };
             if invalid {
-                return Err(Error::OtherString(format!("{referent:?} is invalid")))
+                return Err(Error::OtherString(format!("{referent:?} is invalid")));
             }
         }
         // other kinds of validity
@@ -203,7 +170,7 @@ impl Ensemble {
             let lnode = self.lnodes.get(p_lnode).unwrap();
             let mut res = Ok(());
             lnode.inputs(|p_input| {
-                if let Some(referent) = self.backrefs.get_key(p_input) {
+                if let Some(referent) = self.backrefs.get(p_input) {
                     if let Referent::Input(referent) = referent {
                         if !self.lnodes.contains(*referent) {
                             res = Err(Error::OtherString(format!(
@@ -226,43 +193,44 @@ impl Ensemble {
         }
         for p_tnode in self.tnodes.ptrs() {
             let tnode = self.tnodes.get(p_tnode).unwrap();
-            if let Some(referent) = self.backrefs.get_key(tnode.p_driver).copied() {
+            if let Some(referent) = self.backrefs.get(tnode.p_driver).copied() {
                 if let Referent::Driver(p_driver) = referent {
                     if !self.tnodes.contains(p_driver) {
                         return Err(Error::OtherString(format!(
                             "{p_tnode}: {tnode:?} driver referrent {p_driver} is invalid"
-                        )))
+                        )));
                     }
                 } else {
                     return Err(Error::OtherString(format!(
                         "{p_tnode}: {tnode:?} driver has incorrect referrent"
-                    )))
+                    )));
                 }
             } else {
                 return Err(Error::OtherString(format!(
                     "{p_tnode}: {tnode:?} driver {} is invalid",
                     tnode.p_driver
-                )))
+                )));
             }
         }
-        for rnode in self.notary.rnodes().vals() {
+        for pair in self.notary.rnodes().vals() {
+            let rnode = pair.v();
             if let Some(bits) = rnode.bits() {
                 for p_back in bits.iter().copied() {
                     if let Some(p_back) = p_back {
-                        if let Some(referent) = self.backrefs.get_key(p_back).copied() {
+                        if let Some(referent) = self.backrefs.get(p_back).copied() {
                             if let Referent::ThisRNode(p_rnode) = referent {
                                 if !self.notary.rnodes().contains(p_rnode) {
                                     return Err(Error::OtherString(format!(
                                         "{rnode:?} backref {p_rnode} is invalid"
-                                    )))
+                                    )));
                                 }
                             } else {
                                 return Err(Error::OtherString(format!(
                                     "{rnode:?} backref {p_back} has incorrect referrent"
-                                )))
+                                )));
                             }
                         } else {
-                            return Err(Error::OtherString(format!("rnode {p_back} is invalid")))
+                            return Err(Error::OtherString(format!("rnode {p_back} is invalid")));
                         }
                     }
                 }
@@ -270,7 +238,7 @@ impl Ensemble {
         }
         // Other roundtrips from `backrefs` direction to ensure bijection
         for p_back in self.backrefs.ptrs() {
-            let referent = self.backrefs.get_key(p_back).unwrap();
+            let referent = self.backrefs.get(p_back).unwrap();
             let fail = match *referent {
                 // already checked
                 Referent::ThisEquiv => false,
@@ -306,13 +274,13 @@ impl Ensemble {
                     tnode.p_driver != p_back
                 }
                 Referent::ThisRNode(p_rnode) => {
-                    let rnode = self.notary.rnodes().get_val(p_rnode).unwrap();
+                    let rnode = self.notary.rnodes().get(p_rnode).unwrap().v();
                     let mut found = false;
                     if let Some(bits) = rnode.bits() {
                         for bit in bits {
                             if *bit == Some(p_back) {
                                 found = true;
-                                break
+                                break;
                             }
                         }
                     }
@@ -320,7 +288,7 @@ impl Ensemble {
                 }
             };
             if fail {
-                return Err(Error::OtherString(format!("{referent:?} roundtrip fail")))
+                return Err(Error::OtherString(format!("{referent:?} roundtrip fail")));
             }
         }
         // non-pointer invariants
@@ -329,45 +297,48 @@ impl Ensemble {
                 LNodeKind::Copy(_) => (),
                 LNodeKind::Lut(inp, lut) => {
                     if inp.is_empty() {
-                        return Err(Error::OtherStr("no inputs for lookup table"))
+                        return Err(Error::OtherStr("no inputs for lookup table"));
                     }
                     if !lut.bw().is_power_of_two() {
                         return Err(Error::OtherStr(
                             "lookup table is not a power of two in bitwidth",
-                        ))
+                        ));
                     }
                     if (lut.bw().trailing_zeros() as usize) != inp.len() {
                         return Err(Error::OtherStr(
                             "number of inputs does not correspond to lookup table size",
-                        ))
+                        ));
                     }
                 }
                 LNodeKind::DynamicLut(inp, lut) => {
                     if inp.is_empty() {
-                        return Err(Error::OtherStr("no inputs for lookup table"))
+                        return Err(Error::OtherStr("no inputs for lookup table"));
                     }
                     if !lut.len().is_power_of_two() {
                         return Err(Error::OtherStr(
                             "lookup table is not a power of two in bitwidth",
-                        ))
+                        ));
                     }
                     if (lut.len().trailing_zeros() as usize) != inp.len() {
                         return Err(Error::OtherStr(
                             "number of inputs does not correspond to lookup table size",
-                        ))
+                        ));
                     }
                 }
             }
         }
         // state reference counts
         let mut counts = Arena::<PState, (usize, usize)>::new();
-        counts.clone_from_with(&self.stator.states, |_, _| (0, 0));
+        counts
+            .clone_from_with(&self.stator.states, |_, _| (0, 0))
+            .unwrap();
         for state in self.stator.states.vals() {
             for operand in state.op.operands() {
                 counts[*operand].0 = counts[operand].0.checked_add(1).unwrap();
             }
         }
-        for rnode in self.notary.rnodes().vals() {
+        for pair in self.notary.rnodes().vals() {
+            let rnode = pair.v();
             if let Some(p_state) = rnode.associated_state {
                 counts[p_state].1 = counts[p_state].1.checked_add(1).unwrap();
             }
@@ -377,13 +348,13 @@ impl Ensemble {
                 return Err(Error::OtherString(format!(
                     "{p_state} {state:?} reference count mismatch, expected {}",
                     counts[p_state].0
-                )))
+                )));
             }
             if state.extern_rc != counts[p_state].1 {
                 return Err(Error::OtherString(format!(
                     "{p_state} {state:?} extern reference count mismatch, expected {}",
                     counts[p_state].1
-                )))
+                )));
             }
         }
 
@@ -398,17 +369,17 @@ impl Ensemble {
         self.stator.check_clear()?;
 
         self.delayer.compress();
-        let p_tnode_recaster = self.tnodes.compress_and_shrink_recaster();
+        let p_tnode_recaster = compress_recaster(&mut self.tnodes, true);
         if let Err(e) = self.delayer.recast(&p_tnode_recaster) {
             return Err(Error::OtherString(format!(
                 "recast error with {e} in the `Delayer`"
             )));
         }
 
-        let p_lnode_recaster = self.lnodes.compress_and_shrink_recaster();
+        let p_lnode_recaster = compress_recaster(&mut self.lnodes, true);
         let p_rnode_recaster = self.notary.recast_p_rnode();
 
-        for referent in self.backrefs.keys_mut() {
+        for referent in self.backrefs.vals_mut() {
             match referent {
                 Referent::ThisEquiv => (),
                 Referent::ThisLNode(p_lnode) => {
@@ -450,7 +421,8 @@ impl Ensemble {
             }
         }
 
-        let p_back_recaster = self.backrefs.compress_and_shrink_recaster();
+        let p_back_recaster =
+            utils::surject_arena_canonical_compress_recaster(&mut self.backrefs, false);
         if let Err(e) = self.backrefs.recast(&p_back_recaster) {
             return Err(Error::OtherString(format!(
                 "recast error with {e} in the backrefs"
@@ -474,24 +446,32 @@ impl Ensemble {
         Ok(())
     }
 
+    pub fn get_p_equiv(&self, p_back: PBack) -> Option<PEquiv> {
+        Some(self.backrefs.get_shared(p_back)?.p_self_equiv)
+    }
+
     /// Inserts a `LNode` with `lit` value and returns a `PBack` to it
     pub fn make_literal(&mut self, lit: Option<bool>) -> PBack {
-        self.backrefs.insert_with(|p_self_equiv| {
-            (
-                Referent::ThisEquiv,
-                Equiv::new(p_self_equiv, {
-                    if let Some(b) = lit {
-                        Value::Const(b)
-                    } else {
-                        Value::Unknown
-                    }
-                }),
-            )
-        })
+        let entry = self.backrefs.entry_insert_surject_reallocating().unwrap();
+        let p_equiv = entry.ptr();
+        entry.insert(
+            Referent::ThisEquiv,
+            Equiv::new(p_equiv, {
+                if let Some(b) = lit {
+                    Value::Const(b)
+                } else {
+                    Value::Unknown
+                }
+            }),
+        );
+        p_equiv
     }
 
     pub fn union_equiv(&mut self, p_equiv0: PBack, p_equiv1: PBack) -> Result<(), Error> {
-        let (equiv0, equiv1) = self.backrefs.get2_val_mut(p_equiv0, p_equiv1).unwrap();
+        let [equiv0, equiv1] = self
+            .backrefs
+            .get_disjoint_shared_mut([p_equiv0, p_equiv1])
+            .unwrap();
         if (equiv0.val.is_const() && equiv1.val.is_const()) && (equiv0.val != equiv1.val) {
             panic!("tried to merge two const equivalences with differing values");
         }
@@ -509,9 +489,15 @@ impl Ensemble {
         let (removed_equiv, _) = self.backrefs.union(p_equiv0, p_equiv1).unwrap();
         // remove the extra `ThisEquiv`
         self.backrefs
-            .remove_key(removed_equiv.p_self_equiv)
+            .remove_element(removed_equiv.p_self_equiv.into())
+            .allow()
             .unwrap();
         Ok(())
+    }
+
+    pub fn next_alg_visit(&mut self) -> NonZeroU64 {
+        self.alg_visit = self.alg_visit.checked_add(1).unwrap();
+        self.alg_visit
     }
 
     pub fn inc_debug_counter(&mut self) {

@@ -1,15 +1,15 @@
 use std::{borrow::Borrow, num::NonZeroUsize, ops::Deref};
 
-use awint::awint_dag::{Lineage, Op, PState};
+use awint::awint_dag::{Lineage, Op, PState, triple_arena::traits::*};
 
-use crate::{awi, dag, epoch::get_current_epoch, lower::meta::general_mux, Delay, Error};
+use crate::{Delay, Error, awi, dag, epoch::get_current_epoch, lower::meta::general_mux};
 
 pub(crate) const DELAY: &str = "starlight::delay";
 pub(crate) const UNDRIVEN_LOOP_SOURCE: &str = "starlight::undriven_loop_source";
 pub(crate) const LOOP_SOURCE: &str = "starlight::loop_source";
 pub(crate) const DELAYED_LOOP_SOURCE: &str = "starlight::delayed_loop_source";
 
-/// Delays the temporal value propogation of `bits` by `delay`.
+/// Delays the temporal value propagation of `bits` by `delay`.
 ///
 /// For a purely combinatorial circuit that is run for an infinite time, this
 /// function acts like a no-op; the effects of this function are seen in
@@ -22,7 +22,7 @@ pub(crate) const DELAYED_LOOP_SOURCE: &str = "starlight::delayed_loop_source";
 /// function changes `bits` into its future value.
 ///
 /// ```
-/// use starlight::{awi, dag, delay, Epoch, EvalAwi, LazyAwi};
+/// use starlight::{Epoch, EvalAwi, LazyAwi, awi, dag, delay};
 /// let epoch = Epoch::new();
 ///
 /// use dag::*;
@@ -48,7 +48,7 @@ pub(crate) const DELAYED_LOOP_SOURCE: &str = "starlight::delayed_loop_source";
 ///     assert!(!epoch.quiesced().unwrap());
 ///
 ///     // only after 10 units does the
-///     // value finally finish propogating
+///     // value finally finish propagating
 ///     epoch.run(1).unwrap();
 ///     assert_eq!(a_after.eval().unwrap(), awi!(0xa_u4));
 ///     assert!(epoch.quiesced().unwrap());
@@ -112,7 +112,7 @@ pub fn delay<D: Into<Delay>>(bits: &mut dag::Bits, delay: D) {
 ///
 /// ```
 /// use dag::*;
-/// use starlight::{awi, dag, Epoch, EvalAwi, Loop};
+/// use starlight::{Epoch, EvalAwi, Loop, awi, dag};
 /// let epoch = Epoch::new();
 ///
 /// let looper = Loop::zero(bw(4));
@@ -139,7 +139,7 @@ pub fn delay<D: Into<Delay>>(bits: &mut dag::Bits, delay: D) {
 // The fundamental reason for temporal asymmetry is that there needs to be a
 // well defined root evaluation state and value.
 #[derive(Debug)] // do not implement `Clone`, but maybe implement a `duplicate` function that
-                 // explicitly duplicates drivers and loopbacks?
+// explicitly duplicates drivers and loopbacks?
 pub struct Loop {
     source: dag::Awi,
 }
@@ -280,7 +280,7 @@ impl Loop {
             let lhs_w = self.source.bw();
             let rhs_w = driver.bw();
             if lhs_w != rhs_w {
-                return Err(Error::BitwidthMismatch(lhs_w, rhs_w))
+                return Err(Error::BitwidthMismatch(lhs_w, rhs_w));
             }
 
             let mut delay = awi::Awi::from_u128(delay.amount());

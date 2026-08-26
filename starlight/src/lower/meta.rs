@@ -4,12 +4,12 @@ use std::{cmp::min, mem, num::NonZeroUsize};
 
 use awint::{
     awint_dag::{
-        smallvec::{smallvec, SmallVec},
         ConcatFieldsType, PState,
+        smallvec::{SmallVec, smallvec},
     },
     bw,
 };
-use dag::{awi, inlawi, inlawi_ty, Awi, Bits, InlAwi};
+use dag::{Awi, Bits, InlAwi, awi, inlawi, inlawi_ty};
 
 use crate::{
     awi,
@@ -67,7 +67,7 @@ pub fn create_static_lut(
         Err(inxs[0])
     } else {
         Ok(Op::StaticLut(
-            ConcatType::from_iter(inxs.iter().cloned()),
+            ConcatType::from_iter(inxs.iter().copied()),
             lut,
         ))
     }
@@ -130,7 +130,7 @@ pub fn selector(inx: &Bits, cap: Option<usize>) -> Vec<inlawi_ty!(1)> {
         panic!();
     }
     if num == 1 {
-        return vec![inlawi!(1)]
+        return vec![inlawi!(1)];
     }
     let lb_num = num.next_power_of_two().trailing_zeros() as usize;
     let mut signals = Vec::with_capacity(num);
@@ -156,7 +156,7 @@ pub fn selector_awi(inx: &Bits, cap: Option<usize>) -> Awi {
         panic!();
     }
     if num == 1 {
-        return awi!(1)
+        return awi!(1);
     }
     let lb_num = num.next_power_of_two().trailing_zeros() as usize;
     let nzbw = NonZeroUsize::new(num).unwrap();
@@ -208,7 +208,7 @@ pub fn general_mux(inputs: &[Awi], inx: &Bits) -> Awi {
         }
         let lut = Awi::new(
             lut_w,
-            Op::ConcatFields(ConcatFieldsType::from_iter(lut.iter().cloned())),
+            Op::ConcatFields(ConcatFieldsType::from_iter(lut.iter().copied())),
         );
         out_signals.push(Awi::new(bw(1), Op::Lut([lut.state(), inx.state()])).state());
     }
@@ -218,7 +218,7 @@ pub fn general_mux(inputs: &[Awi], inx: &Bits) -> Awi {
 // uses dynamic LUTs under the hood
 pub fn dynamic_to_static_get(bits: &Bits, inx: &Bits) -> inlawi_ty!(1) {
     if bits.bw() == 1 {
-        return InlAwi::from(bits.to_bool())
+        return InlAwi::from(bits.to_bool());
     }
     /*let signals = selector(inx, Some(bits.bw()));
     let mut out = inlawi!(0);
@@ -351,7 +351,7 @@ pub fn dynamic_to_static_lut(out: &mut Bits, table: &Bits, inx: &Bits) {
 
 pub fn dynamic_to_static_set(bits: &Bits, inx: &Bits, bit: &Bits) -> Awi {
     if bits.bw() == 1 {
-        return Awi::from(bit)
+        return Awi::from(bit);
     }
     let signals = selector(inx, Some(bits.bw()));
     let nzbw = bits.nzbw();
@@ -961,7 +961,7 @@ pub fn equal(lhs: &Bits, rhs: &Bits) -> inlawi_ty!(1) {
         let prev_rank = ranks.last().unwrap();
         let rank_len = prev_rank.len();
         if rank_len == 1 {
-            break prev_rank[0]
+            break prev_rank[0];
         }
         let mut next_rank = vec![];
         for i in 0..(rank_len / 2) {
@@ -988,13 +988,13 @@ pub fn count_ones(x: &Bits) -> Awi {
         let prev_rank = ranks.last().unwrap();
         let rank_len = prev_rank.len();
         if rank_len == 1 {
-            break prev_rank[0].0.clone()
+            break prev_rank[0].0.clone();
         }
         let mut next_rank = vec![];
         let mut i = 0;
         loop {
             if i >= rank_len {
-                break
+                break;
             }
             // each rank adds another bit, keep adding until overflow
             let mut next_sum = awi!(0, prev_rank[i].0);
@@ -1005,7 +1005,7 @@ pub fn count_ones(x: &Bits) -> Awi {
             loop {
                 i += 1;
                 if i >= rank_len {
-                    break
+                    break;
                 }
                 let w = next_max.bw();
                 {
@@ -1021,7 +1021,7 @@ pub fn count_ones(x: &Bits) -> Awi {
                         .0
                     {
                         // do not add another previous sum to this sum because of overflow
-                        break
+                        break;
                     }
                     cc!(tmp; next_max).unwrap();
                 }
@@ -1043,7 +1043,7 @@ pub fn tsmear(x: &Bits) -> Awi {
     loop {
         let s = 1 << lvl;
         if s >= x.bw() {
-            break tmp0
+            break tmp0;
         }
         let mut tmp1 = tmp0.clone();
         tmp1.lshr_(s).unwrap();
@@ -1137,7 +1137,7 @@ pub fn mul_add(out_w: NonZeroUsize, add: Option<&Bits>, lhs: &Bits, rhs: &Bits) 
         }
         if !gt2 {
             // if all columns 2 or less in height, break and use a fast adder
-            break
+            break;
         }
         for i in 0..place_map0.len() {
             if let Some(w) = NonZeroUsize::new(place_map0[i].len()) {

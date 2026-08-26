@@ -1,11 +1,11 @@
 use std::{cmp::min, num::NonZeroUsize};
 
+use star_rng::StarRng;
 use starlight::{
+    Epoch, EvalAwi, LazyAwi, OptimizerOptions,
     awint::{awi, dag},
     delay,
-    triple_arena::{ptr_struct, Arena},
-    utils::StarRng,
-    Epoch, EvalAwi, LazyAwi,
+    triple_arena::{Arena, ptr_struct, traits::*},
 };
 
 #[cfg(debug_assertions)]
@@ -49,7 +49,7 @@ impl Mem {
     }
 
     pub fn clear(&mut self) {
-        self.a.clear();
+        self.a.clear().allow();
         self.v.clear();
         self.roots.clear();
         for _ in 0..65 {
@@ -64,7 +64,7 @@ impl Mem {
         } else {
             let nzbw = NonZeroUsize::new(w).unwrap();
             let mut lit = awi::Awi::zero(nzbw);
-            self.rng.next_bits(&mut lit);
+            lit.star_rng_(&mut self.rng);
             // Randomly make some literals and some opaques
             if self.rng.next_bool() {
                 let p = self.a.insert(Pair {
@@ -93,7 +93,7 @@ impl Mem {
         if self.rng.out_of_4(3) && (!self.v[w].is_empty()) {
             let p = *self.rng.index_slice(&self.v[w]).unwrap();
             if self.get_awi(p).to_usize() < cap {
-                return p
+                return p;
             }
         }
         let nzbw = NonZeroUsize::new(w).unwrap();
@@ -164,7 +164,7 @@ fn operation(rng: &mut StarRng, m: &mut Mem, use_tnodes: bool) {
             let (w, from) = m.next6();
             let to = m.next(w);
             if to != from {
-                let (to, from) = m.a.get2_mut(to, from).unwrap();
+                let [to, from] = m.a.get_disjoint_mut([to, from]).unwrap();
                 to.awi.copy_(&from.awi).unwrap();
                 to.dag.copy_(&from.dag).unwrap();
                 if use_tnodes {
@@ -250,7 +250,7 @@ fn fuzz_elementary() {
         m.finish(&epoch);
         epoch.verify_integrity().unwrap();
         m.verify_equivalence(&epoch);
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         m.verify_equivalence(&epoch);
         // TODO verify stable optimization
         drop(epoch);
@@ -273,7 +273,7 @@ fn fuzz_elementary_with_delay() {
         m.finish(&epoch);
         epoch.verify_integrity().unwrap();
         m.verify_equivalence(&epoch);
-        epoch.optimize().unwrap();
+        epoch.optimize(OptimizerOptions::new()).unwrap();
         m.verify_equivalence(&epoch);
         // TODO verify stable optimization
         drop(epoch);
@@ -281,4 +281,29 @@ fn fuzz_elementary_with_delay() {
     }
 }
 
-// TODO need a version that precisely times `TNode`s
+// TODO need a versions of these that precisely times `TNode`s and test cyclical
+// cases
+
+#[test]
+fn fuzz_elementary_union_remove_all_tnodes() {
+    let mut rng = StarRng::new(0);
+    let mut m = Mem::new();
+
+    for _ in 0..N.1 {
+        //let mut rng = StarRng::new(i as u64);
+        //m.rng = StarRng::new((i + 1) as u64);
+        let epoch = Epoch::new();
+        for _ in 0..N.0 {
+            operation(&mut rng, &mut m, true)
+        }
+        m.finish(&epoch);
+        epoch.verify_integrity().unwrap();
+        m.verify_equivalence(&epoch);
+        epoch
+            .optimize(OptimizerOptions::new().union_remove_all_tnodes(true))
+            .unwrap();
+        m.verify_equivalence(&epoch);
+        drop(epoch);
+        m.clear();
+    }
+}

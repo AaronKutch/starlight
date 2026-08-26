@@ -1,8 +1,13 @@
 [workspace]
-resolver = "2"
-members = [
-    "starlight",
-    "testcrate",
-]
+resolver = "3"
+members = ["starlight", "testcrate"]
+
+[workspace.dependencies]
+#awint = { path = "../awint/awint", default-features = false, features = ["rand_support", "dag", "star_rng_support"] }
+awint = { version = "0.19", default-features = false, features = ["rand_support", "dag", "star_rng_support"] }
+rand = { version = "0.10", default-features = false, features = ["thread_rng"] }
+star_rng = "0.3"
+starlight = { path = "./starlight", default-features = false }
+thiserror = "2.0"
 
 [patch.crates-io]

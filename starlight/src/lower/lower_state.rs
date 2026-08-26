@@ -1,15 +1,17 @@
 use std::num::NonZeroUsize;
 
 use awint::{
-    awint_dag::{smallvec::smallvec, ConcatFieldsType, ConcatType, Op::*, PState},
+    awint_dag::{
+        ConcatFieldsType, ConcatType, Op::*, PState, smallvec::smallvec, triple_arena::traits::*,
+    },
     bw,
 };
 
 use crate::{
+    Error,
     ensemble::Ensemble,
     epoch::EpochShared,
-    lower::{lower_op, LowerManagement},
-    Error,
+    lower::{LowerManagement, lower_op},
 };
 
 impl Ensemble {
@@ -21,7 +23,7 @@ impl Ensemble {
             if (self.stator.states[p_state].op.operands_len() + 1) != operands.len() {
                 return Err(Error::OtherStr(
                     "wrong number of operands for the `graft` function",
-                ))
+                ));
             }
             for (i, op) in self.stator.states[p_state].op.operands().iter().enumerate() {
                 let current_nzbw = self.stator.states[operands[i + 1]].nzbw;
@@ -31,18 +33,18 @@ impl Ensemble {
                         "operand {}: a bitwidth of {:?} is trying to be grafted to a bitwidth of \
                          {:?}",
                         i, current_nzbw, self.stator.states[op].nzbw
-                    )))
+                    )));
                 }
                 if !current_is_opaque {
                     return Err(Error::OtherStr(
                         "expected an `Opaque` for the `graft` function",
-                    ))
+                    ));
                 }
             }
             let lhs_w = self.stator.states[p_state].nzbw.get();
             let rhs_w = self.stator.states[operands[0]].nzbw.get();
             if lhs_w != rhs_w {
-                return Err(Error::BitwidthMismatch(lhs_w, rhs_w))
+                return Err(Error::BitwidthMismatch(lhs_w, rhs_w));
             }
         }
 
@@ -179,10 +181,10 @@ impl Ensemble {
         let mut lock = epoch_shared.epoch_data.borrow_mut();
         if let Some(state) = lock.ensemble.stator.states.get(p_state) {
             if state.lowered_to_elementary {
-                return Ok(())
+                return Ok(());
             }
         } else {
-            return Err(Error::InvalidPtr)
+            return Err(Error::InvalidPtr);
         }
         lock.ensemble.stator.states[p_state].lowered_to_elementary = true;
 
@@ -197,7 +199,7 @@ impl Ensemble {
                 // reached a root
                 path.pop().unwrap();
                 if path.is_empty() {
-                    break
+                    break;
                 }
                 path.last_mut().unwrap().0 += 1;
             } else if i >= ops.len() {
@@ -206,17 +208,13 @@ impl Ensemble {
                 match lock.ensemble.eval_state(p_state) {
                     Ok(()) => {
                         path.pop().unwrap();
-                        if path.is_empty() {
-                            break
-                        } else {
-                            continue
-                        }
+                        if path.is_empty() { break } else { continue }
                     }
                     // Continue on to lowering
                     Err(Error::Unevaluatable) => (),
                     Err(e) => {
                         lock.ensemble.stator.states[p_state].err = Some(e.clone());
-                        return Err(e)
+                        return Err(e);
                     }
                 }
                 let needs_lower = match lock.ensemble.stator.states[p_state].op {
@@ -333,7 +331,7 @@ impl Ensemble {
                             temporary.remove_as_current().unwrap();
                             let mut lock = epoch_shared.epoch_data.borrow_mut();
                             lock.ensemble.stator.states[p_state].err = Some(e.clone());
-                            return Err(e)
+                            return Err(e);
                         }
                     };
                     // shouldn't be adding additional assertions
@@ -354,7 +352,7 @@ impl Ensemble {
                 if lowering_done {
                     path.pop().unwrap();
                     if path.is_empty() {
-                        break
+                        break;
                     }
                 } else {
                     // else do not call `path.pop`, restart the DFS here

@@ -1,17 +1,15 @@
 use std::path::PathBuf;
 
-use awint::{
-    awint_dag::{Op, PState},
-    awint_macro_internals::triple_arena::Arena,
-};
+use awint::awint_dag::{Op, PState};
 
 use crate::{
-    ensemble::{
-        DynamicValue, Ensemble, Equiv, LNode, LNodeKind, PBack, PRNode, PTNode, Referent, State,
-    },
-    triple_arena::{Advancer, ChainArena},
-    triple_arena_render::{render_to_svg_file, DebugNode, DebugNodeTrait},
     Epoch, Error,
+    ensemble::{
+        DynamicValue, Ensemble, Equiv, LNode, LNodeKind, PBack, PEquiv, PLNode, PRNode, PTNode,
+        Referent, State,
+    },
+    triple_arena::{Arena, ChainArena, traits::*},
+    triple_arena_render::{DebugNode, DebugNodeTrait, render_to_svg_file},
 };
 
 impl DebugNodeTrait<PState> for State {
@@ -45,11 +43,7 @@ impl DebugNodeTrait<PState> for State {
                     }
                 }
                 fn short(b: bool) -> &'static str {
-                    if b {
-                        "t"
-                    } else {
-                        "f"
-                    }
+                    if b { "t" } else { "f" }
                 }
                 v.push(format!(
                     "{} {} {} {}",
@@ -73,9 +67,16 @@ impl DebugNodeTrait<PState> for State {
 
 #[derive(Debug, Clone)]
 pub struct StateBit {
-    p_equiv: Option<PBack>,
+    p_equiv: Option<PEquiv>,
     p_state: PState,
     i: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct LNodeTmp {
+    p_lnode: PLNode,
+    lnode: LNode,
+    p_inputs: Vec<PBack>,
 }
 
 #[derive(Debug, Clone)]
@@ -88,7 +89,7 @@ pub struct TNodeTmp {
 #[derive(Debug, Clone)]
 pub struct RNodeTmp {
     p_self: PBack,
-    p_equiv: PBack,
+    p_equiv: PEquiv,
     p_rnode: PRNode,
     i: u64,
 }
@@ -98,7 +99,7 @@ pub enum NodeKind {
     Equiv(Equiv, Vec<PBack>),
     StateBit(StateBit),
     RNode(RNodeTmp),
-    LNode(LNode),
+    LNode(LNodeTmp),
     TNode(TNodeTmp),
     Remove,
 }
@@ -115,30 +116,35 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 },
                 sinks: {
                     if let Some(p_equiv) = state_bit.p_equiv {
-                        vec![(p_equiv, "".to_string())]
+                        vec![(p_equiv.into(), "".to_string())]
                     } else {
                         vec![]
                     }
                 },
             },
-            NodeKind::LNode(lnode) => DebugNode {
+            NodeKind::LNode(lnode_tmp) => DebugNode {
                 sources: {
-                    match &lnode.kind {
-                        LNodeKind::Copy(inp) => vec![(*inp, "copy".to_owned())],
+                    match &lnode_tmp.lnode.kind {
+                        LNodeKind::Copy(inp) => {
+                            vec![(*inp, format!("{:?}", lnode_tmp.p_inputs[0]))]
+                        }
                         LNodeKind::Lut(inp, _) => inp
                             .iter()
                             .copied()
                             .enumerate()
-                            .map(|(i, p)| (p, format!("{i}")))
+                            .map(|(i, p)| (p, format!("{:?}", lnode_tmp.p_inputs[i])))
                             .collect(),
                         LNodeKind::DynamicLut(inp, lut) => {
                             let mut v = vec![];
                             for (i, p) in inp.iter().copied().enumerate() {
-                                v.push((p, format!("i{i}")));
+                                v.push((p, format!("i{i} {:?}", lnode_tmp.p_inputs[i])));
                             }
                             for (i, p) in lut.iter().copied().enumerate() {
                                 if let DynamicValue::Dynam(p_back) = p {
-                                    v.push((p_back, format!("l{i}")));
+                                    v.push((
+                                        p_back,
+                                        format!("l{i} {:?}", lnode_tmp.p_inputs[i + inp.len()]),
+                                    ));
                                 }
                             }
                             v
@@ -146,13 +152,16 @@ impl DebugNodeTrait<PBack> for NodeKind {
                     }
                 },
                 center: {
-                    let mut v = vec![format!("{:?}", p_this)];
-                    match &lnode.kind {
-                        LNodeKind::Copy(_) => (),
+                    let mut v = vec![
+                        format!("{:?}", lnode_tmp.lnode.p_self),
+                        format!("{:?}", lnode_tmp.p_lnode),
+                    ];
+                    match &lnode_tmp.lnode.kind {
+                        LNodeKind::Copy(_) => v.push("copy".to_owned()),
                         LNodeKind::Lut(_, lut) => v.push(format!("{:?} ", lut)),
                         LNodeKind::DynamicLut(..) => v.push("dyn".to_owned()),
                     }
-                    if let Some(lowered_from) = lnode.lowered_from {
+                    if let Some(lowered_from) = lnode_tmp.lnode.lowered_from {
                         v.push(format!("{:?}", lowered_from));
                     }
                     v
@@ -186,7 +195,7 @@ impl DebugNodeTrait<PBack> for NodeKind {
                 sinks: vec![],
             },
             NodeKind::RNode(rnode) => DebugNode {
-                sources: vec![(rnode.p_equiv, String::new())],
+                sources: vec![(rnode.p_equiv.into(), String::new())],
                 center: {
                     vec![
                         format!("{}", rnode.p_self),
@@ -204,30 +213,31 @@ impl Ensemble {
     pub fn backrefs_to_chain_arena(&self) -> ChainArena<PBack, Referent> {
         let mut chain_arena = ChainArena::new();
         self.backrefs
-            .clone_keys_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode);
+            .clone_to_chain_arena(&mut chain_arena, |_, p_lnode| *p_lnode)
+            .unwrap();
         chain_arena
     }
 
     pub fn to_debug(&self) -> Arena<PBack, NodeKind> {
         let mut arena = Arena::<PBack, NodeKind>::new();
         self.backrefs
-            .clone_keys_to_arena(&mut arena, |p_self, referent| {
-                match *referent {
+            .clone_to_arena(&mut arena, |p_self, referent| {
+                match referent.t.t {
                     Referent::ThisEquiv => {
                         let mut v = vec![];
-                        let mut adv = self.backrefs.advancer_surject(p_self);
+                        let mut adv = self.backrefs.advancer_surject(p_self).unwrap();
                         while let Some(p) = adv.advance(&self.backrefs) {
-                            if let Referent::ThisLNode(_) = self.backrefs.get_key(p).unwrap() {
+                            if let Referent::ThisLNode(_) = self.backrefs.get(p).unwrap() {
                                 // get every LNode that is in this equivalence
                                 v.push(p);
                             }
                         }
-                        NodeKind::Equiv(self.backrefs.get_val(p_self).unwrap().clone(), v)
+                        NodeKind::Equiv(self.backrefs.get_shared(p_self).unwrap().clone(), v)
                     }
                     Referent::ThisStateBit(p_state, i) => {
                         let state = self.stator.states.get(p_state).unwrap().clone();
                         if let Some(p_bit) = state.p_self_bits[i] {
-                            let p_equiv = self.backrefs.get_val(p_bit).unwrap().p_self_equiv;
+                            let p_equiv = self.backrefs.get_shared(p_bit).unwrap().p_self_equiv;
                             NodeKind::StateBit(StateBit {
                                 p_equiv: Some(p_equiv),
                                 p_state,
@@ -243,28 +253,36 @@ impl Ensemble {
                     }
                     Referent::ThisLNode(p_lnode) => {
                         let mut lnode = self.lnodes.get(p_lnode).unwrap().clone();
+                        let mut p_inputs = vec![];
                         // forward to the `PBack`s of LNodes
                         lnode.inputs_mut(|inp| {
-                            if let Referent::Input(_) = self.backrefs.get_key(*inp).unwrap() {
-                                let p_input = self.backrefs.get_val(*inp).unwrap().p_self_equiv;
-                                *inp = p_input;
-                            }
+                            p_inputs.push(*inp);
+                            let p_input = self.backrefs.get_shared(*inp).unwrap().p_self_equiv;
+                            *inp = p_input.into();
                         });
-                        NodeKind::LNode(lnode)
+                        NodeKind::LNode(LNodeTmp {
+                            p_lnode,
+                            lnode,
+                            p_inputs,
+                        })
                     }
                     Referent::ThisTNode(p_tnode) => {
                         let tnode = self.tnodes.get(p_tnode).unwrap();
                         // forward to the `PBack`s
-                        let p_self = self.backrefs.get_val(tnode.p_self).unwrap().p_self_equiv;
-                        let p_driver = self.backrefs.get_val(tnode.p_driver).unwrap().p_self_equiv;
+                        let p_self = self.backrefs.get_shared(tnode.p_self).unwrap().p_self_equiv;
+                        let p_driver = self
+                            .backrefs
+                            .get_shared(tnode.p_driver)
+                            .unwrap()
+                            .p_self_equiv;
                         NodeKind::TNode(TNodeTmp {
-                            p_self,
-                            p_driver,
+                            p_self: p_self.into(),
+                            p_driver: p_driver.into(),
                             p_tnode,
                         })
                     }
                     Referent::ThisRNode(p_rnode) => {
-                        let rnode = self.notary.rnodes().get_val(p_rnode).unwrap();
+                        let rnode = self.notary.rnodes().get(p_rnode).unwrap().v();
                         let mut inx = u64::MAX;
                         if let Some(bits) = rnode.bits() {
                             for (i, bit) in bits.iter().enumerate() {
@@ -273,7 +291,7 @@ impl Ensemble {
                                 }
                             }
                         }
-                        let equiv = self.backrefs.get_val(p_self).unwrap();
+                        let equiv = self.backrefs.get_shared(p_self).unwrap();
                         NodeKind::RNode(RNodeTmp {
                             p_self,
                             p_equiv: equiv.p_self_equiv,
@@ -283,11 +301,12 @@ impl Ensemble {
                     }
                     _ => NodeKind::Remove,
                 }
-            });
+            })
+            .unwrap();
         let mut adv = arena.advancer();
         while let Some(p) = adv.advance(&arena) {
             if let NodeKind::Remove = arena.get(p).unwrap() {
-                arena.remove(p).unwrap();
+                arena.remove(p).allow().unwrap();
             }
         }
         arena
